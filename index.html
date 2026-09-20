@@ -1114,6 +1114,27 @@ function renderTemplateConsolidado(gastos){
   });
   var total = rows.reduce(function(s,r){return s+r.importe;},0);
   var generadoPor = STATE.profile ? (STATE.profile.isMaster? "Master Administrator" : STATE.profile.nombre) : "—";
+
+  var bodyRows = [];
+  var curProv = null, subtotal = 0;
+  function flushSubtotal(){
+    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="3">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="2"></td></tr>');
+  }
+  rows.forEach(function(r){
+    var prov = r.proveedor||"—";
+    if(prov!==curProv){ flushSubtotal(); curProv = prov; subtotal = 0; }
+    subtotal += r.importe;
+    bodyRows.push('<tr>'+
+      '<td>'+esc(r.proveedor||"—")+'</td>'+
+      '<td>'+fmtDate(r.fecha_factura)+'</td>'+
+      '<td>'+esc(r.factura||"—")+'</td>'+
+      '<td class="num">'+fmtMoney(r.importe)+'</td>'+
+      '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
+      '<td><span class="badge '+estadoCreditoBadgeClass(r)+'">'+esc(estadoCreditoLabel(r))+'</span></td>'+
+    '</tr>');
+  });
+  flushSubtotal();
+
   return '<div id="reportPrintArea">'+
     '<div class="report-header">'+
       '<h2 style="margin:0">Template Consolidado Proveedores — Rancho Trailers</h2>'+
@@ -1123,16 +1144,7 @@ function renderTemplateConsolidado(gastos){
       '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
-        '<tbody>'+(rows.length? rows.map(function(r){
-          return '<tr>'+
-            '<td>'+esc(r.proveedor||"—")+'</td>'+
-            '<td>'+fmtDate(r.fecha_factura)+'</td>'+
-            '<td>'+esc(r.factura||"—")+'</td>'+
-            '<td class="num">'+fmtMoney(r.importe)+'</td>'+
-            '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
-            '<td><span class="badge '+estadoCreditoBadgeClass(r)+'">'+esc(estadoCreditoLabel(r))+'</span></td>'+
-          '</tr>';
-        }).join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
+        '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
         '<tfoot><tr><td colspan="3">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
       '</table></div>'+
