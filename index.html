@@ -1696,9 +1696,24 @@ function handleProyectoFormSubmit(form){
   }
 }
 function deleteProyectoRow(key, nombre, origen, docId){
+  var count = allGastos().filter(function(g){ return g.proyecto_key===key; }).length;
+  if(count>0){
+    openModal(
+      '<h3>Eliminar proyecto</h3>'+
+      '<div class="flag-item" style="background:color-mix(in srgb, var(--warn) 18%, transparent); flex-direction:column; align-items:flex-start; gap:6px;">'+
+        '<strong style="color:var(--warn)">⚠ "'+esc(nombre)+'" tiene '+count+' gasto'+(count===1?"":"s")+' registrado'+(count===1?"":"s")+'.</strong>'+
+        '<span class="hint" style="margin:0">Esos registros de gasto no se eliminarán ni se modificarán, pero el proyecto ya no aparecerá disponible para registrar gastos nuevos ni en el directorio.</span>'+
+      '</div>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="delete-proyecto-step2" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Entiendo, continuar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+    );
+  } else {
+    openDeleteProyectoFinalModal(key, nombre, origen, docId);
+  }
+}
+function openDeleteProyectoFinalModal(key, nombre, origen, docId){
   openModal(
-    '<h3>Eliminar proyecto</h3><p class="hint">"'+esc(nombre)+'" ya no aparecerá disponible para registrar gastos ni en el directorio. Los gastos ya capturados con este proyecto no se modifican.</p>'+
-    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proyecto" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+    '<h3>Eliminar proyecto</h3><p class="hint">¿Confirmas eliminar "'+esc(nombre)+'"? Esta acción no se puede deshacer.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proyecto" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar definitivamente</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
   );
 }
 function openProveedorModal(key){
@@ -1758,9 +1773,24 @@ function handleProveedorFormSubmit(form){
   }
 }
 function deleteProveedorRow(key, nombre, origen, docId){
+  var count = allGastos().filter(function(g){ return g.proveedor && normKey(g.proveedor)===normKey(nombre); }).length;
+  if(count>0){
+    openModal(
+      '<h3>Eliminar proveedor</h3>'+
+      '<div class="flag-item" style="background:color-mix(in srgb, var(--warn) 18%, transparent); flex-direction:column; align-items:flex-start; gap:6px;">'+
+        '<strong style="color:var(--warn)">⚠ "'+esc(nombre)+'" tiene '+count+' gasto'+(count===1?"":"s")+' registrado'+(count===1?"":"s")+'.</strong>'+
+        '<span class="hint" style="margin:0">Esos registros de gasto no se eliminarán ni se modificarán, pero el proveedor ya no aparecerá disponible para registrar gastos nuevos ni en el directorio.</span>'+
+      '</div>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="delete-proveedor-step2" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Entiendo, continuar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+    );
+  } else {
+    openDeleteProveedorFinalModal(key, nombre, origen, docId);
+  }
+}
+function openDeleteProveedorFinalModal(key, nombre, origen, docId){
   openModal(
-    '<h3>Eliminar proveedor</h3><p class="hint">"'+esc(nombre)+'" ya no aparecerá disponible para registrar nuevos gastos ni en el directorio. Los gastos ya capturados con este proveedor no se modifican.</p>'+
-    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proveedor" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+    '<h3>Eliminar proveedor</h3><p class="hint">¿Confirmas eliminar "'+esc(nombre)+'"? Esta acción no se puede deshacer.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proveedor" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar definitivamente</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
   );
 }
 function handleAddCategoria(form){
@@ -1979,6 +2009,7 @@ document.addEventListener("click", function(e){
   else if(action==="new-proyecto") openProyectoModal(null);
   else if(action==="edit-proyecto") openProyectoModal(el.dataset.key);
   else if(action==="delete-proyecto") deleteProyectoRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
+  else if(action==="delete-proyecto-step2") openDeleteProyectoFinalModal(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
   else if(action==="confirm-delete-proyecto"){
     if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar proyectos.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
@@ -2010,6 +2041,7 @@ document.addEventListener("click", function(e){
   else if(action==="new-proveedor") openProveedorModal(null);
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
+  else if(action==="delete-proveedor-step2") openDeleteProveedorFinalModal(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
   else if(action==="confirm-delete-proveedor"){
     if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar proveedores.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
