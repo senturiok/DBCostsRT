@@ -149,6 +149,7 @@
   .badge-good{background:color-mix(in srgb, var(--good) 16%, transparent); color:var(--good);}
   .badge-warn{background:color-mix(in srgb, var(--warn) 18%, transparent); color:var(--warn);}
   .badge-critical{background:color-mix(in srgb, var(--critical) 16%, transparent); color:var(--critical);}
+  .cat-short{display:none;}
 
   /* ---------- Bars ---------- */
   .barlist{display:flex; flex-direction:column; gap:9px;}
@@ -235,14 +236,34 @@
   @media print{
     .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action]{display:none !important;}
     body, .content{padding:0 !important; background:#fff !important;}
-    .card{box-shadow:none !important; border:1px solid #ccc !important; break-inside:avoid; background:#fff !important;}
-    .kpis{grid-template-columns:repeat(4,1fr) !important;}
-    .charts-row,.two-col{grid-template-columns:1fr !important;}
+    .card{box-shadow:none !important; border:1px solid #ccc !important; break-inside:avoid; background:#fff !important; padding:10px 12px !important; margin-top:8px !important;}
+    .card-breakable{break-inside:auto !important;}
+    .card-breakable .card-head{break-after:avoid;}
+    .card-head{margin-bottom:6px !important;}
+    .kpis{grid-template-columns:repeat(4,1fr) !important; gap:8px !important;}
+    .kpi-value{font-size:19px !important;}
+    .charts-row,.two-col{grid-template-columns:1fr !important; gap:8px !important;}
     .table-wrap{overflow-x:visible !important;}
     table{width:100% !important; min-width:0 !important; table-layout:auto;}
-    table{font-size:11px;}
+    table{font-size:10.5px;}
+    thead th{padding:5px 6px !important;}
+    tbody td, tfoot td{padding:3px 6px !important;}
     thead{display:table-header-group;}
+    tfoot{display:table-row-group;}
     tr{break-inside:avoid;}
+    .badge{white-space:nowrap;}
+    table.tbl-detalle{table-layout:fixed;}
+    table.tbl-detalle td, table.tbl-detalle th{overflow-wrap:break-word; word-break:break-word;}
+    table.tbl-detalle th:nth-child(1), table.tbl-detalle td:nth-child(1){width:9%;}
+    table.tbl-detalle th:nth-child(2), table.tbl-detalle td:nth-child(2){width:13%;}
+    table.tbl-detalle th:nth-child(3), table.tbl-detalle td:nth-child(3){width:15%;}
+    table.tbl-detalle th:nth-child(4), table.tbl-detalle td:nth-child(4){width:27%;}
+    table.tbl-detalle th:nth-child(5), table.tbl-detalle td:nth-child(5){width:12%;}
+    table.tbl-detalle th:nth-child(6), table.tbl-detalle td:nth-child(6){width:10%;}
+    table.tbl-detalle th:nth-child(7), table.tbl-detalle td:nth-child(7){width:14%;}
+    table.tbl-detalle .desc-cell{white-space:normal !important; max-width:none !important; overflow:visible !important; text-overflow:clip !important;}
+    table.tbl-detalle .cat-full{display:none !important;}
+    table.tbl-detalle .cat-short{display:inline-flex !important;}
   }
 
   @media (max-width: 880px){
@@ -1100,7 +1121,7 @@ function renderTemplateProveedores(gastos){
       '<h2 style="margin:0">Template Proveedores — Rancho Trailers</h2>'+
       '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(rows)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
     '</div>'+
-    '<div class="card" style="margin-top:14px">'+
+    '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th>Tipo de pago</th><th class="num">Total</th></tr></thead>'+
@@ -1165,7 +1186,7 @@ function renderTemplateConsolidado(gastos){
       '<h2 style="margin:0">Template Consolidado Proveedores — Rancho Trailers</h2>'+
       '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(rows)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
     '</div>'+
-    '<div class="card" style="margin-top:14px">'+
+    '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
@@ -1211,7 +1232,7 @@ function renderTemplateSGX(gastos){
       '<h2 style="margin:0">Template SGX — Rancho Trailers</h2>'+
       '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(gastos)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
     '</div>'+
-    '<div class="card" style="margin-top:14px">'+
+    '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Costo por categoría (subsistema) y proyecto</h3><span class="card-note">'+proyCount+' proyecto'+(proyCount===1?"":"s")+'</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Proyecto</th><th>Categoría</th><th class="num">Total</th></tr></thead>'+
@@ -1341,9 +1362,9 @@ function renderReportesView(){
       '</div>'+
     '</div>'+
 
-    '<div class="card" style="margin-top:14px">'+
+    '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Detalle completo de gastos</h3><span class="card-note">'+detalle.length+' registros</span></div>'+
-      '<div class="table-wrap"><table>'+
+      '<div class="table-wrap"><table class="tbl-detalle">'+
         '<thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th></tr></thead>'+
         '<tbody>'+(detalle.length? detalle.map(function(r){
           return '<tr>'+
@@ -1351,7 +1372,10 @@ function renderReportesView(){
             '<td>'+esc(proyectoNombre(r.proyecto_key))+'</td>'+
             '<td>'+esc(r.proveedor||"—")+'</td>'+
             '<td class="desc-cell" title="'+esc(r.descripcion)+'">'+esc(r.descripcion||"—")+'</td>'+
-            '<td>'+esc(catMap[r.categoria]||r.categoria||"—")+'</td>'+
+            '<td>'+
+              '<span class="badge badge-steel cat-full">'+esc(catMap[r.categoria]||r.categoria||"—")+'</span>'+
+              '<span class="badge badge-steel cat-short">'+esc(catShortCode(r.categoria)||"—")+'</span>'+
+            '</td>'+
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
           '</tr>';
