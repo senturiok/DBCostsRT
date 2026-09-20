@@ -404,6 +404,9 @@ var STATE = {
   compareProjects:["","",""],
   catTab:"proyectos",
   contTab:"proveedores",
+  usuariosTab:"perfiles",
+  activityLog:null,
+  activityLogLoading:false,
   loaded:false
 };
 
@@ -416,6 +419,13 @@ function uid(){ return "u"+Date.now().toString(36)+Math.random().toString(36).sl
 function fmtMoney(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var neg=n<0; n=Math.abs(n); var s=n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); return (neg?"-":"")+"$"+s; }
 function fmtMoneyInt(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var neg=n<0; n=Math.abs(n); var s=Math.round(n).toLocaleString("en-US"); return (neg?"-":"")+"$"+s; }
 function fmtDate(d){ if(!d) return "—"; var parts=d.split("-"); if(parts.length!==3) return d; var meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; return parseInt(parts[2],10)+" "+meses[parseInt(parts[1],10)-1]+" "+parts[0]; }
+function fmtDateTime(iso){
+  if(!iso) return "—";
+  var d = new Date(iso);
+  if(isNaN(d.getTime())) return iso;
+  var meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"];
+  return d.getDate()+" "+meses[d.getMonth()]+" "+d.getFullYear()+", "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+}
 function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function comprobanteIcon(r){ return r && r.comprobanteUrl ? ' <a href="'+esc(r.comprobanteUrl)+'" target="_blank" rel="noopener" class="icon-btn" title="Ver comprobante">📎</a>' : ""; }
 function debounce(fn,ms){ var t; return function(){ var a=arguments,ctx=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(ctx,a); },ms); }; }
@@ -2164,7 +2174,14 @@ function handleAddCategoria(form){
 }
 
 /* ================= USUARIOS / PERFILES ================= */
+var USUARIOS_TABS = ["perfiles","log"];
+var USUARIOS_TAB_LABELS = { perfiles:"Perfiles", log:"Log de actividad" };
 function renderUsuariosView(){
+  var body = STATE.usuariosTab==="log" ? renderActivityLogTab() : renderPerfilesTab();
+  return '<div class="tabs">'+USUARIOS_TABS.map(function(t){return '<button class="tab" data-action="usuarios-tab" data-tab="'+t+'" aria-selected="'+(STATE.usuariosTab===t)+'">'+USUARIOS_TAB_LABELS[t]+'</button>';}).join("")+'</div>'+
+    body;
+}
+function renderPerfilesTab(){
   var list = STATE.perfiles.slice().sort(function(a,b){ return (a.nombre||"").localeCompare(b.nombre||""); });
   var rows = list.map(function(p){
     var n = permisosCount(p.permisos);
@@ -2184,6 +2201,39 @@ function renderUsuariosView(){
       '<span class="meta" style="width:auto; flex:none;"></span>'+
     '</div>'+
     (rows || '<p class="hint" style="padding:14px 4px">Todavía no has creado ningún perfil. Usa "+ Nuevo perfil" para dar acceso a alguien de tu equipo.</p>')+
+  '</div>';
+}
+function renderActivityLogTab(){
+  if(STATE.activityLog===null){
+    if(!STATE.activityLogLoading){
+      STATE.activityLogLoading = true;
+      fetch("/api/activity-log", {credentials:"same-origin"}).then(function(r){
+        if(!r.ok) throw new Error("HTTP "+r.status);
+        return r.json();
+      }).then(function(list){
+        STATE.activityLog = list; STATE.activityLogLoading = false; renderContent();
+      }).catch(function(){
+        STATE.activityLog = []; STATE.activityLogLoading = false; renderContent();
+      });
+    }
+    return '<div class="card"><div class="empty">Cargando historial…</div></div>';
+  }
+  var rows = STATE.activityLog.map(function(e){
+    return '<tr>'+
+      '<td class="num">'+esc(fmtDateTime(e.ts))+'</td>'+
+      '<td>'+esc(e.actor||"—")+'</td>'+
+      '<td><span class="badge badge-steel">'+esc(e.action||"—")+'</span></td>'+
+      '<td>'+esc(e.collectionLabel||e.collection||"—")+'</td>'+
+      '<td>'+esc(e.summary||"—")+'</td>'+
+    '</tr>';
+  }).join("");
+  return '<div class="card">'+
+    '<div class="card-head"><h3 class="card-title">Log de actividad</h3><span class="card-note">'+STATE.activityLog.length+' eventos más recientes</span></div>'+
+    '<div style="margin-bottom:12px"><button class="btn btn-ghost" data-action="refresh-activity-log">Actualizar</button></div>'+
+    '<div class="table-wrap"><table>'+
+      '<thead><tr><th>Fecha y hora</th><th>Usuario</th><th>Acción</th><th>Tipo de registro</th><th>Detalle</th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="5" class="empty">Todavía no hay actividad registrada.</td></tr>')+'</tbody>'+
+    '</table></div>'+
   '</div>';
 }
 function openPerfilModal(existing){
@@ -2402,6 +2452,8 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
+  else if(action==="usuarios-tab"){ STATE.usuariosTab = el.dataset.tab; renderContent(); }
+  else if(action==="refresh-activity-log"){ STATE.activityLog = null; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
   else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
