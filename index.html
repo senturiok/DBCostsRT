@@ -553,8 +553,7 @@ document.addEventListener("submit", function(e){
   }
   else if(formId === "registrarForm") submitGasto(e.target);
   else if(formId === "addProyectoForm") handleAddProyecto(e.target);
-  else if(formId === "addProveedorForm") handleAddProveedor(e.target);
-  else if(formId === "editProveedorForm") handleEditProveedorSubmit(e.target);
+  else if(formId === "proveedorForm") handleProveedorFormSubmit(e.target);
   else if(formId === "addCategoriaForm") handleAddCategoria(e.target);
   else if(formId === "editGastoForm") handleEditGastoSubmit(e.target);
   else if(formId === "perfilForm") handlePerfilSubmit(e.target);
@@ -1072,7 +1071,8 @@ function renderCatalogosView(){
       var hay = (p.nombre+" "+p.telefono+" "+p.email+" "+p.direccion).toLowerCase();
       return hay.indexOf(provQ)>-1;
     }) : provAll;
-    body = (can("manageCatalogos") ? '<form class="inline-form" id="addProveedorForm"><div class="field"><label>Nuevo proveedor</label><input name="nombre" placeholder="Nombre del proveedor" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
+    body = (!STATE.db ? '<p class="hint" style="color:var(--warn); margin-bottom:10px">Conectando con la base de datos compartida…</p>' : "") +
+      (can("manageCatalogos") ? '<button class="btn btn-primary" data-action="new-proveedor" style="margin-bottom:14px">+ Agregar proveedor</button>' : "") +
       '<div class="filters"><input type="text" class="q" placeholder="Buscar proveedor por nombre, teléfono, correo o dirección…" data-provsearch="1" value="'+esc(STATE.provSearch)+'"></div>'+
       (provList.length ? '<div class="prov-grid">'+provList.map(function(p){
         var rows = "";
@@ -1115,47 +1115,57 @@ function handleAddProyecto(form){
   if(allProyectos()[key]){ toast("Ese proyecto ya existe.","err"); return; }
   STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:key, creadoEn:new Date().toISOString()}).then(function(){ toast("Proyecto agregado ✓"); form.reset(); }).catch(function(){ toast("No se pudo agregar.","err"); });
 }
-function handleAddProveedor(form){
-  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
-  var nombre = form.nombre.value.trim(); if(!nombre) return;
-  var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
-  if(exists){ toast("Ese proveedor ya existe.","err"); return; }
-  STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}).then(function(){
-    toast("Proveedor agregado ✓"); form.reset(); STATE.provSearch = ""; renderContent();
-  }).catch(function(){ toast("No se pudo agregar.","err"); });
-}
-function editProveedorModal(key){
-  var p = null;
-  var full = allProveedoresFull();
-  for(var i=0;i<full.length;i++){ if(full[i].key===key){ p=full[i]; break; } }
-  if(!p) return;
+function openProveedorModal(key){
+  var p = { key:"", nombre:"", telefono:"", email:"", direccion:"" };
+  var isEdit = !!key;
+  if(isEdit){
+    var full = allProveedoresFull();
+    var found = null;
+    for(var i=0;i<full.length;i++){ if(full[i].key===key){ found=full[i]; break; } }
+    if(!found) return;
+    p = found;
+  }
   openModal(
-    '<h3>Editar proveedor</h3>'+
-    '<form id="editProveedorForm">'+
+    '<h3>'+(isEdit?"Editar proveedor":"Nuevo proveedor")+'</h3>'+
+    (STATE.db ? "" : '<p class="hint" style="color:var(--critical)">Conectando con la base de datos compartida… espera un momento antes de guardar.</p>')+
+    '<form id="proveedorForm">'+
       '<input type="hidden" name="key" value="'+esc(p.key)+'">'+
-      '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(p.nombre)+'" required></div>'+
+      '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(p.nombre)+'" required autofocus></div>'+
       '<div class="field"><label>Teléfono</label><input name="telefono" value="'+esc(p.telefono)+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Correo electrónico</label><input type="email" name="email" value="'+esc(p.email)+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Dirección</label><input name="direccion" value="'+esc(p.direccion)+'" placeholder="Opcional"></div>'+
-      '<p class="hint">Los gastos ya capturados conservan el nombre del proveedor tal como se registraron; este cambio solo actualiza el directorio.</p>'+
+      (isEdit ? '<p class="hint">Los gastos ya capturados conservan el nombre del proveedor tal como se registraron; este cambio solo actualiza el directorio.</p>' : "")+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
 }
-function handleEditProveedorSubmit(form){
-  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+function handleProveedorFormSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida. Espera un momento e inténtalo de nuevo.","err"); return; }
   var fd = new FormData(form);
   var key = fd.get("key");
   var nombre = (fd.get("nombre")||"").trim();
   if(!nombre){ toast("Escribe un nombre.","err"); return; }
-  var data = {
-    nombre: nombre, telefono: (fd.get("telefono")||"").trim(),
-    email: (fd.get("email")||"").trim(), direccion: (fd.get("direccion")||"").trim(),
-    updatedAt: new Date().toISOString()
-  };
-  STATE.db.doc("proveedores_info/"+key).set(data).then(function(){
-    toast("Proveedor actualizado ✓"); closeModal();
-  }).catch(function(){ toast("No se pudo actualizar.","err"); });
+  var telefono = (fd.get("telefono")||"").trim();
+  var email = (fd.get("email")||"").trim();
+  var direccion = (fd.get("direccion")||"").trim();
+
+  if(key){
+    var data = { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() };
+    STATE.db.doc("proveedores_info/"+key).set(data).then(function(){
+      toast("Proveedor actualizado ✓"); closeModal();
+    }).catch(function(err){ console.error(err); toast("No se pudo actualizar.","err"); });
+  } else {
+    var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
+    if(exists){ toast("Ese proveedor ya existe.","err"); return; }
+    var newKey = slugify(nombre);
+    var ops = [ STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}) ];
+    if(telefono||email||direccion){
+      ops.push(STATE.db.doc("proveedores_info/"+newKey).set({nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString()}));
+    }
+    Promise.all(ops).then(function(){
+      toast("Proveedor agregado ✓"); closeModal(); STATE.provSearch = ""; renderContent();
+    }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
+  }
 }
 function deleteProveedorRow(key, nombre, origen, docId){
   openModal(
@@ -1354,7 +1364,8 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
-  else if(action==="edit-proveedor") editProveedorModal(el.dataset.key);
+  else if(action==="new-proveedor") openProveedorModal(null);
+  else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
   else if(action==="confirm-delete-proveedor"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
