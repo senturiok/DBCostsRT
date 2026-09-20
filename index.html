@@ -1031,6 +1031,17 @@ function exportReportCSV(){
       lines.push([r.proveedor||"", proyectoNombre(r.proyecto_key), r.fecha_factura||"", r.factura||"", formaPagoLabel[r.forma_pago]||"", r.importe].map(csvEsc).join(","));
     });
     filename = "template_proveedores_rancho_trailers.csv";
+  } else if(STATE.reportTemplate==="consolidado"){
+    var consRows = filteredReportGastos("fecha_factura").slice().sort(function(a,b){
+      var pa=(a.proveedor||"").toUpperCase(), pb=(b.proveedor||"").toUpperCase();
+      if(pa!==pb) return pa<pb?-1:1;
+      return (a.fecha_factura||"").localeCompare(b.fecha_factura||"");
+    });
+    lines = [["Proveedor","FechaFactura","Factura","Monto","TipoDePago","Estado"].join(",")];
+    consRows.forEach(function(r){
+      lines.push([r.proveedor||"", r.fecha_factura||"", r.factura||"", r.importe, formaPagoLabel[r.forma_pago]||"", estadoCreditoLabel(r)].map(csvEsc).join(","));
+    });
+    filename = "template_consolidado_proveedores_rancho_trailers.csv";
   } else if(STATE.reportTemplate==="sgx"){
     var sgxRows = buildSGXRows(filteredReportGastos()).filter(function(r){return !r.isSubtotal;});
     lines = [["Proyecto","Categoria","Total"].join(",")];
@@ -1081,6 +1092,49 @@ function renderTemplateProveedores(gastos){
         }).join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
         '<tfoot><tr><td colspan="5">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td></tr></tfoot>'+
+      '</table></div>'+
+    '</div>'+
+  '</div>';
+}
+function estadoCreditoLabel(r){
+  if(r.forma_pago!=="credito") return "—";
+  var e = creditoEstado(r);
+  return e==="pagado" ? "Pagado" : e==="verificado" ? "Verificado" : "Pendiente de verificar";
+}
+function estadoCreditoBadgeClass(r){
+  if(r.forma_pago!=="credito") return "badge-muted";
+  var e = creditoEstado(r);
+  return e==="pagado" ? "badge-good" : e==="verificado" ? "badge-steel" : "badge-warn";
+}
+function renderTemplateConsolidado(gastos){
+  var rows = gastos.slice().sort(function(a,b){
+    var pa = (a.proveedor||"").toUpperCase(), pb = (b.proveedor||"").toUpperCase();
+    if(pa!==pb) return pa<pb?-1:1;
+    return (a.fecha_factura||"").localeCompare(b.fecha_factura||"");
+  });
+  var total = rows.reduce(function(s,r){return s+r.importe;},0);
+  var generadoPor = STATE.profile ? (STATE.profile.isMaster? "Master Administrator" : STATE.profile.nombre) : "—";
+  return '<div id="reportPrintArea">'+
+    '<div class="report-header">'+
+      '<h2 style="margin:0">Template Consolidado Proveedores — Rancho Trailers</h2>'+
+      '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(rows)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px">'+
+      '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
+      '<div class="table-wrap"><table>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
+        '<tbody>'+(rows.length? rows.map(function(r){
+          return '<tr>'+
+            '<td>'+esc(r.proveedor||"—")+'</td>'+
+            '<td>'+fmtDate(r.fecha_factura)+'</td>'+
+            '<td>'+esc(r.factura||"—")+'</td>'+
+            '<td class="num">'+fmtMoney(r.importe)+'</td>'+
+            '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
+            '<td><span class="badge '+estadoCreditoBadgeClass(r)+'">'+esc(estadoCreditoLabel(r))+'</span></td>'+
+          '</tr>';
+        }).join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
+        '</tbody>'+
+        '<tfoot><tr><td colspan="3">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1146,14 +1200,14 @@ function renderReportesView(){
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
-      '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option><option value="sgx"'+(STATE.reportTemplate==="sgx"?' selected':'')+'>Template SGX</option></select>'+
+      '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option><option value="sgx"'+(STATE.reportTemplate==="sgx"?' selected':'')+'>Template SGX</option><option value="consolidado"'+(STATE.reportTemplate==="consolidado"?' selected':'')+'>Template Consolidado Proveedores</option></select>'+
       '<select data-reportfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="proveedor"><option value="">Todos los proveedores</option>'+provOptions.map(function(n){return '<option value="'+esc(n)+'"'+(normKey(f.proveedor)===normKey(n)?' selected':'')+'>'+esc(n)+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
-      '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+(STATE.reportTemplate==="proveedores"?"Fecha de factura desde":"Fecha de registro desde")+'">'+
-      '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+(STATE.reportTemplate==="proveedores"?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
+      '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura desde":"Fecha de registro desde")+'">'+
+      '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
       (reportActive ? '<button class="btn btn-ghost" data-action="clear-report-filters">Limpiar</button>' : '')+
     '</div>'+
     '<div style="display:flex; gap:8px; margin-top:12px">'+
@@ -1172,6 +1226,9 @@ function renderReportesView(){
   }
   if(STATE.reportTemplate==="sgx"){
     return filterBar + renderTemplateSGX(filteredReportGastos());
+  }
+  if(STATE.reportTemplate==="consolidado"){
+    return filterBar + renderTemplateConsolidado(filteredReportGastos("fecha_factura"));
   }
 
   var gastos = filteredReportGastos();
