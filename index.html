@@ -1016,6 +1016,30 @@ function reportRangeLabel(gastos){
   if(!fechas.length) return "Sin registros";
   return fmtDate(fechas[0]) + " – " + fmtDate(fechas[fechas.length-1]);
 }
+function printReport(){
+  var reportEl = document.getElementById("reportPrintArea");
+  if(!reportEl){ window.print(); return; }
+  var css = Array.prototype.map.call(document.querySelectorAll("style"), function(s){return s.textContent;}).join("\n");
+  var w = null;
+  try{ w = window.open("", "_blank"); }catch(e){ w = null; }
+  if(!w){
+    window.print();
+    toast("Si no se abrió el diálogo de impresión, abre el portal en una pestaña nueva del navegador (fuera de esta vista) e inténtalo de nuevo.","err");
+    return;
+  }
+  w.document.open();
+  w.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>Reporte — Rancho Trailers</title>'+
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">'+
+    '<style>'+css+'</style>'+
+    '</head><body style="padding:20px">'+reportEl.outerHTML+'</body></html>'
+  );
+  w.document.close();
+  var printed = false;
+  function doPrint(){ if(printed) return; printed = true; try{ w.focus(); w.print(); }catch(e){} }
+  w.onload = function(){ setTimeout(doPrint, 250); };
+  setTimeout(doPrint, 800);
+}
 function exportReportCSV(){
   if(!STATE.downloads){ toast("La exportación no está disponible en esta vista.","err"); return; }
   var formaPagoLabel = {credito:"Credito", efectivo:"Efectivo"};
@@ -2138,7 +2162,7 @@ document.addEventListener("click", function(e){
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
   else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
-  else if(action==="print-report") window.print();
+  else if(action==="print-report") printReport();
   else if(action==="export-report-csv") exportReportCSV();
   else if(action==="new-proyecto") openProyectoModal(null);
   else if(action==="edit-proyecto") openProyectoModal(el.dataset.key);
