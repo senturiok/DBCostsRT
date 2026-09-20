@@ -385,13 +385,13 @@ var STATE = {
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, gastosEdits:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
-  filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
-  dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
-  reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
+  filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", q:"", page:1, pageSize:50 },
+  dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
+  reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportGenerated:false,
   reportTemplate:"completo",
   gastosContabilidad:{},
-  contFilters:{ proveedor:"", proyecto:"", estado:"", desde:"", hasta:"" },
+  contFilters:{ proveedor:"", proyecto:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   provSearch:"",
   proySearch:"",
   compareProjects:["","",""],
@@ -410,6 +410,23 @@ function fmtDate(d){ if(!d) return "—"; var parts=d.split("-"); if(parts.lengt
 function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
 function debounce(fn,ms){ var t; return function(){ var a=arguments,ctx=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(ctx,a); },ms); }; }
 function byVal(a,b){ return b.value-a.value; }
+var MESES_OPTS = [
+  {v:"01",l:"Enero"},{v:"02",l:"Febrero"},{v:"03",l:"Marzo"},{v:"04",l:"Abril"},
+  {v:"05",l:"Mayo"},{v:"06",l:"Junio"},{v:"07",l:"Julio"},{v:"08",l:"Agosto"},
+  {v:"09",l:"Septiembre"},{v:"10",l:"Octubre"},{v:"11",l:"Noviembre"},{v:"12",l:"Diciembre"}
+];
+function availableYears(){
+  var years = {};
+  function take(d){ if(d && d.length>=4) years[d.slice(0,4)] = true; }
+  STATE.gastosBase.forEach(function(r){ take(r.fecha); take(r.fecha_factura); });
+  STATE.gastosNuevos.forEach(function(g){ take(g.fecha); take(g.fecha_factura); });
+  return Object.keys(years).sort().reverse();
+}
+function mesAnioOptionsHTML(prefix, mesVal, anioVal){
+  var years = availableYears();
+  return '<select data-'+prefix+'="mes"><option value="">Todos los meses</option>'+MESES_OPTS.map(function(m){return '<option value="'+m.v+'"'+(mesVal===m.v?' selected':'')+'>'+m.l+'</option>';}).join("")+'</select>'+
+    '<select data-'+prefix+'="anio"><option value="">Todos los años</option>'+years.map(function(y){return '<option value="'+y+'"'+(anioVal===y?' selected':'')+'>'+y+'</option>';}).join("")+'</select>';
+}
 var PERM_MAP = {
   viewDashboard:"verDashboard", viewGastos:"verGastos", addGasto:"registrarGasto",
   editGasto:"editarGasto", deleteGasto:"editarGasto", manageCatalogos:"gestionarCatalogos",
@@ -849,6 +866,8 @@ function filteredDashboardGastos(){
     if(f.estado && estadoDeProyecto(r.proyecto_key||"SIN_PROYECTO")!==f.estado) return false;
     if(f.desde && r.fecha && r.fecha<f.desde) return false;
     if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
+    if(f.anio && (!r.fecha || r.fecha.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!r.fecha || r.fecha.slice(5,7)!==f.mes)) return false;
     return true;
   });
 }
@@ -902,7 +921,7 @@ function renderDashboard(){
     '</div>';
   }
 
-  var dashActive = !!(STATE.dashFilters.proyecto || STATE.dashFilters.categoria || STATE.dashFilters.formaPago || STATE.dashFilters.estado || STATE.dashFilters.desde || STATE.dashFilters.hasta);
+  var dashActive = !!(STATE.dashFilters.proyecto || STATE.dashFilters.categoria || STATE.dashFilters.formaPago || STATE.dashFilters.estado || STATE.dashFilters.desde || STATE.dashFilters.hasta || STATE.dashFilters.mes || STATE.dashFilters.anio);
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Vista del dashboard</h3><span class="card-note">'+(dashActive?"Filtrada":"Mostrando todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
@@ -910,6 +929,7 @@ function renderDashboard(){
       '<select data-dashfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(STATE.dashFilters.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(STATE.dashFilters.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-dashfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.dashFilters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-dashfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.dashFilters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.dashFilters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
+      mesAnioOptionsHTML("dashfilter", STATE.dashFilters.mes, STATE.dashFilters.anio)+
       '<input type="date" data-dashfilter="desde" value="'+esc(STATE.dashFilters.desde)+'" title="Desde">'+
       '<input type="date" data-dashfilter="hasta" value="'+esc(STATE.dashFilters.hasta)+'" title="Hasta">'+
       (dashActive ? '<button class="btn btn-ghost" data-action="clear-dash-filters">Limpiar</button>' : '')+
@@ -1041,6 +1061,8 @@ function filteredReportGastos(dateField){
     var d = r[dateField];
     if(f.desde && d && d<f.desde) return false;
     if(f.hasta && d && d>f.hasta) return false;
+    if(f.anio && (!d || d.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!d || d.slice(5,7)!==f.mes)) return false;
     return true;
   });
 }
@@ -1265,7 +1287,7 @@ function renderReportesView(){
   var allCats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
   var f = STATE.reportFilters;
   var provOptions = allProveedores();
-  var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.desde||f.hasta);
+  var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.desde||f.hasta||f.mes||f.anio);
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
@@ -1276,6 +1298,7 @@ function renderReportesView(){
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
+      mesAnioOptionsHTML("reportfilter", f.mes, f.anio)+
       '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura desde":"Fecha de registro desde")+'">'+
       '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
       (reportActive ? '<button class="btn btn-ghost" data-action="clear-report-filters">Limpiar</button>' : '')+
@@ -1419,6 +1442,8 @@ function renderContabilidadView(){
     if(f.estado && creditoEstado(r)!==f.estado) return false;
     if(f.desde && r.fecha_factura && r.fecha_factura<f.desde) return false;
     if(f.hasta && r.fecha_factura && r.fecha_factura>f.hasta) return false;
+    if(f.anio && (!r.fecha_factura || r.fecha_factura.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!r.fecha_factura || r.fecha_factura.slice(5,7)!==f.mes)) return false;
     return true;
   }).sort(function(a,b){
     var pa=(a.proveedor||"").toUpperCase(), pb=(b.proveedor||"").toUpperCase();
@@ -1432,7 +1457,7 @@ function renderContabilidadView(){
   var totalPagado = filtered.filter(function(r){return creditoEstado(r)==="pagado";}).reduce(function(s,r){return s+r.importe;},0);
 
   var canVerify = can("verifyPago");
-  var filterActive = !!(f.proveedor||f.proyecto||f.estado||f.desde||f.hasta);
+  var filterActive = !!(f.proveedor||f.proyecto||f.estado||f.desde||f.hasta||f.mes||f.anio);
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros</h3><span class="card-note">'+(filterActive?"Filtrado":"Todos los créditos")+'</span></div>'+
@@ -1441,6 +1466,7 @@ function renderContabilidadView(){
       '<datalist id="provDatalistCont">'+provNames.map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
       '<select data-contfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
       '<select data-contfilter="estado"><option value="">Todos los estados</option><option value="pendiente"'+(f.estado==="pendiente"?' selected':'')+'>Pendiente</option><option value="verificado"'+(f.estado==="verificado"?' selected':'')+'>Verificado</option><option value="pagado"'+(f.estado==="pagado"?' selected':'')+'>Pagado</option></select>'+
+      mesAnioOptionsHTML("contfilter", f.mes, f.anio)+
       '<input type="date" data-contfilter="desde" value="'+esc(f.desde)+'" title="Fecha de factura desde">'+
       '<input type="date" data-contfilter="hasta" value="'+esc(f.hasta)+'" title="Fecha de factura hasta">'+
       (filterActive ? '<button class="btn btn-ghost" data-action="clear-cont-filters">Limpiar</button>' : '')+
@@ -1562,6 +1588,8 @@ function filteredGastos(){
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
     if(f.desde && r.fecha && r.fecha<f.desde) return false;
     if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
+    if(f.anio && (!r.fecha || r.fecha.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!r.fecha || r.fecha.slice(5,7)!==f.mes)) return false;
     if(q){
       var hay = ((r.descripcion||"")+" "+(r.factura||"")+" "+(r.proyecto_raw||"")+" "+(r.proveedor||"")).toLowerCase();
       if(hay.indexOf(q)===-1) return false;
@@ -1635,6 +1663,7 @@ function renderGastosView(){
       '<select data-filter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.filters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<input type="text" list="provDatalist" placeholder="Proveedor" data-filter="proveedor" value="'+esc(STATE.filters.proveedor)+'">'+
       '<select data-filter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.filters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.filters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
+      mesAnioOptionsHTML("filter", STATE.filters.mes, STATE.filters.anio)+
       '<input type="date" data-filter="desde" value="'+esc(STATE.filters.desde)+'" title="Desde">'+
       '<input type="date" data-filter="hasta" value="'+esc(STATE.filters.hasta)+'" title="Hasta">'+
       '<input type="text" class="q" placeholder="Buscar descripción, factura, proyecto…" data-filter="q" value="'+esc(STATE.filters.q)+'">'+
@@ -2185,7 +2214,7 @@ document.addEventListener("click", function(e){
   else if(action==="export-csv") exportCSV();
   else if(action==="page-prev"){ if(STATE.filters.page>1){ STATE.filters.page--; renderContent(); } }
   else if(action==="page-next"){ STATE.filters.page++; renderContent(); }
-  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",q:"",page:1,pageSize:50}; renderContent(); }
+  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",q:"",page:1,pageSize:50}; renderContent(); }
   else if(action==="edit-gasto") editGastoRow(el.dataset.id, el.dataset.origen);
   else if(action==="delete-gasto") deleteGastoRow(el.dataset.id);
   else if(action==="confirm-delete-gasto"){
@@ -2216,8 +2245,8 @@ document.addEventListener("click", function(e){
     }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
-  else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
-  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; STATE.reportGenerated=false; renderContent(); }
+  else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
+  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
   else if(action==="print-report") printReport();
   else if(action==="export-report-csv") exportReportCSV();
@@ -2252,7 +2281,7 @@ document.addEventListener("click", function(e){
       toast("Estado actualizado"); closeModal(); renderContent();
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
-  else if(action==="clear-cont-filters"){ STATE.contFilters = {proveedor:"",proyecto:"",estado:"",desde:"",hasta:""}; renderContent(); }
+  else if(action==="clear-cont-filters"){ STATE.contFilters = {proveedor:"",proyecto:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
   else if(action==="new-proveedor") openProveedorModal(null);
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
