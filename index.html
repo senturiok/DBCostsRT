@@ -1448,7 +1448,7 @@ function renderGastosView(){
 
 /* ================= REGISTRAR ================= */
 function getRememberedName(){
-  if(STATE.profile && !STATE.profile.isMaster && STATE.profile.nombre) return STATE.profile.nombre;
+  if(STATE.profile) return STATE.profile.isMaster ? "Master Administrator" : STATE.profile.nombre;
   try{ return localStorage.getItem("rt_capturador")||""; }catch(e){ return ""; }
 }
 function renderRegistrarView(){
