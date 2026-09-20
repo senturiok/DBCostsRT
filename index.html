@@ -465,14 +465,23 @@ function permisosCount(permisos){
 }
 
 /* ================= DATA MERGE ================= */
+function isImplausibleYear(d){
+  if(!d) return false;
+  var y = parseInt(String(d).slice(0,4),10);
+  if(isNaN(y)) return false;
+  var now = new Date().getFullYear();
+  return y < now-5 || y > now+3;
+}
 function allGastos(){
   var base = STATE.gastosBase.map(function(r){
     var edit = STATE.gastosEdits[String(r.id)];
     if(!edit) return r;
     if(edit.eliminado) return null;
-    return Object.assign({}, r, edit, {
-      flag_sin_proveedor: !edit.proveedor, flag_sin_proyecto: !edit.proyecto_key, flag_fecha:false, _edited:true
+    var merged = Object.assign({}, r, edit, {
+      flag_sin_proveedor: !edit.proveedor, flag_sin_proyecto: !edit.proyecto_key, _edited:true
     });
+    merged.flag_fecha = isImplausibleYear(merged.fecha) || isImplausibleYear(merged.fecha_factura);
+    return merged;
   }).filter(Boolean);
   var extra = STATE.gastosNuevos.map(function(g){
     return {
