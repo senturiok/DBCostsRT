@@ -1,0 +1,4 @@
+worker/
+.git/
+.github/
+README.md
