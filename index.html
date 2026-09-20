@@ -1120,7 +1120,9 @@ function handleAddProveedor(form){
   var nombre = form.nombre.value.trim(); if(!nombre) return;
   var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
   if(exists){ toast("Ese proveedor ya existe.","err"); return; }
-  STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}).then(function(){ toast("Proveedor agregado ✓"); form.reset(); }).catch(function(){ toast("No se pudo agregar.","err"); });
+  STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}).then(function(){
+    toast("Proveedor agregado ✓"); form.reset(); STATE.provSearch = ""; renderContent();
+  }).catch(function(){ toast("No se pudo agregar.","err"); });
 }
 function editProveedorModal(key){
   var p = null;
