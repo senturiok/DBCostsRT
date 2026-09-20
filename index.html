@@ -1358,11 +1358,20 @@ document.addEventListener("click", function(e){
   else if(action==="toggle-estado"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
     var key = el.dataset.key; var cur = estadoDeProyecto(key); var next = cur==="terminado"?"activo":"terminado";
-    STATE.db.doc("proyecto_estado/"+slugify(key)).set({estado:next, key:key, updatedAt:new Date().toISOString()}).catch(function(){ toast("No se pudo actualizar.","err"); });
+    var estadoSlug = slugify(key);
+    var estadoData = {estado:next, key:key, updatedAt:new Date().toISOString()};
+    STATE.db.doc("proyecto_estado/"+estadoSlug).set(estadoData).then(function(){
+      STATE.proyectoEstado[estadoSlug] = estadoData; renderContent();
+    }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
   else if(action==="delete-catalog"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
-    STATE.db.collection(el.dataset.col).doc(el.dataset.id).delete().then(function(){ toast("Eliminado"); }).catch(function(){ toast("No se pudo eliminar.","err"); });
+    var delCol = el.dataset.col, delId = el.dataset.id;
+    STATE.db.collection(delCol).doc(delId).delete().then(function(){
+      var stateKey = {proyectos_nuevos:"proyectosNuevos", categorias_nuevas:"categoriasNuevas"}[delCol];
+      if(stateKey) STATE[stateKey] = STATE[stateKey].filter(function(x){ return x.id!==delId; });
+      toast("Eliminado"); renderContent();
+    }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
@@ -1374,7 +1383,14 @@ document.addEventListener("click", function(e){
     var pKey=el.dataset.key, pNombre=el.dataset.nombre, pOrigen=el.dataset.origen, pDocId=el.dataset.id;
     var op = (pOrigen==="portal" && pDocId) ? STATE.db.collection("proveedores_nuevos").doc(pDocId).delete()
       : STATE.db.doc("proveedores_info/"+pKey).set({eliminado:true, nombre:pNombre, updatedAt:new Date().toISOString()});
-    op.then(function(){ toast("Proveedor eliminado"); closeModal(); }).catch(function(){ toast("No se pudo eliminar.","err"); });
+    op.then(function(){
+      if(pOrigen==="portal" && pDocId){
+        STATE.proveedoresNuevos = STATE.proveedoresNuevos.filter(function(p){ return p.id!==pDocId; });
+      } else {
+        STATE.proveedoresInfo[pKey] = { eliminado:true, nombre:pNombre, updatedAt:new Date().toISOString() };
+      }
+      toast("Proveedor eliminado"); closeModal(); renderContent();
+    }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="view-proyecto-gastos"){
     STATE.filters.proyecto = el.dataset.key; STATE.filters.page = 1;
