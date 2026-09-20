@@ -1031,6 +1031,13 @@ function exportReportCSV(){
       lines.push([r.proveedor||"", proyectoNombre(r.proyecto_key), r.fecha_factura||"", r.factura||"", formaPagoLabel[r.forma_pago]||"", r.importe].map(csvEsc).join(","));
     });
     filename = "template_proveedores_rancho_trailers.csv";
+  } else if(STATE.reportTemplate==="sgx"){
+    var sgxRows = buildSGXRows(filteredReportGastos()).filter(function(r){return !r.isSubtotal;});
+    lines = [["Proyecto","Categoria","Total"].join(",")];
+    sgxRows.forEach(function(r){
+      lines.push([r.proyecto, r.categoria, r.total].map(csvEsc).join(","));
+    });
+    filename = "template_sgx_rancho_trailers.csv";
   } else {
     var rows = filteredReportGastos().slice().sort(function(a,b){ return (a.fecha||"").localeCompare(b.fecha||""); });
     var catMap = catNameMap();
@@ -1078,6 +1085,56 @@ function renderTemplateProveedores(gastos){
     '</div>'+
   '</div>';
 }
+function buildSGXRows(gastos){
+  var catOrder = {}; allCategorias().forEach(function(c){ catOrder[c.codigo] = c.orden; });
+  var catMap = catNameMap();
+  var byProy = {};
+  gastos.forEach(function(r){
+    var pk = r.proyecto_key || "SIN_PROYECTO";
+    if(!byProy[pk]) byProy[pk] = { nombre: proyectoNombre(pk), cats:{} };
+    var cat = r.categoria || "SIN-CAT";
+    byProy[pk].cats[cat] = (byProy[pk].cats[cat]||0) + (Number(r.importe)||0);
+  });
+  var proyKeys = Object.keys(byProy).sort(function(a,b){ return byProy[a].nombre.localeCompare(byProy[b].nombre); });
+  var rows = [];
+  proyKeys.forEach(function(pk){
+    var p = byProy[pk];
+    var catCodes = Object.keys(p.cats).sort(function(a,b){ return (catOrder[a]!==undefined?catOrder[a]:99)-(catOrder[b]!==undefined?catOrder[b]:99); });
+    var subtotal = 0;
+    catCodes.forEach(function(cat){
+      var v = p.cats[cat];
+      subtotal += v;
+      rows.push({ proyecto:p.nombre, categoria: catMap[cat]||cat, total:v, isSubtotal:false });
+    });
+    rows.push({ proyecto:p.nombre, categoria:"Subtotal", total:subtotal, isSubtotal:true });
+  });
+  return rows;
+}
+function renderTemplateSGX(gastos){
+  var rows = buildSGXRows(gastos);
+  var grandTotal = rows.filter(function(r){return !r.isSubtotal;}).reduce(function(s,r){return s+r.total;},0);
+  var proyCount = rows.filter(function(r){return r.isSubtotal;}).length;
+  var generadoPor = STATE.profile ? (STATE.profile.isMaster? "Master Administrator" : STATE.profile.nombre) : "—";
+  return '<div id="reportPrintArea">'+
+    '<div class="report-header">'+
+      '<h2 style="margin:0">Template SGX — Rancho Trailers</h2>'+
+      '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(gastos)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px">'+
+      '<div class="card-head"><h3 class="card-title">Costo por categoría (subsistema) y proyecto</h3><span class="card-note">'+proyCount+' proyecto'+(proyCount===1?"":"s")+'</span></div>'+
+      '<div class="table-wrap"><table>'+
+        '<thead><tr><th>Proyecto</th><th>Categoría</th><th class="num">Total</th></tr></thead>'+
+        '<tbody>'+(rows.length? rows.map(function(r){
+          return r.isSubtotal
+            ? '<tr style="background:var(--surface-2); font-weight:700"><td colspan="2">Subtotal '+esc(r.proyecto)+'</td><td class="num">'+fmtMoney(r.total)+'</td></tr>'
+            : '<tr><td>'+esc(r.proyecto)+'</td><td><span class="badge badge-steel">'+esc(r.categoria)+'</span></td><td class="num">'+fmtMoney(r.total)+'</td></tr>';
+        }).join("") : '<tr><td colspan="3" class="empty">Sin registros con estos filtros.</td></tr>')+
+        '</tbody>'+
+        '<tfoot><tr><td colspan="2">Total general</td><td class="num">'+fmtMoney(grandTotal)+'</td></tr></tfoot>'+
+      '</table></div>'+
+    '</div>'+
+  '</div>';
+}
 function renderReportesView(){
   var proyMap = allProyectos();
   var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
@@ -1089,7 +1146,7 @@ function renderReportesView(){
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
-      '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option></select>'+
+      '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option><option value="sgx"'+(STATE.reportTemplate==="sgx"?' selected':'')+'>Template SGX</option></select>'+
       '<select data-reportfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="proveedor"><option value="">Todos los proveedores</option>'+provOptions.map(function(n){return '<option value="'+esc(n)+'"'+(normKey(f.proveedor)===normKey(n)?' selected':'')+'>'+esc(n)+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
@@ -1112,6 +1169,9 @@ function renderReportesView(){
 
   if(STATE.reportTemplate==="proveedores"){
     return filterBar + renderTemplateProveedores(filteredReportGastos("fecha_factura"));
+  }
+  if(STATE.reportTemplate==="sgx"){
+    return filterBar + renderTemplateSGX(filteredReportGastos());
   }
 
   var gastos = filteredReportGastos();
