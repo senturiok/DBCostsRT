@@ -237,7 +237,7 @@
     <form id="gateForm" autocomplete="off">
       <div class="field">
         <label for="gateUser">Usuario</label>
-        <input type="text" id="gateUser" placeholder="Tu nombre" autocomplete="off">
+        <select id="gateUser"><option value="">Selecciona tu usuario…</option></select>
       </div>
       <div class="field">
         <label for="pw">Contraseña</label>
@@ -407,7 +407,19 @@ function computeAgg(gastos){
 }
 
 /* ================= BOOT ================= */
+function renderGateUserOptions(){
+  var sel = document.getElementById("gateUser");
+  if(!sel) return;
+  var current = sel.value;
+  var opts = '<option value="">Selecciona tu usuario…</option>'+
+    '<option value="master">Master Administrator</option>'+
+    STATE.perfiles.slice().sort(function(a,b){ return (a.nombre||"").localeCompare(b.nombre||""); })
+      .map(function(p){ return '<option value="'+esc(p.id)+'">'+esc(p.nombre)+'</option>'; }).join("");
+  sel.innerHTML = opts;
+  if(current && sel.querySelector('option[value="'+CSS.escape(current)+'"]')) sel.value = current;
+}
 function boot(){
+  renderGateUserOptions();
   Promise.all([
     fetch("gastos.json").then(function(r){return r.json();}),
     fetch("proyectos_catalog.json").then(function(r){return r.json();}),
@@ -466,6 +478,7 @@ function subscribeAll(){
   db.collection("perfiles").onSnapshot(function(snap){
     STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
     tryRestorePendingProfile();
+    renderGateUserOptions();
     if(STATE.loaded) rerenderView();
   }, function(err){ console.warn("db perfiles error", err); });
 }
@@ -476,11 +489,11 @@ document.addEventListener("submit", function(e){
   e.preventDefault(); /* this app never does a real form POST/GET — always handle in JS */
   var formId = e.target.getAttribute("id");
   if(formId === "gateForm"){
-    var userInput = (document.getElementById("gateUser").value||"").trim();
+    var userVal = document.getElementById("gateUser").value;
     var pw = document.getElementById("pw").value;
     var errEl = document.getElementById("gateError");
-    if(!userInput){ errEl.textContent = "Escribe tu usuario."; return; }
-    if(normKey(userInput) === normKey(MASTER_USERNAME)){
+    if(!userVal){ errEl.textContent = "Selecciona tu usuario."; return; }
+    if(userVal === "master"){
       if(pw === MASTER_PASSWORD){
         STATE.profile = { isMaster:true, nombre:"Master Administrator" };
         try{ sessionStorage.setItem("rt_session", JSON.stringify({type:"master"})); }catch(err){}
@@ -493,7 +506,7 @@ document.addEventListener("submit", function(e){
     }
     var match = null;
     for(var i=0;i<STATE.perfiles.length;i++){
-      if(normKey(STATE.perfiles[i].nombre) === normKey(userInput)){ match = STATE.perfiles[i]; break; }
+      if(STATE.perfiles[i].id === userVal){ match = STATE.perfiles[i]; break; }
     }
     if(match && pw === match.password){
       STATE.profile = { isMaster:false, nombre:match.nombre, permisos:match.permisos||{}, id:match.id };
