@@ -355,17 +355,18 @@
 var MASTER_USERNAME = "master";
 var MASTER_PASSWORD = "1920";
 
+/* Permisos por módulo: cada perfil solo ve y usa los módulos marcados aquí.
+   Dentro de un módulo habilitado, crear y editar está permitido para
+   cualquier usuario; eliminar siempre está restringido al Master
+   Administrator, sin importar los permisos del perfil. */
 var PERMS = [
-  { key:"verDashboard",       label:"Ver dashboard (reportes y gráficas)" },
-  { key:"verGastos",          label:"Ver tabla de gastos" },
-  { key:"registrarGasto",     label:"Registrar gastos nuevos" },
-  { key:"editarGasto",        label:"Editar gastos capturados en el portal" },
-  { key:"gestionarCatalogos", label:"Agregar proyectos, proveedores y categorías nuevas" },
-  { key:"eliminarCatalogo",   label:"Eliminar elementos del catálogo agregados en el portal" },
-  { key:"marcarEstado",       label:"Marcar proyectos como activos / terminados" },
-  { key:"exportarCSV",        label:"Exportar reportes a CSV" },
-  { key:"verCalidad",         label:"Ver panel de calidad de datos del Excel" },
-  { key:"verificarPagos",     label:"Verificar y marcar como pagados los gastos a crédito" }
+  { key:"dashboard",    label:"Dashboard" },
+  { key:"gastos",       label:"Gastos" },
+  { key:"registrar",    label:"Registrar gasto" },
+  { key:"catalogos",    label:"Catálogos" },
+  { key:"comparar",     label:"Comparar proyectos" },
+  { key:"reportes",     label:"Reportes" },
+  { key:"contabilidad", label:"Contabilidad" }
 ];
 
 var NAV = [
@@ -373,8 +374,8 @@ var NAV = [
   { id:"gastos",     label:"Gastos",          perm:"viewGastos",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>' },
   { id:"registrar",  label:"Registrar gasto", perm:"addGasto",      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>' },
   { id:"catalogos",  label:"Catálogos",       perm:"manageCatalogos", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l3-3h5l2 2h8v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>' },
-  { id:"comparar",   label:"Comparar proyectos", perm:"viewDashboard", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>' },
-  { id:"reportes",   label:"Reportes",        perm:"viewDashboard", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h9l3 3v3"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>' },
+  { id:"comparar",   label:"Comparar proyectos", perm:"viewComparar", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>' },
+  { id:"reportes",   label:"Reportes",        perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h9l3 3v3"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>' },
   { id:"contabilidad", label:"Contabilidad",  perm:"verifyPago",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
   { id:"usuarios",   label:"Usuarios",        perm:null,            icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
 ];
@@ -429,11 +430,17 @@ function mesAnioOptionsHTML(prefix, mesVal, anioVal, rows, field){
   return '<select data-'+prefix+'="mes"><option value="">Todos los meses</option>'+MESES_OPTS.map(function(m){return '<option value="'+m.v+'"'+(mesVal===m.v?' selected':'')+'>'+m.l+'</option>';}).join("")+'</select>'+
     '<select data-'+prefix+'="anio"><option value="">Todos los años</option>'+years.map(function(y){return '<option value="'+y+'"'+(anioVal===y?' selected':'')+'>'+y+'</option>';}).join("")+'</select>';
 }
+/* Toda acción se resuelve al permiso de su módulo: dentro de un módulo
+   habilitado, cualquier usuario puede crear y editar. Eliminar nunca pasa
+   por aquí — siempre se valida aparte con isMasterUser(). */
 var PERM_MAP = {
-  viewDashboard:"verDashboard", viewGastos:"verGastos", addGasto:"registrarGasto",
-  editGasto:"editarGasto", deleteGasto:"editarGasto", manageCatalogos:"gestionarCatalogos",
-  addCategoria:"gestionarCatalogos", toggleEstado:"marcarEstado", deleteCatalogItem:"eliminarCatalogo",
-  export:"exportarCSV", viewQuality:"verCalidad", verifyPago:"verificarPagos", markPaid:"verificarPagos"
+  viewDashboard:"dashboard", viewQuality:"dashboard",
+  viewGastos:"gastos", editGasto:"gastos", exportGastos:"gastos",
+  addGasto:"registrar",
+  manageCatalogos:"catalogos", addCategoria:"catalogos", toggleEstado:"catalogos",
+  viewComparar:"comparar",
+  viewReportes:"reportes", exportReportes:"reportes",
+  verifyPago:"contabilidad"
 };
 function can(action){
   var p = STATE.profile;
@@ -738,7 +745,7 @@ function renderContent(){
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
-  actions.innerHTML = (STATE.view==="gastos" && can("export")) ? '<button class="btn" data-action="export-csv">Exportar CSV</button>'
+  actions.innerHTML = (STATE.view==="gastos" && can("exportGastos")) ? '<button class="btn" data-action="export-csv">Exportar CSV</button>'
     : (STATE.view==="usuarios" && STATE.profile && STATE.profile.isMaster) ? '<button class="btn btn-primary" data-action="new-perfil">+ Nuevo perfil</button>' : "";
   var c = document.getElementById("content");
 
@@ -1309,7 +1316,7 @@ function renderReportesView(){
     '<div style="display:flex; gap:8px; margin-top:12px">'+
       '<button class="btn btn-primary" data-action="generate-report">Generar reporte</button>'+
       (STATE.reportGenerated ? '<button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>' : '')+
-      (STATE.reportGenerated && can("export") ? '<button class="btn" data-action="export-report-csv">Exportar detalle CSV</button>' : '')+
+      (STATE.reportGenerated && can("exportReportes") ? '<button class="btn" data-action="export-report-csv">Exportar detalle CSV</button>' : '')+
     '</div>'+
   '</div>';
 
@@ -1868,7 +1875,7 @@ function renderCatalogosView(){
           '<span class="name">'+esc(catShortCode(c.codigo))+' · '+esc(c.nombre)+'</span>'+
           '<span class="meta">'+fmtMoneyInt(agg.byCategoria[c.codigo]||0)+'</span>'+
           '<span class="badge '+(c.origen==="portal"?"badge-accent":"badge-muted")+'">'+(c.origen==="portal"?"Portal":"Excel")+'</span>'+
-          (c.origen==="portal"&&can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-catalog" data-col="categorias_nuevas" data-id="'+esc(c._docId)+'" title="Eliminar">✕</button>' : '<span style="width:26px"></span>')+
+          (c.origen==="portal"&&isMasterUser() ? '<button class="icon-btn" data-action="delete-catalog" data-col="categorias_nuevas" data-id="'+esc(c._docId)+'" title="Eliminar">✕</button>' : '<span style="width:26px"></span>')+
         '</div>';
       }).join("");
   }
@@ -2080,7 +2087,7 @@ function openPerfilModal(existing){
       (isEdit ? '<input type="hidden" name="perfilId" value="'+esc(existing.id)+'">' : '')+
       '<div class="field"><label>Nombre</label><input name="nombre" placeholder="Ej. Juan Pérez" value="'+(existing?esc(existing.nombre):'')+'" required></div>'+
       '<div class="field"><label>Contraseña'+(isEdit?' (dejar en blanco para no cambiarla)':'')+'</label><input type="password" name="password" placeholder="••••••••"'+(isEdit?'':' required')+'></div>'+
-      '<div class="field"><label>Permisos</label><div class="check-list">'+checks+'</div></div>'+
+      '<div class="field"><label>Módulos que puede usar</label><div class="check-list">'+checks+'</div><p class="hint">Dentro de un módulo marcado, puede crear y editar. Eliminar siempre está reservado al Master Administrator.</p></div>'+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
@@ -2239,6 +2246,7 @@ document.addEventListener("click", function(e){
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
   else if(action==="delete-catalog"){
+    if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar categorías.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
     var delCol = el.dataset.col, delId = el.dataset.id;
     STATE.db.collection(delCol).doc(delId).delete().then(function(){
