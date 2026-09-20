@@ -64,6 +64,11 @@
   .gate-sub{color:var(--ink-2); font-size:13px; margin:0 0 22px;}
   .field{display:flex; flex-direction:column; gap:6px; margin-bottom:14px;}
   .check-list{display:flex; flex-direction:column; gap:2px; border:1px solid var(--line); border-radius:3px; padding:6px 10px; background:var(--surface-2); max-height:280px; overflow-y:auto;}
+  .ac-wrap{position:relative;}
+  .ac-list{display:none; position:absolute; top:100%; left:0; right:0; z-index:30; margin-top:2px; background:var(--surface); border:1px solid var(--line-strong); border-radius:4px; max-height:220px; overflow-y:auto; box-shadow:var(--shadow);}
+  .ac-item{padding:8px 11px; font-size:13px; cursor:pointer; border-bottom:1px solid var(--line);}
+  .ac-item:last-child{border-bottom:0;}
+  .ac-item:hover, .ac-item.active{background:var(--surface-2);}
   .check-list .check-row{display:flex; align-items:center; gap:9px; padding:7px 2px; font-size:13px; text-transform:none; letter-spacing:normal; font-weight:400; color:var(--ink); cursor:pointer; border-bottom:1px solid var(--line);}
   .check-row:last-child{border-bottom:0;}
   .check-row input{width:auto; flex:none;}
@@ -385,7 +390,7 @@ var STATE = {
   profile:null, view:"dashboard", sidebarOpen:false,
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, gastosEdits:{}, perfiles:[],
-  db:null, downloads:null, _pendingRestoreId:null,
+  db:null, downloads:null, _pendingRestoreId:null, _acSources:{},
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", flag:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
@@ -2191,16 +2196,18 @@ function editGastoRow(docId, origen){
   var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
   var proyMap = allProyectos();
   var proyOptionsAll = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+  STATE._acSources = {
+    "edit-proyecto": proyOptionsAll.map(function(p){return p.nombre;}),
+    "edit-proveedor": allProveedores()
+  };
   openModal(
     '<h3>Editar gasto</h3>'+
     (isExcel ? '<p class="hint" style="color:var(--warn)">Este registro viene del Excel importado. Editarlo solo cambia lo que se muestra en el portal; no modifica el archivo original.</p>' : "")+
     '<form id="editGastoForm">'+
       '<input type="hidden" name="gastoId" value="'+esc(docId)+'">'+
       '<input type="hidden" name="origen" value="'+(isExcel?"excel":"portal")+'">'+
-      '<div class="field"><label>Proyecto</label><input name="proyecto" list="proyDatalistEdit" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required></div>'+
-      '<datalist id="proyDatalistEdit">'+proyOptionsAll.map(function(p){return '<option value="'+esc(p.nombre)+'">';}).join("")+'</datalist>'+
-      '<div class="field"><label>Proveedor</label><input name="proveedor" list="provDatalistEdit" value="'+esc(g.proveedor||"")+'" required></div>'+
-      '<datalist id="provDatalistEdit">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
+      '<div class="field"><label>Proyecto</label><div class="ac-wrap"><input name="proyecto" autocomplete="off" data-ac="edit-proyecto" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required><div class="ac-list" id="ac-edit-proyecto"></div></div></div>'+
+      '<div class="field"><label>Proveedor</label><div class="ac-wrap"><input name="proveedor" autocomplete="off" data-ac="edit-proveedor" value="'+esc(g.proveedor||"")+'" required><div class="ac-list" id="ac-edit-proveedor"></div></div></div>'+
       '<div class="field"><label>Descripción</label><input name="descripcion" value="'+esc(g.descripcion||"")+'" required></div>'+
       '<div class="field"><label>Factura</label><input name="factura" value="'+esc(g.factura||"")+'"></div>'+
       '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(g.fecha||"")+'"></div>'+
@@ -2367,6 +2374,35 @@ document.addEventListener("click", function(e){
     }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="modal-close") closeModal();
+});
+function renderAcList(input){
+  var ac = input.dataset && input.dataset.ac;
+  if(!ac) return;
+  var box = document.getElementById("ac-"+ac);
+  if(!box) return;
+  var source = STATE._acSources[ac] || [];
+  var q = input.value.trim().toLowerCase();
+  var matches = q ? source.filter(function(n){ return n.toLowerCase().indexOf(q)>-1; }).slice(0,50) : source.slice(0,50);
+  if(!matches.length){ box.innerHTML=""; box.style.display="none"; return; }
+  box.innerHTML = matches.map(function(n){ return '<div class="ac-item">'+esc(n)+'</div>'; }).join("");
+  box.style.display = "block";
+}
+document.addEventListener("input", function(e){ if(e.target && e.target.dataset && e.target.dataset.ac) renderAcList(e.target); });
+document.addEventListener("focusin", function(e){ if(e.target && e.target.dataset && e.target.dataset.ac) renderAcList(e.target); });
+document.addEventListener("focusout", function(e){
+  var ac = e.target && e.target.dataset && e.target.dataset.ac;
+  if(!ac) return;
+  var box = document.getElementById("ac-"+ac);
+  if(box) setTimeout(function(){ box.style.display = "none"; }, 150);
+});
+document.addEventListener("mousedown", function(e){
+  var item = e.target.closest && e.target.closest(".ac-item");
+  if(!item) return;
+  var box = item.parentElement;
+  var wrap = box.closest(".ac-wrap");
+  var input = wrap && wrap.querySelector("input");
+  if(input){ input.value = item.textContent; input.focus(); }
+  box.innerHTML = ""; box.style.display = "none";
 });
 document.addEventListener("input", debounce(function(e){
   if(e.target && e.target.dataset && e.target.dataset.filter){
