@@ -1516,14 +1516,18 @@ function submitGasto(form){
 
   var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
   var provNombre = gasto.proveedor;
-  var addingProveedor = false;
+  var addingProveedor = false, provKey = null, provData = null;
   if(provNombre){
     var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
-    if(!known){ addingProveedor = true; ops.push(STATE.db.collection("proveedores_nuevos").add({ nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() })); }
+    if(!known){
+      addingProveedor = true; provKey = slugify(provNombre);
+      provData = { nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() };
+      ops.push(STATE.db.doc("proveedores_nuevos/"+provKey).set(provData));
+    }
   }
   Promise.all(ops).then(function(){
     STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
-    if(addingProveedor) STATE.proveedoresNuevos.push({ id:"_local_"+uid(), nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() });
+    if(addingProveedor) STATE.proveedoresNuevos.push(Object.assign({ id:provKey }, provData));
     toast("Gasto guardado ✓");
     form.reset();
     document.getElementById("f_fecha").value = todayISO();
@@ -1679,14 +1683,15 @@ function handleProyectoFormSubmit(form){
     if(allProyectos()[newKey]){ toast("Ese proyecto ya existe.","err"); return; }
     var infoKey2 = slugify(newKey);
     var infoData = (tipoTraila||tamanoTraila) ? { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() } : null;
-    var proyCid = uid();
-    var ops = [ STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:newKey, creadoEn:new Date().toISOString(), _cid:proyCid}) ];
+    var proyData = { nombre:nombre, key:newKey, creadoEn:new Date().toISOString() };
+    var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
+    var ops = [ STATE.db.doc("proyectos_nuevos/"+infoKey2).set(proyData) ];
     if(infoData) ops.push(STATE.db.doc("proyectos_info/"+infoKey2).set(infoData));
     Promise.all(ops).then(function(){
-      STATE.proyectosNuevos.push({ id:"_local_"+proyCid, nombre:nombre, key:newKey, creadoEn:new Date().toISOString(), _cid:proyCid });
+      STATE.proyectosNuevos.push(Object.assign({ id:infoKey2 }, proyData));
       if(infoData) STATE.proyectosInfo[infoKey2] = infoData;
       toast("Proyecto agregado ✓"); closeModal(); STATE.proySearch = ""; renderContent();
-    }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
+    }).catch(function(err){ console.error(err); if(submitBtn) submitBtn.disabled = false; toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
   }
 }
 function deleteProyectoRow(key, nombre, origen, docId){
@@ -1740,14 +1745,15 @@ function handleProveedorFormSubmit(form){
     if(exists){ toast("Ese proveedor ya existe.","err"); return; }
     var newKey = slugify(nombre);
     var infoData = (telefono||email||direccion) ? { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() } : null;
-    var provCid = uid();
-    var ops = [ STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString(), _cid:provCid}) ];
+    var provData = { nombre:nombre, creadoEn:new Date().toISOString() };
+    var submitBtn2 = form.querySelector('button[type=submit]'); if(submitBtn2) submitBtn2.disabled = true;
+    var ops = [ STATE.db.doc("proveedores_nuevos/"+newKey).set(provData) ];
     if(infoData) ops.push(STATE.db.doc("proveedores_info/"+newKey).set(infoData));
     Promise.all(ops).then(function(){
-      STATE.proveedoresNuevos.push({ id:"_local_"+provCid, nombre:nombre, creadoEn:new Date().toISOString(), _cid:provCid });
+      STATE.proveedoresNuevos.push(Object.assign({ id:newKey }, provData));
       if(infoData) STATE.proveedoresInfo[newKey] = infoData;
       toast("Proveedor agregado ✓"); closeModal(); STATE.provSearch = ""; renderContent();
-    }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
+    }).catch(function(err){ console.error(err); if(submitBtn2) submitBtn2.disabled = false; toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
   }
 }
 function deleteProveedorRow(key, nombre, origen, docId){
