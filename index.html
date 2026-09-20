@@ -623,7 +623,9 @@ function toggleSidebar(){ document.getElementById("sidebar").classList.toggle("o
 function closeSidebar(){ document.getElementById("sidebar").classList.remove("open"); document.getElementById("scrim").classList.remove("on"); }
 
 /* ================= LOOKUPS ================= */
-function catNameMap(){ var m={}; allCategorias().forEach(function(c){ m[c.codigo]=c.nombre; }); return m; }
+function catShortCode(codigo){ if(!codigo) return ""; var i = codigo.indexOf("-"); return i>-1 ? codigo.slice(0,i) : codigo; }
+function catLabel(c){ return catShortCode(c.codigo)+" · "+c.nombre; }
+function catNameMap(){ var m={}; allCategorias().forEach(function(c){ m[c.codigo]=catLabel(c); }); return m; }
 function proyectoNombre(key){ if(key==="SIN_PROYECTO"||!key) return "Sin proyecto asignado"; var p=allProyectos()[key]; return p?p.nombre:key; }
 function estadoDeProyecto(key){ var slug=slugify(key); var e=STATE.proyectoEstado[slug]; return (e&&e.estado)?e.estado:"activo"; }
 
@@ -727,7 +729,7 @@ function renderDashboard(){
   var proyEntries = Object.keys(agg.byProyecto).map(function(k){ return {label: proyectoNombre(k), value: agg.byProyecto[k]}; });
   var proyFold = foldTop(proyEntries, 12);
   var catMap = catNameMap();
-  var catEntries = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;}).map(function(c){ return {label:c.nombre, value: agg.byCategoria[c.codigo]||0}; });
+  var catEntries = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;}).map(function(c){ return {label:catLabel(c), value: agg.byCategoria[c.codigo]||0}; });
   var provEntries = Object.keys(agg.byProveedor).map(function(k){ return {label:k, value: agg.byProveedor[k]}; });
   var provFold = foldTop(provEntries, 10);
   var months = Object.keys(agg.byMonth).sort();
@@ -770,7 +772,7 @@ function renderDashboard(){
     '<div class="card-head"><h3 class="card-title">Vista del dashboard</h3><span class="card-note">'+(dashActive?"Filtrada":"Mostrando todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
       '<select data-dashfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.dashFilters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
-      '<select data-dashfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.dashFilters.categoria===c.codigo?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-dashfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.dashFilters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-dashfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.dashFilters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.dashFilters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
       '<input type="date" data-dashfilter="desde" value="'+esc(STATE.dashFilters.desde)+'" title="Desde">'+
       '<input type="date" data-dashfilter="hasta" value="'+esc(STATE.dashFilters.hasta)+'" title="Hasta">'+
@@ -874,7 +876,7 @@ function renderGastosView(){
   '<div class="card">'+
     '<div class="filters">'+
       '<select data-filter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.filters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
-      '<select data-filter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.filters.categoria===c.codigo?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-filter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.filters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<input type="text" list="provDatalist" placeholder="Proveedor" data-filter="proveedor" value="'+esc(STATE.filters.proveedor)+'">'+
       '<select data-filter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.filters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.filters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
       '<input type="date" data-filter="desde" value="'+esc(STATE.filters.desde)+'" title="Desde">'+
@@ -918,7 +920,7 @@ function renderRegistrarView(){
         '<div class="field"><label for="f_fecha_factura">Fecha de factura</label><input type="date" id="f_fecha_factura" name="fecha_factura"></div>'+
         '<div class="field span2"><label for="f_desc">Descripción</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
         '<div class="field"><label for="f_factura">N° de factura</label><input id="f_factura" name="factura" placeholder="Opcional"></div>'+
-        '<div class="field"><label for="f_categoria">Categoría</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(c.nombre)+'</option>';}).join("")+'</select></div>'+
+        '<div class="field"><label for="f_categoria">Categoría</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
         '<div class="field"><label for="f_importe">Importe</label><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div>'+
         '<div class="field"><label for="f_cantidad">Cantidad</label><input type="number" id="f_cantidad" name="cantidad" step="1" min="1" value="1"></div>'+
         '<div class="field"><label for="f_forma_pago">Forma de pago</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
@@ -1039,7 +1041,7 @@ function renderCatalogosView(){
     body = (can("addCategoria") ? '<form class="inline-form" id="addCategoriaForm"><div class="field"><label>Nueva categoría / subsistema</label><input name="nombre" placeholder="Ej. SG-B Rines y llantas" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
       cats.map(function(c){
         return '<div class="list-row">'+
-          '<span class="name">'+esc(c.nombre)+' <span class="card-note">('+esc(c.codigo)+')</span></span>'+
+          '<span class="name">'+esc(catShortCode(c.codigo))+' · '+esc(c.nombre)+'</span>'+
           '<span class="meta">'+fmtMoneyInt(agg.byCategoria[c.codigo]||0)+'</span>'+
           '<span class="badge '+(c.origen==="portal"?"badge-accent":"badge-muted")+'">'+(c.origen==="portal"?"Portal":"Excel")+'</span>'+
           (c.origen==="portal"&&can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-catalog" data-col="categorias_nuevas" data-id="'+esc(c._docId)+'" title="Eliminar">✕</button>' : '<span style="width:26px"></span>')+
@@ -1194,7 +1196,7 @@ function editGastoRow(docId){
       '<div class="field"><label>Factura</label><input name="factura" value="'+esc(g.factura||"")+'"></div>'+
       '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(g.fecha||"")+'"></div>'+
       '<div class="field"><label>Fecha factura</label><input type="date" name="fecha_factura" value="'+esc(g.fecha_factura||"")+'"></div>'+
-      '<div class="field"><label>Categoría</label><select name="categoria">'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(g.categoria===c.codigo?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join("")+'</select></div>'+
+      '<div class="field"><label>Categoría</label><select name="categoria">'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(g.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
       '<div class="field"><label>Importe</label><input type="number" step="0.01" name="importe" value="'+esc(g.importe)+'" required></div>'+
       '<div class="field"><label>Cantidad</label><input type="number" name="cantidad" value="'+esc(g.cantidad||1)+'"></div>'+
       '<div class="field"><label>Forma de pago</label><select name="forma_pago"><option value="efectivo"'+(g.forma_pago!=="credito"?' selected':'')+'>Efectivo</option><option value="credito"'+(g.forma_pago==="credito"?' selected':'')+'>Crédito</option></select></div>'+
