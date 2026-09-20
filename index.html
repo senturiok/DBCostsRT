@@ -345,6 +345,7 @@ var STATE = {
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
   provSearch:"",
+  proySearch:"",
   compareProjects:["","",""],
   catTab:"proyectos",
   loaded:false
@@ -650,7 +651,7 @@ function renderContent(){
     : (STATE.view==="usuarios" && STATE.profile && STATE.profile.isMaster) ? '<button class="btn btn-primary" data-action="new-perfil">+ Nuevo perfil</button>' : "";
   var c = document.getElementById("content");
 
-  var focusAttrs = ["filter","dashfilter","provsearch"];
+  var focusAttrs = ["filter","dashfilter","provsearch","proysearch"];
   var ae = document.activeElement, activeSelector = null, selStart = null, selEnd = null;
   if(ae && ae.dataset && c.contains(ae)){
     for(var fi=0; fi<focusAttrs.length; fi++){
@@ -1163,9 +1164,15 @@ function renderCatalogosView(){
   var labels = {proyectos:'Proyectos', proveedores:'Proveedores', categorias:'Categorías'};
   var body = "";
   if(STATE.catTab==="proyectos"){
-    var list = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+    var listAll = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+    var proyQ = STATE.proySearch.trim().toLowerCase();
+    var list = proyQ ? listAll.filter(function(p){
+      var hay = (p.nombre+" "+(p.tipoTraila||"")+" "+(p.tamanoTraila||"")+" "+estadoDeProyecto(p.key)).toLowerCase();
+      return hay.indexOf(proyQ)>-1;
+    }) : listAll;
     body = (!STATE.db ? '<p class="hint" style="color:var(--warn); margin-bottom:10px">Conectando con la base de datos compartida…</p>' : "") +
       (can("manageCatalogos") ? '<button class="btn btn-primary" data-action="new-proyecto" style="margin-bottom:14px">+ Agregar proyecto</button>' : "") +
+      '<div class="filters"><input type="text" class="q" placeholder="Buscar proyecto por nombre, tipo, tamaño o estado…" data-proysearch="1" value="'+esc(STATE.proySearch)+'"></div>'+
       (list.length ? '<div class="prov-grid">'+list.map(function(p){
         var estado = estadoDeProyecto(p.key);
         var rows = "";
@@ -1183,7 +1190,7 @@ function renderCatalogosView(){
             (isMasterUser() ? '<button class="btn btn-danger" data-action="delete-proyecto" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
           '</div>'+
         '</div>';
-      }).join("")+'</div>' : '<div class="empty">No hay proyectos todavía.</div>');
+      }).join("")+'</div>' : '<div class="empty">'+(proyQ?'Sin proyectos que coincidan con "'+esc(STATE.proySearch)+'".':'No hay proyectos todavía.')+'</div>');
   } else if(STATE.catTab==="proveedores"){
     var provAll = allProveedoresFull();
     var provQ = STATE.provSearch.trim().toLowerCase();
@@ -1281,7 +1288,7 @@ function handleProyectoFormSubmit(form){
     Promise.all(ops).then(function(){
       STATE.proyectosNuevos.push({ id:"_local_"+uid(), nombre:nombre, key:newKey, creadoEn:new Date().toISOString() });
       if(infoData) STATE.proyectosInfo[infoKey2] = infoData;
-      toast("Proyecto agregado ✓"); closeModal(); renderContent();
+      toast("Proyecto agregado ✓"); closeModal(); STATE.proySearch = ""; renderContent();
     }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
   }
 }
@@ -1611,6 +1618,8 @@ document.addEventListener("input", debounce(function(e){
     STATE.dashFilters[e.target.dataset.dashfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.provsearch){
     STATE.provSearch = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.proysearch){
+    STATE.proySearch = e.target.value; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
