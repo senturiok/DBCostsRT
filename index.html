@@ -1152,17 +1152,19 @@ function handleProveedorFormSubmit(form){
   if(key){
     var data = { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() };
     STATE.db.doc("proveedores_info/"+key).set(data).then(function(){
-      toast("Proveedor actualizado ✓"); closeModal();
+      STATE.proveedoresInfo[key] = data;
+      toast("Proveedor actualizado ✓"); closeModal(); renderContent();
     }).catch(function(err){ console.error(err); toast("No se pudo actualizar.","err"); });
   } else {
     var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
     if(exists){ toast("Ese proveedor ya existe.","err"); return; }
     var newKey = slugify(nombre);
+    var infoData = (telefono||email||direccion) ? { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() } : null;
     var ops = [ STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}) ];
-    if(telefono||email||direccion){
-      ops.push(STATE.db.doc("proveedores_info/"+newKey).set({nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString()}));
-    }
+    if(infoData) ops.push(STATE.db.doc("proveedores_info/"+newKey).set(infoData));
     Promise.all(ops).then(function(){
+      STATE.proveedoresNuevos.push({ id:"_local_"+uid(), nombre:nombre, creadoEn:new Date().toISOString() });
+      if(infoData) STATE.proveedoresInfo[newKey] = infoData;
       toast("Proveedor agregado ✓"); closeModal(); STATE.provSearch = ""; renderContent();
     }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
   }
