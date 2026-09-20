@@ -901,7 +901,7 @@ function renderCompararView(){
     if(nonZero.length>0 && nonZero.length<values.length){ flag = "faltante"; }
     else if(nonZero.length===values.length){
       var maxV = Math.max.apply(null,values), minV = Math.min.apply(null,values);
-      if(minV>0 && (maxV/minV) >= 1.5) flag = "revisar";
+      if(minV>0 && (maxV/minV) >= 1.1) flag = "revisar";
     }
     var noteBadge = flag==="faltante" ? '<span class="badge badge-warn">Posible faltante</span>'
       : flag==="revisar" ? '<span class="badge badge-critical">Revisar diferencia</span>' : "";
@@ -935,7 +935,7 @@ function renderCompararView(){
       '</table></div>'+
       '<p class="hint" style="margin-top:12px">'+
         '<span class="badge badge-warn">Posible faltante</span> un proyecto no tiene costo capturado en ese subsistema mientras otro(s) sí. '+
-        '<span class="badge badge-critical">Revisar diferencia</span> el costo en ese subsistema difiere 50% o más entre los proyectos seleccionados.'+
+        '<span class="badge badge-critical">Revisar diferencia</span> el costo en ese subsistema difiere 10% o más entre los proyectos seleccionados.'+
       '</p>'+
     '</div>';
 }
