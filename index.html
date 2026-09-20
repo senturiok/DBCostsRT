@@ -2185,14 +2185,18 @@ function editGastoRow(docId, origen){
     : STATE.gastosNuevos.find(function(x){return x.id===docId;});
   if(!g) return;
   var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
+  var proyMap = allProyectos();
+  var proyOptionsAll = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
   openModal(
     '<h3>Editar gasto</h3>'+
     (isExcel ? '<p class="hint" style="color:var(--warn)">Este registro viene del Excel importado. Editarlo solo cambia lo que se muestra en el portal; no modifica el archivo original.</p>' : "")+
     '<form id="editGastoForm">'+
       '<input type="hidden" name="gastoId" value="'+esc(docId)+'">'+
       '<input type="hidden" name="origen" value="'+(isExcel?"excel":"portal")+'">'+
-      '<div class="field"><label>Proyecto</label><input name="proyecto" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required></div>'+
-      '<div class="field"><label>Proveedor</label><input name="proveedor" value="'+esc(g.proveedor||"")+'" required></div>'+
+      '<div class="field"><label>Proyecto</label><input name="proyecto" list="proyDatalistEdit" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required></div>'+
+      '<datalist id="proyDatalistEdit">'+proyOptionsAll.map(function(p){return '<option value="'+esc(p.nombre)+'">';}).join("")+'</datalist>'+
+      '<div class="field"><label>Proveedor</label><input name="proveedor" list="provDatalistEdit" value="'+esc(g.proveedor||"")+'" required></div>'+
+      '<datalist id="provDatalistEdit">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
       '<div class="field"><label>Descripción</label><input name="descripcion" value="'+esc(g.descripcion||"")+'" required></div>'+
       '<div class="field"><label>Factura</label><input name="factura" value="'+esc(g.factura||"")+'"></div>'+
       '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(g.fecha||"")+'"></div>'+
