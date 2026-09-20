@@ -386,7 +386,7 @@ var STATE = {
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, gastosEdits:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
-  filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", q:"", page:1, pageSize:50 },
+  filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", flag:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportGenerated:false,
@@ -908,18 +908,25 @@ function renderDashboard(){
 
   var qualityCard = "";
   if(can("viewQuality")){
-    var base = STATE.gastosBase;
+    var base = allGastos().filter(function(r){return r.origen!=="portal";});
     var nSinProv = base.filter(function(r){return r.flag_sin_proveedor;}).length;
     var nSinProy = base.filter(function(r){return r.flag_sin_proyecto;}).length;
     var nFecha = base.filter(function(r){return r.flag_fecha;}).length;
+    function qualityRow(label, n, flag){
+      var clickable = n>0;
+      return '<div class="flag-item"'+(clickable?' data-action="goto-quality" data-flag="'+flag+'" style="cursor:pointer" title="Ver y corregir estos registros en Gastos"':'')+'>'+
+        '<span>'+label+(clickable?' <span class="hint" style="margin:0">→ ver y corregir</span>':'')+'</span>'+
+        '<span class="badge '+(n?'badge-warn':'badge-good')+'">'+n+'</span>'+
+      '</div>';
+    }
     qualityCard = '<div class="card">'+
       '<div class="card-head"><h3 class="card-title">Calidad de datos (importación Excel)</h3></div>'+
       '<div class="flag-list">'+
-        '<div class="flag-item"><span>Registros sin proveedor</span><span class="badge '+(nSinProv?'badge-warn':'badge-good')+'">'+nSinProv+'</span></div>'+
-        '<div class="flag-item"><span>Registros sin proyecto asignado</span><span class="badge '+(nSinProy?'badge-warn':'badge-good')+'">'+nSinProy+'</span></div>'+
-        '<div class="flag-item"><span>Fechas fuera de rango (revisar captura)</span><span class="badge '+(nFecha?'badge-warn':'badge-good')+'">'+nFecha+'</span></div>'+
+        qualityRow("Registros sin proveedor", nSinProv, "sin_proveedor")+
+        qualityRow("Registros sin proyecto asignado", nSinProy, "sin_proyecto")+
+        qualityRow("Fechas fuera de rango (revisar captura)", nFecha, "fecha")+
       '</div>'+
-      '<p class="hint">Estos registros vienen del archivo Excel original. Corrígelos ahí y vuelve a generar el portal si hace falta.</p>'+
+      '<p class="hint">Da clic en un indicador para ver esos registros en Gastos y corregirlos ahí mismo.</p>'+
     '</div>';
   } else {
     var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,6);
@@ -1600,6 +1607,9 @@ function filteredGastos(){
     if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
     if(f.anio && (!r.fecha || r.fecha.slice(0,4)!==f.anio)) return false;
     if(f.mes && (!r.fecha || r.fecha.slice(5,7)!==f.mes)) return false;
+    if(f.flag==="sin_proveedor" && !r.flag_sin_proveedor) return false;
+    if(f.flag==="sin_proyecto" && !r.flag_sin_proyecto) return false;
+    if(f.flag==="fecha" && !r.flag_fecha) return false;
     if(q){
       var hay = ((r.descripcion||"")+" "+(r.factura||"")+" "+(r.proyecto_raw||"")+" "+(r.proveedor||"")).toLowerCase();
       if(hay.indexOf(q)===-1) return false;
@@ -1665,8 +1675,15 @@ function renderGastosView(){
     '</tr>';
   }).join("");
 
+  var flagLabels = { sin_proveedor:"Sin proveedor", sin_proyecto:"Sin proyecto asignado", fecha:"Fecha sospechosa" };
+  var flagBanner = STATE.filters.flag ? '<div class="card" style="margin-bottom:14px; display:flex; align-items:center; justify-content:space-between; gap:10px;">'+
+    '<span>Mostrando solo registros marcados como <strong>'+esc(flagLabels[STATE.filters.flag]||STATE.filters.flag)+'</strong> ('+all.length+' '+(all.length===1?"registro":"registros")+') — corrígelos con el botón de editar de cada fila.</span>'+
+    '<button class="btn btn-ghost" data-action="clear-filters">Quitar filtro</button>'+
+  '</div>' : "";
+
   return '' +
   proyectoResumen +
+  flagBanner +
   '<div class="card">'+
     '<div class="filters">'+
       '<select data-filter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.filters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
@@ -2224,7 +2241,11 @@ document.addEventListener("click", function(e){
   else if(action==="export-csv") exportCSV();
   else if(action==="page-prev"){ if(STATE.filters.page>1){ STATE.filters.page--; renderContent(); } }
   else if(action==="page-next"){ STATE.filters.page++; renderContent(); }
-  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",q:"",page:1,pageSize:50}; renderContent(); }
+  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",flag:"",q:"",page:1,pageSize:50}; renderContent(); }
+  else if(action==="goto-quality"){
+    STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",flag:el.dataset.flag,q:"",page:1,pageSize:50};
+    setView("gastos");
+  }
   else if(action==="edit-gasto") editGastoRow(el.dataset.id, el.dataset.origen);
   else if(action==="delete-gasto") deleteGastoRow(el.dataset.id);
   else if(action==="confirm-delete-gasto"){
