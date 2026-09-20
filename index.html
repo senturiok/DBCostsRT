@@ -533,7 +533,7 @@ function subscribeAll(){
   var db = STATE.db;
   function sub(path, key){
     db.collection(path).onSnapshot(function(snap){
-      var real = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
+      var real = snap.docs.map(function(d){ var data=d.data()||{}; return Object.assign({}, data, {id:d.id}); });
       var realCids = {}; real.forEach(function(d){ if(d._cid) realCids[d._cid] = true; });
       var pending = (STATE[key]||[]).filter(function(d){
         return d.id && String(d.id).indexOf("_local_")===0 && !(d._cid && realCids[d._cid]);
@@ -567,7 +567,7 @@ function subscribeAll(){
     if(STATE.loaded) rerenderView();
   }, function(){});
   db.collection("perfiles").onSnapshot(function(snap){
-    STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
+    STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; return Object.assign({}, data, {id:d.id}); });
     tryRestorePendingProfile();
     renderGateUserOptions();
     if(STATE.loaded) rerenderView();
