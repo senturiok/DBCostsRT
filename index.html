@@ -1464,9 +1464,7 @@ function renderRegistrarView(){
         '<div class="field"><label for="f_fecha">Fecha de registro</label><input type="date" id="f_fecha" name="fecha" value="'+todayISO()+'" required></div>'+
         '<div class="field"><label for="f_proyecto">Proyecto</label><select id="f_proyecto" name="proyecto_key">'+
           '<option value="">Selecciona…</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'">'+esc(p.nombre)+'</option>';}).join("")+
-          '<option value="__new__">+ Agregar proyecto nuevo…</option>'+
         '</select></div>'+
-        '<div class="field" id="f_proyecto_nuevo_wrap" style="display:none"><label for="f_proyecto_nuevo">Nombre del proyecto nuevo</label><input id="f_proyecto_nuevo" name="proyecto_nuevo" placeholder="Ej. TRAILER 42"></div>'+
         '<div class="field"><label for="f_proveedor">Proveedor</label><input id="f_proveedor" name="proveedor" list="provDatalistReg" required placeholder="Nombre del proveedor"><datalist id="provDatalistReg">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist></div>'+
         '<div class="field"><label for="f_fecha_factura">Fecha de factura</label><input type="date" id="f_fecha_factura" name="fecha_factura"></div>'+
         '<div class="field span2"><label for="f_desc">Descripción</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
@@ -1486,21 +1484,12 @@ function renderRegistrarView(){
     }).join("")+'</div>' : '<div class="empty">Nada capturado todavía.</div>')+
   '</div>';
 }
-document.addEventListener("change", function(e){
-  if(e.target && e.target.id==="f_proyecto"){
-    document.getElementById("f_proyecto_nuevo_wrap").style.display = (e.target.value==="__new__") ? "block" : "none";
-  }
-});
 function submitGasto(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida. Intenta de nuevo en unos segundos.","err"); return; }
   var fd = new FormData(form);
   var proyKey = fd.get("proyecto_key");
   var proyNombre = "";
-  if(proyKey==="__new__"){
-    proyNombre = (fd.get("proyecto_nuevo")||"").trim();
-    if(!proyNombre){ toast("Escribe el nombre del proyecto nuevo.","err"); return; }
-    proyKey = normKey(proyNombre);
-  } else if(proyKey){
+  if(proyKey){
     var opt = form.querySelector('#f_proyecto option[value="'+CSS.escape(proyKey)+'"]');
     proyNombre = opt ? opt.dataset.nombre : proyKey;
   }
@@ -1519,9 +1508,6 @@ function submitGasto(form){
   };
 
   var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
-  if(proyKey && !allProyectos()[proyKey]){
-    ops.push(STATE.db.collection("proyectos_nuevos").add({ nombre:proyNombre, key:proyKey, creadoPor:capturador, creadoEn:new Date().toISOString() }));
-  }
   var provNombre = gasto.proveedor;
   if(provNombre){
     var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
@@ -1532,7 +1518,6 @@ function submitGasto(form){
     form.reset();
     document.getElementById("f_fecha").value = todayISO();
     document.getElementById("f_capturador").value = capturador;
-    document.getElementById("f_proyecto_nuevo_wrap").style.display = "none";
   }).catch(function(err){ console.error(err); toast("No se pudo guardar. Intenta de nuevo.","err"); });
 }
 function handleEditGastoSubmit(form){
