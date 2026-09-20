@@ -1147,10 +1147,10 @@ function exportReportCSV(){
   } else {
     var rows = filteredReportGastos().slice().sort(function(a,b){ return (a.fecha||"").localeCompare(b.fecha||""); });
     var catMap = catNameMap();
-    var header = ["Fecha","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
+    var header = ["Fecha","FechaFactura","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
     lines = [header.join(",")];
     rows.forEach(function(r){
-      lines.push([r.fecha||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
+      lines.push([r.fecha||"", r.fecha_factura||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
     });
     filename = "reporte_costeo_rancho_trailers.csv";
   }
@@ -1417,10 +1417,11 @@ function renderReportesView(){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Detalle completo de gastos</h3><span class="card-note">'+detalle.length+' registros</span></div>'+
       '<div class="table-wrap"><table class="tbl-detalle">'+
-        '<thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th></tr></thead>'+
+        '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th></tr></thead>'+
         '<tbody>'+(detalle.length? detalle.map(function(r){
           return '<tr>'+
             '<td>'+fmtDate(r.fecha)+'</td>'+
+            '<td>'+fmtDate(r.fecha_factura)+'</td>'+
             '<td>'+esc(proyectoNombre(r.proyecto_key))+'</td>'+
             '<td>'+esc(r.proveedor||"—")+'</td>'+
             '<td class="desc-cell" title="'+esc(r.descripcion)+'">'+esc(r.descripcion||"—")+'</td>'+
@@ -1431,9 +1432,9 @@ function renderReportesView(){
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
           '</tr>';
-        }).join("") : '<tr><td colspan="7" class="empty">Sin registros con estos filtros.</td></tr>')+
+        }).join("") : '<tr><td colspan="8" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="6">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="7">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1662,7 +1663,8 @@ function renderGastosView(){
       '</div>';
     }
     return '<tr>'+
-      '<td>'+fmtDate(r.fecha)+(r.flag_fecha?' <span class="badge badge-warn">revisar</span>':'')+'</td>'+
+      '<td>'+fmtDate(r.fecha)+'</td>'+
+      '<td>'+fmtDate(r.fecha_factura)+(r.flag_fecha?' <span class="badge badge-warn">revisar</span>':'')+'</td>'+
       '<td>'+esc(proyectoNombre(r.proyecto_key))+'</td>'+
       '<td>'+(r.proveedor?esc(r.proveedor):'<span class="badge badge-warn">sin proveedor</span>')+'</td>'+
       '<td class="desc-cell" title="'+esc(r.descripcion)+'">'+esc(r.descripcion||"—")+'</td>'+
@@ -1698,9 +1700,9 @@ function renderGastosView(){
     '</div>'+
     '<datalist id="provDatalist">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
     '<div class="table-wrap"><table>'+
-      '<thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Origen</th><th></th></tr></thead>'+
-      '<tbody>'+(rows||'<tr><td colspan="10" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
-      '<tfoot><tr><td colspan="7">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
+      '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Origen</th><th></th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="11" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
+      '<tfoot><tr><td colspan="8">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
     '</table></div>'+
     '<div class="pagination">'+
       '<span>Página '+STATE.filters.page+' de '+pages+'</span>'+
@@ -2222,11 +2224,11 @@ function exportCSV(){
   if(!STATE.downloads){ toast("La exportación no está disponible en esta vista.","err"); return; }
   var rows = filteredGastos();
   var catMap = catNameMap();
-  var header = ["Fecha","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
+  var header = ["Fecha","FechaFactura","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
   var lines = [header.join(",")];
   var formaPagoLabel = {credito:"Credito", efectivo:"Efectivo"};
   rows.forEach(function(r){
-    lines.push([r.fecha||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
+    lines.push([r.fecha||"", r.fecha_factura||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
   });
   STATE.downloads.save({ filename:"gastos_rancho_trailers.csv", data: lines.join("\n") }).then(function(){
     toast("CSV descargado ✓");
