@@ -416,6 +416,7 @@ function fmtMoney(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var ne
 function fmtMoneyInt(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var neg=n<0; n=Math.abs(n); var s=Math.round(n).toLocaleString("en-US"); return (neg?"-":"")+"$"+s; }
 function fmtDate(d){ if(!d) return "—"; var parts=d.split("-"); if(parts.length!==3) return d; var meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; return parseInt(parts[2],10)+" "+meses[parseInt(parts[1],10)-1]+" "+parts[0]; }
 function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function comprobanteIcon(r){ return r && r.comprobanteUrl ? ' <a href="'+esc(r.comprobanteUrl)+'" target="_blank" rel="noopener" class="icon-btn" title="Ver comprobante">📎</a>' : ""; }
 function debounce(fn,ms){ var t; return function(){ var a=arguments,ctx=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(ctx,a); },ms); }; }
 function byVal(a,b){ return b.value-a.value; }
 var MESES_OPTS = [
@@ -951,7 +952,7 @@ function renderDashboard(){
     var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,6);
     qualityCard = '<div class="card"><div class="card-head"><h3 class="card-title">Últimos gastos capturados en el portal</h3></div>'+
       (recientes.length ? '<div class="barlist">'+recientes.map(function(r){
-        return '<div class="flag-item"><span>'+esc(r.proyecto||"—")+' · '+esc(r.proveedor||"—")+'</span><span class="num">'+fmtMoneyInt(r.importe)+'</span></div>';
+        return '<div class="flag-item"><span>'+esc(r.proyecto||"—")+' · '+esc(r.proveedor||"—")+comprobanteIcon(r)+'</span><span class="num">'+fmtMoneyInt(r.importe)+'</span></div>';
       }).join("")+'</div>' : '<div class="empty">Aún no hay gastos capturados en el portal.</div>')+
     '</div>';
   }
@@ -1192,7 +1193,7 @@ function renderTemplateProveedores(gastos){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th>Tipo de pago</th><th class="num">Total</th></tr></thead>'+
+        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th>Tipo de pago</th><th class="num">Total</th><th>Comprobante</th></tr></thead>'+
         '<tbody>'+(rows.length? rows.map(function(r){
           return '<tr>'+
             '<td>'+esc(r.proveedor||"—")+'</td>'+
@@ -1201,10 +1202,11 @@ function renderTemplateProveedores(gastos){
             '<td>'+esc(r.factura||"—")+'</td>'+
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
+            '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
           '</tr>';
-        }).join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
+        }).join("") : '<tr><td colspan="7" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="5">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="5">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1231,7 +1233,7 @@ function renderTemplateConsolidado(gastos){
   var bodyRows = [];
   var curProv = null, subtotal = 0;
   function flushSubtotal(){
-    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="4">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="2"></td></tr>');
+    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="4">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="3"></td></tr>');
   }
   rows.forEach(function(r){
     var prov = r.proveedor||"—";
@@ -1245,6 +1247,7 @@ function renderTemplateConsolidado(gastos){
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
       '<td><span class="badge '+estadoCreditoBadgeClass(r)+'">'+esc(estadoCreditoLabel(r))+'</span></td>'+
+      '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
     '</tr>');
   });
   flushSubtotal();
@@ -1257,10 +1260,10 @@ function renderTemplateConsolidado(gastos){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
-        '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="7" class="empty">Sin registros con estos filtros.</td></tr>')+
+        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th><th>Comprobante</th></tr></thead>'+
+        '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="8" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="4">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="4">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1434,7 +1437,7 @@ function renderReportesView(){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Detalle completo de gastos</h3><span class="card-note">'+detalle.length+' registros</span></div>'+
       '<div class="table-wrap"><table class="tbl-detalle">'+
-        '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th></tr></thead>'+
+        '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Comprobante</th></tr></thead>'+
         '<tbody>'+(detalle.length? detalle.map(function(r){
           return '<tr>'+
             '<td>'+fmtDate(r.fecha)+'</td>'+
@@ -1448,10 +1451,11 @@ function renderReportesView(){
             '</td>'+
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
+            '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
           '</tr>';
-        }).join("") : '<tr><td colspan="8" class="empty">Sin registros con estos filtros.</td></tr>')+
+        }).join("") : '<tr><td colspan="9" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="7">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="7">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td><td></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1544,6 +1548,7 @@ function renderContabilidadView(){
       '<td>'+esc(proyectoNombre(r.proyecto_key))+'</td>'+
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td>'+(estadoBadge[estado]||"")+notaHtml+pagoHtml+'</td>'+
+      '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
       '<td>'+acciones+'</td>'+
     '</tr>';
   }).join("");
@@ -1552,9 +1557,9 @@ function renderContabilidadView(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Gastos a crédito</h3><span class="card-note">'+filtered.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>'+
-        '<tbody>'+(rows||'<tr><td colspan="7" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
-        '<tfoot><tr><td colspan="4">Total ('+filtered.length+' registros)</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="2"></td></tr></tfoot>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="8" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
+        '<tfoot><tr><td colspan="4">Total ('+filtered.length+' registros)</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>';
 }
@@ -1765,7 +1770,7 @@ function renderRegistrarView(){
   '</div>'+
   '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos registrados en el portal</h3></div>'+
     (recientes.length? '<div class="barlist">'+recientes.map(function(r){
-      return '<div class="flag-item"><span>'+esc(fmtDate(r.fecha))+' · '+esc(r.proyecto||"—")+' · '+esc(r.proveedor||"—")+' <span class="card-note">('+esc(r.capturadoPor||"—")+')</span></span><span class="num">'+fmtMoneyInt(r.importe)+'</span></div>';
+      return '<div class="flag-item"><span>'+esc(fmtDate(r.fecha))+' · '+esc(r.proyecto||"—")+' · '+esc(r.proveedor||"—")+' <span class="card-note">('+esc(r.capturadoPor||"—")+')</span>'+comprobanteIcon(r)+'</span><span class="num">'+fmtMoneyInt(r.importe)+'</span></div>';
     }).join("")+'</div>' : '<div class="empty">Nada capturado todavía.</div>')+
   '</div>';
 }
