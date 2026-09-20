@@ -415,15 +415,17 @@ var MESES_OPTS = [
   {v:"05",l:"Mayo"},{v:"06",l:"Junio"},{v:"07",l:"Julio"},{v:"08",l:"Agosto"},
   {v:"09",l:"Septiembre"},{v:"10",l:"Octubre"},{v:"11",l:"Noviembre"},{v:"12",l:"Diciembre"}
 ];
-function availableYears(){
+function yearsFromRows(rows, field){
   var years = {};
-  function take(d){ if(d && d.length>=4) years[d.slice(0,4)] = true; }
-  STATE.gastosBase.forEach(function(r){ take(r.fecha); take(r.fecha_factura); });
-  STATE.gastosNuevos.forEach(function(g){ take(g.fecha); take(g.fecha_factura); });
+  rows.forEach(function(r){
+    if(r.flag_fecha) return;
+    var d = r[field];
+    if(d && d.length>=4) years[d.slice(0,4)] = true;
+  });
   return Object.keys(years).sort().reverse();
 }
-function mesAnioOptionsHTML(prefix, mesVal, anioVal){
-  var years = availableYears();
+function mesAnioOptionsHTML(prefix, mesVal, anioVal, rows, field){
+  var years = yearsFromRows(rows, field);
   return '<select data-'+prefix+'="mes"><option value="">Todos los meses</option>'+MESES_OPTS.map(function(m){return '<option value="'+m.v+'"'+(mesVal===m.v?' selected':'')+'>'+m.l+'</option>';}).join("")+'</select>'+
     '<select data-'+prefix+'="anio"><option value="">Todos los años</option>'+years.map(function(y){return '<option value="'+y+'"'+(anioVal===y?' selected':'')+'>'+y+'</option>';}).join("")+'</select>';
 }
@@ -929,7 +931,7 @@ function renderDashboard(){
       '<select data-dashfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(STATE.dashFilters.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(STATE.dashFilters.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-dashfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.dashFilters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-dashfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.dashFilters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.dashFilters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
-      mesAnioOptionsHTML("dashfilter", STATE.dashFilters.mes, STATE.dashFilters.anio)+
+      mesAnioOptionsHTML("dashfilter", STATE.dashFilters.mes, STATE.dashFilters.anio, allGastos(), "fecha")+
       '<input type="date" data-dashfilter="desde" value="'+esc(STATE.dashFilters.desde)+'" title="Desde">'+
       '<input type="date" data-dashfilter="hasta" value="'+esc(STATE.dashFilters.hasta)+'" title="Hasta">'+
       (dashActive ? '<button class="btn btn-ghost" data-action="clear-dash-filters">Limpiar</button>' : '')+
@@ -1288,6 +1290,7 @@ function renderReportesView(){
   var f = STATE.reportFilters;
   var provOptions = allProveedores();
   var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.desde||f.hasta||f.mes||f.anio);
+  var reportDateField = (STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado") ? "fecha_factura" : "fecha";
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
@@ -1298,7 +1301,7 @@ function renderReportesView(){
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
-      mesAnioOptionsHTML("reportfilter", f.mes, f.anio)+
+      mesAnioOptionsHTML("reportfilter", f.mes, f.anio, allGastos(), reportDateField)+
       '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura desde":"Fecha de registro desde")+'">'+
       '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
       (reportActive ? '<button class="btn btn-ghost" data-action="clear-report-filters">Limpiar</button>' : '')+
@@ -1466,7 +1469,7 @@ function renderContabilidadView(){
       '<datalist id="provDatalistCont">'+provNames.map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
       '<select data-contfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
       '<select data-contfilter="estado"><option value="">Todos los estados</option><option value="pendiente"'+(f.estado==="pendiente"?' selected':'')+'>Pendiente</option><option value="verificado"'+(f.estado==="verificado"?' selected':'')+'>Verificado</option><option value="pagado"'+(f.estado==="pagado"?' selected':'')+'>Pagado</option></select>'+
-      mesAnioOptionsHTML("contfilter", f.mes, f.anio)+
+      mesAnioOptionsHTML("contfilter", f.mes, f.anio, creditos, "fecha_factura")+
       '<input type="date" data-contfilter="desde" value="'+esc(f.desde)+'" title="Fecha de factura desde">'+
       '<input type="date" data-contfilter="hasta" value="'+esc(f.hasta)+'" title="Fecha de factura hasta">'+
       (filterActive ? '<button class="btn btn-ghost" data-action="clear-cont-filters">Limpiar</button>' : '')+
@@ -1663,7 +1666,7 @@ function renderGastosView(){
       '<select data-filter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.filters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<input type="text" list="provDatalist" placeholder="Proveedor" data-filter="proveedor" value="'+esc(STATE.filters.proveedor)+'">'+
       '<select data-filter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.filters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.filters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
-      mesAnioOptionsHTML("filter", STATE.filters.mes, STATE.filters.anio)+
+      mesAnioOptionsHTML("filter", STATE.filters.mes, STATE.filters.anio, allGastos(), "fecha")+
       '<input type="date" data-filter="desde" value="'+esc(STATE.filters.desde)+'" title="Desde">'+
       '<input type="date" data-filter="hasta" value="'+esc(STATE.filters.hasta)+'" title="Hasta">'+
       '<input type="text" class="q" placeholder="Buscar descripción, factura, proyecto…" data-filter="q" value="'+esc(STATE.filters.q)+'">'+
