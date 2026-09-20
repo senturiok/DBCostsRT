@@ -1,0 +1,26 @@
+name = "rancho-trailers-costeo"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# Static site (index.html + the read-only Excel-origin JSON catalogs) served
+# straight from the repo root. .assetsignore (at the repo root) keeps this
+# worker/ directory itself out of the served files.
+[assets]
+directory = "../"
+binding = "ASSETS"
+# Default (no not_found_handling): a request that matches no static file
+# falls through to this worker's fetch handler, which is required for
+# /api/* and /files/* to ever be reached.
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rancho-trailers-costeo-db"
+database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+
+[[r2_buckets]]
+binding = "COMPROBANTES"
+bucket_name = "rancho-trailers-comprobantes"
+
+# Set with: wrangler secret put MASTER_PASSWORD
+# (never commit the actual value)

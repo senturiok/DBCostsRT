@@ -359,7 +359,9 @@
 
 /* ================= AUTH ================= */
 var MASTER_USERNAME = "master";
-var MASTER_PASSWORD = "1920";
+/* La contraseña del Master Administrator y la de cada perfil ya no viven
+   aquí: se validan en el Worker (ver worker/src/index.js), que nunca las
+   regresa al cliente. */
 
 /* Permisos por módulo: cada perfil solo ve y usa los módulos marcados aquí.
    Dentro de un módulo habilitado, crear y editar está permitido para
@@ -391,7 +393,7 @@ var STATE = {
   profile:null, view:"dashboard", sidebarOpen:false,
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, gastosEdits:{}, perfiles:[],
-  db:null, downloads:null, assets:null, _pendingRestoreId:null, _acSources:{},
+  db:null, assets:null, _acSources:{},
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", flag:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
@@ -563,8 +565,15 @@ function renderGateUserOptions(){
   sel.innerHTML = opts;
   if(current && sel.querySelector('option[value="'+CSS.escape(current)+'"]')) sel.value = current;
 }
+function fetchLoginOptions(){
+  fetch("/api/login-options", {credentials:"same-origin"}).then(function(r){return r.json();}).then(function(list){
+    STATE.perfiles = list;
+    renderGateUserOptions();
+  }).catch(function(){});
+}
 function boot(){
   renderGateUserOptions();
+  fetchLoginOptions();
   Promise.all([
     fetch("gastos.json").then(function(r){return r.json();}),
     fetch("proyectos_catalog.json").then(function(r){return r.json();}),
@@ -574,84 +583,116 @@ function boot(){
   ]).then(function(res){
     STATE.gastosBase = res[0]; STATE.proyectosCat = res[1]; STATE.proveedoresCat = res[2];
     STATE.categoriasCat = res[3]; STATE.meta = res[4]; STATE.loaded = true;
-    var saved = null;
-    try{ saved = JSON.parse(sessionStorage.getItem("rt_session")||"null"); }catch(e){ saved = null; }
-    if(saved && saved.type === "master"){
-      STATE.profile = { isMaster:true, nombre:"Master Administrator" };
-      enterShell();
-    } else if(saved && saved.type === "perfil" && saved.id){
-      STATE._pendingRestoreId = saved.id;
-      tryRestorePendingProfile();
-    }
+    restoreSession();
   }).catch(function(e){ console.error("Error cargando datos base",e); });
 
-  if(window.claude && window.claude.use){
-    window.claude.use("db").then(function(db){ STATE.db=db; if(db) subscribeAll(); }).catch(function(){});
-    window.claude.use("downloads").then(function(d){ STATE.downloads=d; }).catch(function(){});
-    window.claude.use("assets").then(function(a){ STATE.assets=a; }).catch(function(){});
-  }
+  STATE.db = createCloudflareDb();
+  STATE.assets = createCloudflareAssets();
 }
-function tryRestorePendingProfile(){
-  if(!STATE._pendingRestoreId || STATE.profile) return;
-  for(var i=0;i<STATE.perfiles.length;i++){
-    if(STATE.perfiles[i].id === STATE._pendingRestoreId){
-      var pf = STATE.perfiles[i];
-      STATE.profile = { isMaster:false, nombre:pf.nombre, permisos:pf.permisos||{}, id:pf.id };
-      STATE._pendingRestoreId = null;
-      enterShell();
-      return;
-    }
-  }
+function restoreSession(){
+  fetch("/api/me", {credentials:"same-origin"}).then(function(r){
+    if(!r.ok) throw new Error("sin sesión");
+    return r.json();
+  }).then(function(data){
+    STATE.profile = data.profile;
+    enterShell();
+    startPolling();
+  }).catch(function(){ /* nadie ha iniciado sesión todavía: se queda en la puerta */ });
 }
 
-function subscribeAll(){
-  var db = STATE.db;
-  function sub(path, key){
-    db.collection(path).onSnapshot(function(snap){
-      var real = snap.docs.map(function(d){ var data=d.data()||{}; return Object.assign({}, data, {id:d.id}); });
-      var realCids = {}; real.forEach(function(d){ if(d._cid) realCids[d._cid] = true; });
-      var pending = (STATE[key]||[]).filter(function(d){
-        return d.id && String(d.id).indexOf("_local_")===0 && !(d._cid && realCids[d._cid]);
-      });
-      STATE[key] = real.concat(pending);
-      if(STATE.loaded) rerenderView();
-    }, function(err){ console.warn("db "+path+" error", err); });
+/* ================= DATOS EN VIVO (poll a /api/state cada pocos segundos) ================= */
+var POLL_INTERVAL_MS = 7000;
+var _pollTimer = null;
+function applyStateSnapshot(state){
+  function applyList(key, col){
+    var real = (state[col]||[]).slice();
+    var realCids = {}; real.forEach(function(d){ if(d._cid) realCids[d._cid] = true; });
+    var pending = (STATE[key]||[]).filter(function(d){
+      return d.id && String(d.id).indexOf("_local_")===0 && !(d._cid && realCids[d._cid]);
+    });
+    STATE[key] = real.concat(pending);
   }
-  sub("gastos_nuevos","gastosNuevos");
-  sub("proyectos_nuevos","proyectosNuevos");
-  sub("proveedores_nuevos","proveedoresNuevos");
-  sub("categorias_nuevas","categoriasNuevas");
-  db.collection("proyecto_estado").onSnapshot(function(snap){
-    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
-    STATE.proyectoEstado = m;
-    if(STATE.loaded) rerenderView();
-  }, function(){});
-  db.collection("proveedores_info").onSnapshot(function(snap){
-    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
-    STATE.proveedoresInfo = m;
-    if(STATE.loaded) rerenderView();
-  }, function(){});
-  db.collection("proyectos_info").onSnapshot(function(snap){
-    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
-    STATE.proyectosInfo = m;
-    if(STATE.loaded) rerenderView();
-  }, function(){});
-  db.collection("gastos_edits").onSnapshot(function(snap){
-    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
-    STATE.gastosEdits = m;
-    if(STATE.loaded) rerenderView();
-  }, function(){});
-  db.collection("gastos_contabilidad").onSnapshot(function(snap){
-    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
-    STATE.gastosContabilidad = m;
-    if(STATE.loaded) rerenderView();
-  }, function(){});
-  db.collection("perfiles").onSnapshot(function(snap){
-    STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; return Object.assign({}, data, {id:d.id}); });
-    tryRestorePendingProfile();
-    renderGateUserOptions();
-    if(STATE.loaded) rerenderView();
-  }, function(err){ console.warn("db perfiles error", err); });
+  applyList("gastosNuevos","gastos_nuevos");
+  applyList("proyectosNuevos","proyectos_nuevos");
+  applyList("proveedoresNuevos","proveedores_nuevos");
+  applyList("categoriasNuevas","categorias_nuevas");
+  STATE.proyectoEstado = state.proyecto_estado || {};
+  STATE.proveedoresInfo = state.proveedores_info || {};
+  STATE.proyectosInfo = state.proyectos_info || {};
+  STATE.gastosEdits = state.gastos_edits || {};
+  STATE.gastosContabilidad = state.gastos_contabilidad || {};
+  STATE.perfiles = state.perfiles || [];
+  renderGateUserOptions();
+  if(STATE.loaded) rerenderView();
+}
+function pollState(){
+  fetch("/api/state", {credentials:"same-origin"}).then(function(r){
+    if(r.status===401) return null; // sesión cerrada en otra pestaña, etc.
+    if(!r.ok) throw new Error("state "+r.status);
+    return r.json();
+  }).then(function(state){ if(state) applyStateSnapshot(state); })
+  .catch(function(err){ console.warn("No se pudo actualizar datos.", err); });
+}
+function startPolling(){
+  pollState();
+  if(_pollTimer) clearInterval(_pollTimer);
+  _pollTimer = setInterval(pollState, POLL_INTERVAL_MS);
+}
+function stopPolling(){
+  if(_pollTimer){ clearInterval(_pollTimer); _pollTimer=null; }
+}
+
+/* ================= CLIENTE DE LA API (reemplaza window.claude.use) ================= */
+function apiWriteCall(method, path, body){
+  var opts = { method: method, credentials: "same-origin" };
+  if(body !== undefined){ opts.headers = {"Content-Type":"application/json"}; opts.body = JSON.stringify(body); }
+  return fetch("/api/collections/"+path, opts).then(function(r){
+    return r.json().catch(function(){ return {}; }).then(function(data){
+      if(!r.ok){ var err = new Error((data&&data.error)||("HTTP "+r.status)); err.status = r.status; err.code = data && data.error; throw err; }
+      return data;
+    });
+  });
+}
+function createCloudflareDb(){
+  function mkDoc(path){
+    return {
+      set: function(data){ return apiWriteCall("PUT", path, data); },
+      update: function(data){ return apiWriteCall("PATCH", path, data); },
+      delete: function(){ return apiWriteCall("DELETE", path); }
+    };
+  }
+  function mkCollection(col){
+    return {
+      doc: function(id){ return mkDoc(col+"/"+encodeURIComponent(id)); },
+      add: function(data){ return apiWriteCall("POST", col, data); }
+    };
+  }
+  return {
+    collection: mkCollection,
+    doc: function(path){
+      var idx = path.indexOf("/");
+      return mkDoc(path.slice(0,idx)+"/"+encodeURIComponent(path.slice(idx+1)));
+    }
+  };
+}
+function createCloudflareAssets(){
+  return {
+    upload: function(file){
+      var fd = new FormData();
+      fd.append("file", file);
+      return fetch("/api/files", { method:"POST", credentials:"same-origin", body: fd }).then(function(r){
+        return r.json().catch(function(){ return {}; }).then(function(data){
+          if(!r.ok){ var err = new Error((data&&data.error)||("HTTP "+r.status)); err.code = data && data.error; throw err; }
+          return data;
+        });
+      });
+    },
+    delete: function(id){
+      return fetch("/api/files/"+encodeURIComponent(id), { method:"DELETE", credentials:"same-origin" }).then(function(r){
+        return r.json().catch(function(){ return {}; });
+      });
+    }
+  };
 }
 
 /* ================= GATE ================= */
@@ -664,29 +705,26 @@ document.addEventListener("submit", function(e){
     var pw = document.getElementById("pw").value;
     var errEl = document.getElementById("gateError");
     if(!userVal){ errEl.textContent = "Selecciona tu usuario."; return; }
-    if(userVal === "master"){
-      if(pw === MASTER_PASSWORD){
-        STATE.profile = { isMaster:true, nombre:"Master Administrator" };
-        try{ sessionStorage.setItem("rt_session", JSON.stringify({type:"master"})); }catch(err){}
-        errEl.textContent = "";
-        enterShell();
-      } else {
-        errEl.textContent = "Contraseña incorrecta.";
-      }
-      return;
-    }
-    var match = null;
-    for(var i=0;i<STATE.perfiles.length;i++){
-      if(STATE.perfiles[i].id === userVal){ match = STATE.perfiles[i]; break; }
-    }
-    if(match && pw === match.password){
-      STATE.profile = { isMaster:false, nombre:match.nombre, permisos:match.permisos||{}, id:match.id };
-      try{ sessionStorage.setItem("rt_session", JSON.stringify({type:"perfil", id:match.id})); }catch(err){}
+    var submitBtn = e.target.querySelector('button[type=submit]');
+    if(submitBtn) submitBtn.disabled = true;
+    var loginBody = userVal === "master" ? {tipo:"master", password:pw} : {tipo:"perfil", id:userVal, password:pw};
+    fetch("/api/login", {
+      method:"POST", credentials:"same-origin",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify(loginBody)
+    }).then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(data){ return {ok:r.ok, data:data}; });
+    }).then(function(res){
+      if(submitBtn) submitBtn.disabled = false;
+      if(!res.ok){ errEl.textContent = (res.data && res.data.error) || "No se pudo iniciar sesión."; return; }
+      STATE.profile = res.data.profile;
       errEl.textContent = "";
       enterShell();
-    } else {
-      errEl.textContent = "Usuario o contraseña incorrectos.";
-    }
+      startPolling();
+    }).catch(function(){
+      if(submitBtn) submitBtn.disabled = false;
+      errEl.textContent = "No se pudo conectar con el servidor.";
+    });
   }
   else if(formId === "registrarForm") submitGasto(e.target);
   else if(formId === "proyectoForm") handleProyectoFormSubmit(e.target);
@@ -727,8 +765,9 @@ function enterShell(){
   }
 }
 function logout(){
+  fetch("/api/logout", {method:"POST", credentials:"same-origin"}).catch(function(){});
+  stopPolling();
   STATE.profile = null;
-  try{ sessionStorage.removeItem("rt_session"); }catch(e){}
   document.getElementById("shell").classList.remove("on");
   document.getElementById("gate").style.display = "flex";
   var uEl = document.getElementById("gateUser"), pEl = document.getElementById("pw"), eEl = document.getElementById("gateError");
@@ -1132,7 +1171,6 @@ function printReport(){
   setTimeout(doPrint, 800);
 }
 function exportReportCSV(){
-  if(!STATE.downloads){ toast("La exportación no está disponible en esta vista.","err"); return; }
   var formaPagoLabel = {credito:"Credito", efectivo:"Efectivo"};
   var lines, filename;
   if(STATE.reportTemplate==="proveedores"){
@@ -1174,9 +1212,7 @@ function exportReportCSV(){
     });
     filename = "reporte_costeo_rancho_trailers.csv";
   }
-  STATE.downloads.save({ filename:filename, data: lines.join("\n") }).then(function(){
-    toast("CSV descargado ✓");
-  }).catch(function(err){ if(err && err.code!=="declined") toast("No se pudo exportar.","err"); });
+  downloadCSV(filename, lines.join("\n"));
 }
 function renderTemplateProveedores(gastos){
   var rows = gastos.slice().sort(function(a,b){
@@ -2287,8 +2323,17 @@ function deleteGastoRow(docId, origen){
 
 /* ================= CSV EXPORT ================= */
 function csvEsc(v){ v = (v===null||v===undefined)?"":String(v); if(/[",\n]/.test(v)) v = '"'+v.replace(/"/g,'""')+'"'; return v; }
+function downloadCSV(filename, text){
+  try{
+    var blob = new Blob([text], {type:"text/csv;charset=utf-8"});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement("a");
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    setTimeout(function(){ URL.revokeObjectURL(url); }, 1000);
+    toast("CSV descargado ✓");
+  }catch(e){ toast("No se pudo exportar.","err"); }
+}
 function exportCSV(){
-  if(!STATE.downloads){ toast("La exportación no está disponible en esta vista.","err"); return; }
   var rows = filteredGastos();
   var catMap = catNameMap();
   var header = ["Fecha","FechaFactura","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
@@ -2297,9 +2342,7 @@ function exportCSV(){
   rows.forEach(function(r){
     lines.push([r.fecha||"", r.fecha_factura||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
   });
-  STATE.downloads.save({ filename:"gastos_rancho_trailers.csv", data: lines.join("\n") }).then(function(){
-    toast("CSV descargado ✓");
-  }).catch(function(err){ if(err && err.code!=="declined") toast("No se pudo exportar.","err"); });
+  downloadCSV("gastos_rancho_trailers.csv", lines.join("\n"));
 }
 
 /* ================= DELEGATED EVENTS ================= */
