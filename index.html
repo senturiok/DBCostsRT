@@ -1511,15 +1511,19 @@ function submitGasto(form){
 
   var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
   var provNombre = gasto.proveedor;
+  var addingProveedor = false;
   if(provNombre){
     var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
-    if(!known) ops.push(STATE.db.collection("proveedores_nuevos").add({ nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() }));
+    if(!known){ addingProveedor = true; ops.push(STATE.db.collection("proveedores_nuevos").add({ nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() })); }
   }
   Promise.all(ops).then(function(){
+    STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
+    if(addingProveedor) STATE.proveedoresNuevos.push({ id:"_local_"+uid(), nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() });
     toast("Gasto guardado ✓");
     form.reset();
     document.getElementById("f_fecha").value = todayISO();
     document.getElementById("f_capturador").value = capturador;
+    renderContent();
   }).catch(function(err){ console.error(err); toast("No se pudo guardar. Intenta de nuevo.","err"); });
 }
 function handleEditGastoSubmit(form){
@@ -1537,7 +1541,9 @@ function handleEditGastoSubmit(form){
     forma_pago: fd.get("forma_pago")||"efectivo"
   };
   STATE.db.collection("gastos_nuevos").doc(id).update(data).then(function(){
-    toast("Gasto actualizado ✓"); closeModal();
+    var g = STATE.gastosNuevos.find(function(x){return x.id===id;});
+    if(g) Object.assign(g, data);
+    toast("Gasto actualizado ✓"); closeModal(); renderContent();
   }).catch(function(){ toast("No se pudo actualizar.","err"); });
 }
 
@@ -1921,7 +1927,11 @@ document.addEventListener("click", function(e){
   else if(action==="delete-gasto") deleteGastoRow(el.dataset.id);
   else if(action==="confirm-delete-gasto"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
-    STATE.db.collection("gastos_nuevos").doc(el.dataset.id).delete().then(function(){ toast("Gasto eliminado"); closeModal(); }).catch(function(){ toast("No se pudo eliminar.","err"); });
+    var delGastoId = el.dataset.id;
+    STATE.db.collection("gastos_nuevos").doc(delGastoId).delete().then(function(){
+      STATE.gastosNuevos = STATE.gastosNuevos.filter(function(x){return x.id!==delGastoId;});
+      toast("Gasto eliminado"); closeModal(); renderContent();
+    }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="toggle-estado"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
