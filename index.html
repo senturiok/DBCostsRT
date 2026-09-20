@@ -362,6 +362,7 @@ var STATE = {
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
   reportFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
+  reportGenerated:false,
   provSearch:"",
   proySearch:"",
   compareProjects:["","",""],
@@ -1024,10 +1025,15 @@ function renderReportesView(){
       (reportActive ? '<button class="btn btn-ghost" data-action="clear-report-filters">Limpiar</button>' : '')+
     '</div>'+
     '<div style="display:flex; gap:8px; margin-top:12px">'+
-      '<button class="btn btn-primary" data-action="print-report">Imprimir / Guardar PDF</button>'+
-      (can("export") ? '<button class="btn" data-action="export-report-csv">Exportar detalle CSV</button>' : '')+
+      '<button class="btn btn-primary" data-action="generate-report">Generar reporte</button>'+
+      (STATE.reportGenerated ? '<button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>' : '')+
+      (STATE.reportGenerated && can("export") ? '<button class="btn" data-action="export-report-csv">Exportar detalle CSV</button>' : '')+
     '</div>'+
   '</div>';
+
+  if(!STATE.reportGenerated){
+    return filterBar + '<div class="card"><div class="empty">Ajusta los filtros si quieres y da clic en "Generar reporte" para ver el resumen, las comparativas y el detalle de gastos.</div></div>';
+  }
 
   var gastos = filteredReportGastos();
   var agg = computeAgg(gastos);
@@ -1730,7 +1736,8 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
-  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
+  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; STATE.reportGenerated=false; renderContent(); }
+  else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
   else if(action==="print-report") window.print();
   else if(action==="export-report-csv") exportReportCSV();
   else if(action==="new-proyecto") openProyectoModal(null);
@@ -1796,7 +1803,7 @@ document.addEventListener("input", debounce(function(e){
   } else if(e.target && e.target.dataset && e.target.dataset.proysearch){
     STATE.proySearch = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.reportfilter){
-    STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; renderContent();
+    STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; STATE.reportGenerated=false; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
@@ -1810,7 +1817,7 @@ document.addEventListener("change", function(e){
   } else if(e.target && e.target.dataset && e.target.dataset.dashfilter && e.target.tagName==="SELECT"){
     STATE.dashFilters[e.target.dataset.dashfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.reportfilter && e.target.tagName==="SELECT"){
-    STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; renderContent();
+    STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; STATE.reportGenerated=false; renderContent();
   }
 });
 document.addEventListener("DOMContentLoaded", boot);
