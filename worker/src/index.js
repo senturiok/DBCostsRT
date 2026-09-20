@@ -104,6 +104,84 @@ async function listDocs(env, collection) {
   return results.map((r) => ({ id: r.id, data: JSON.parse(r.data) }));
 }
 
+// -------------------------------------------------------- activity log --
+
+// "activity_log" is intentionally not in LIST_COLLECTIONS/MAP_COLLECTIONS/
+// ALL_COLLECTIONS: it must never be reachable through the generic
+// /api/collections/:col write endpoint (authorizeWrite already rejects any
+// collection not in ALL_COLLECTIONS as unknown), only written by
+// logActivity() below and read through the dedicated, master-only
+// /api/activity-log route.
+const ACTION_LABELS = { POST: "Creó", PUT: "Guardó", PATCH: "Editó", DELETE: "Eliminó" };
+const COLLECTION_LABELS = {
+  gastos_nuevos: "Gasto",
+  gastos_edits: "Gasto (Excel)",
+  gastos_contabilidad: "Crédito/Contabilidad",
+  proyecto_estado: "Estado de proyecto",
+  proyectos_info: "Proyecto",
+  proyectos_nuevos: "Proyecto",
+  proveedores_info: "Proveedor",
+  proveedores_nuevos: "Proveedor",
+  categorias_nuevas: "Categoría",
+  perfiles: "Usuario",
+};
+
+function summarizeForLog(collection, data) {
+  if (!data) return "";
+  if (collection === "gastos_nuevos" || collection === "gastos_edits") {
+    if (data.eliminado) return "Marcado como eliminado" + (data.descripcion ? ": " + data.descripcion : "");
+    const parts = [];
+    if (data.descripcion) parts.push(data.descripcion);
+    if (data.proveedor) parts.push(data.proveedor);
+    if (data.importe !== undefined && data.importe !== null) {
+      parts.push("$" + Number(data.importe).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    }
+    return parts.join(" · ");
+  }
+  if (collection === "gastos_contabilidad") return data.estado ? "Estado: " + data.estado : "";
+  if (collection === "proyecto_estado") return (data.key || "") + (data.estado ? " → " + data.estado : "");
+  if (
+    collection === "proyectos_info" ||
+    collection === "proyectos_nuevos" ||
+    collection === "proveedores_info" ||
+    collection === "proveedores_nuevos" ||
+    collection === "categorias_nuevas"
+  ) {
+    return data.eliminado ? "Eliminado: " + (data.nombre || "") : data.nombre || "";
+  }
+  // "perfiles": only ever read .nombre here — password_hash must never reach a summary string.
+  if (collection === "perfiles") return data.nombre || "";
+  return "";
+}
+
+async function logActivity(env, profile, method, collection, id, data) {
+  try {
+    const entryId = randomHex(16);
+    const entry = {
+      ts: new Date().toISOString(),
+      actor: profile.isMaster ? "Master Administrator" : profile.nombre,
+      action: ACTION_LABELS[method] || method,
+      collection,
+      collectionLabel: COLLECTION_LABELS[collection] || collection,
+      docId: id,
+      summary: summarizeForLog(collection, data),
+    };
+    await putDoc(env, "activity_log", entryId, entry);
+  } catch (e) {
+    // A logging failure must never mask a successful write to the caller.
+    console.error("logActivity failed", e);
+  }
+}
+
+async function handleActivityLog(request, env) {
+  const profile = await getProfileFromRequest(request, env);
+  if (!profile || !profile.isMaster) return errorResponse(403, "Solo el Master Administrator puede ver el log de actividad.");
+  const { results } = await env.DB.prepare(
+    "SELECT id, data FROM documents WHERE collection = 'activity_log' ORDER BY updated_at DESC LIMIT 300"
+  ).all();
+  return jsonResponse(results.map((r) => Object.assign({ id: r.id }, JSON.parse(r.data))));
+}
+
 async function buildState(env) {
   const out = {};
   for (const col of LIST_COLLECTIONS) {
@@ -325,20 +403,25 @@ async function handleCollectionWrite(request, env, collection, id, method) {
   if (method === "POST") {
     const newId = randomHex(16);
     await putDoc(env, collection, newId, payload);
+    await logActivity(env, profile, method, collection, newId, payload);
     return jsonResponse({ id: newId });
   }
   if (method === "PUT") {
     await putDoc(env, collection, id, payload);
+    await logActivity(env, profile, method, collection, id, payload);
     return jsonResponse({ ok: true });
   }
   if (method === "PATCH") {
     const existing = (await getDoc(env, collection, id)) || {};
     const merged = Object.assign({}, existing, payload);
     await putDoc(env, collection, id, merged);
+    await logActivity(env, profile, method, collection, id, merged);
     return jsonResponse({ ok: true });
   }
   if (method === "DELETE") {
+    const existing = await getDoc(env, collection, id);
     await deleteDoc(env, collection, id);
+    await logActivity(env, profile, method, collection, id, existing);
     return jsonResponse({ ok: true });
   }
   return errorResponse(405, "Método no soportado.");
@@ -371,6 +454,9 @@ export default {
         const profile = await getProfileFromRequest(request, env);
         if (!profile) return errorResponse(401, "No autenticado.");
         return jsonResponse(await buildState(env));
+      }
+      if (segments.length === 2 && segments[0] === "api" && segments[1] === "activity-log" && method === "GET") {
+        return handleActivityLog(request, env);
       }
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "files" && method === "POST") {
         return handleFileUpload(request, env);
