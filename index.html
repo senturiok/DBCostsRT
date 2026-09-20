@@ -73,6 +73,9 @@
     border-radius:3px; background:var(--surface); color:var(--ink); width:100%;
   }
   input:focus,select:focus,textarea:focus,button:focus-visible{outline:2px solid var(--steel); outline-offset:1px;}
+  .input-money{position:relative;}
+  .input-money-prefix{position:absolute; left:11px; top:50%; transform:translateY(-50%); color:var(--muted); font-size:14px; pointer-events:none;}
+  .input-money input{padding-left:24px;}
   .btn{
     display:inline-flex; align-items:center; justify-content:center; gap:8px; border:1px solid var(--line-strong);
     background:var(--surface); color:var(--ink); padding:10px 16px; border-radius:3px; font-size:13.5px; font-weight:600;
@@ -1470,7 +1473,7 @@ function renderRegistrarView(){
         '<div class="field span2"><label for="f_desc">Descripción</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
         '<div class="field"><label for="f_factura">N° de factura</label><input id="f_factura" name="factura" placeholder="Opcional"></div>'+
         '<div class="field"><label for="f_categoria">Categoría</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
-        '<div class="field"><label for="f_importe">Importe</label><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div>'+
+        '<div class="field"><label for="f_importe">Importe</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div></div>'+
         '<div class="field"><label for="f_forma_pago">Forma de pago</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
       '</div>'+
       '<p class="hint">Los campos de proyecto y proveedor se guardan en el catálogo compartido para que todos los vean al instante.</p>'+
@@ -1870,7 +1873,7 @@ function editGastoRow(docId){
       '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(g.fecha||"")+'"></div>'+
       '<div class="field"><label>Fecha factura</label><input type="date" name="fecha_factura" value="'+esc(g.fecha_factura||"")+'"></div>'+
       '<div class="field"><label>Categoría</label><select name="categoria">'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(g.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
-      '<div class="field"><label>Importe</label><input type="number" step="0.01" name="importe" value="'+esc(g.importe)+'" required></div>'+
+      '<div class="field"><label>Importe</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" name="importe" value="'+esc(g.importe)+'" required></div></div>'+
       '<div class="field"><label>Cantidad</label><input type="number" name="cantidad" value="'+esc(g.cantidad||1)+'"></div>'+
       '<div class="field"><label>Forma de pago</label><select name="forma_pago"><option value="efectivo"'+(g.forma_pago!=="credito"?' selected':'')+'>Efectivo</option><option value="credito"'+(g.forma_pago==="credito"?' selected':'')+'>Crédito</option></select></div>'+
       '<div style="display:flex; gap:8px; margin-top:8px"><button class="btn btn-primary" type="submit">Guardar cambios</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
