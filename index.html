@@ -339,6 +339,7 @@ var STATE = {
   db:null, downloads:null, _pendingRestoreId:null,
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
+  provSearch:"",
   catTab:"proyectos",
   loaded:false
 };
@@ -631,10 +632,13 @@ function renderContent(){
     : (STATE.view==="usuarios" && STATE.profile && STATE.profile.isMaster) ? '<button class="btn btn-primary" data-action="new-perfil">+ Nuevo perfil</button>' : "";
   var c = document.getElementById("content");
 
-  var ae = document.activeElement, activeFilter = null, selStart = null, selEnd = null;
-  if(ae && ae.dataset && ae.dataset.filter && c.contains(ae)){
-    activeFilter = ae.dataset.filter;
-    if(typeof ae.selectionStart === "number"){ selStart = ae.selectionStart; selEnd = ae.selectionEnd; }
+  var focusAttrs = ["filter","dashfilter","provsearch"];
+  var ae = document.activeElement, activeSelector = null, selStart = null, selEnd = null;
+  if(ae && ae.dataset && c.contains(ae)){
+    for(var fi=0; fi<focusAttrs.length; fi++){
+      if(ae.dataset[focusAttrs[fi]]!==undefined){ activeSelector = '[data-'+focusAttrs[fi]+'="'+CSS.escape(ae.dataset[focusAttrs[fi]])+'"]'; break; }
+    }
+    if(activeSelector && typeof ae.selectionStart === "number"){ selStart = ae.selectionStart; selEnd = ae.selectionEnd; }
   }
 
   if(STATE.view==="dashboard") c.innerHTML = renderDashboard();
@@ -644,8 +648,8 @@ function renderContent(){
   else if(STATE.view==="usuarios") c.innerHTML = renderUsuariosView();
   mountCharts();
 
-  if(activeFilter){
-    var again = c.querySelector('[data-filter="'+activeFilter+'"]');
+  if(activeSelector){
+    var again = c.querySelector(activeSelector);
     if(again){
       again.focus();
       if(selStart !== null && again.setSelectionRange){ try{ again.setSelectionRange(selStart, selEnd); }catch(e){} }
@@ -1062,8 +1066,14 @@ function renderCatalogosView(){
         '</div>';
       }).join("");
   } else if(STATE.catTab==="proveedores"){
-    var provList = allProveedoresFull();
+    var provAll = allProveedoresFull();
+    var provQ = STATE.provSearch.trim().toLowerCase();
+    var provList = provQ ? provAll.filter(function(p){
+      var hay = (p.nombre+" "+p.telefono+" "+p.email+" "+p.direccion).toLowerCase();
+      return hay.indexOf(provQ)>-1;
+    }) : provAll;
     body = (can("manageCatalogos") ? '<form class="inline-form" id="addProveedorForm"><div class="field"><label>Nuevo proveedor</label><input name="nombre" placeholder="Nombre del proveedor" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
+      '<div class="filters"><input type="text" class="q" placeholder="Buscar proveedor por nombre, teléfono, correo o dirección…" data-provsearch="1" value="'+esc(STATE.provSearch)+'"></div>'+
       (provList.length ? '<div class="prov-grid">'+provList.map(function(p){
         var rows = "";
         if(p.telefono) rows += '<div class="prov-contact-row"><span class="lbl">Tel</span><span>'+esc(p.telefono)+'</span></div>';
@@ -1080,7 +1090,7 @@ function renderCatalogosView(){
             (can("deleteCatalogItem") ? '<button class="btn btn-danger" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
           '</div>'+
         '</div>';
-      }).join("")+'</div>' : '<div class="empty">No hay proveedores todavía.</div>');
+      }).join("")+'</div>' : '<div class="empty">'+(provQ?'Sin proveedores que coincidan con "'+esc(STATE.provSearch)+'".':'No hay proveedores todavía.')+'</div>');
   } else {
     var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
     body = (can("addCategoria") ? '<form class="inline-form" id="addCategoriaForm"><div class="field"><label>Nueva categoría / subsistema</label><input name="nombre" placeholder="Ej. SG-B Rines y llantas" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
@@ -1373,6 +1383,8 @@ document.addEventListener("input", debounce(function(e){
     STATE.filters[e.target.dataset.filter] = e.target.value; STATE.filters.page = 1; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.dashfilter){
     STATE.dashFilters[e.target.dataset.dashfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.provsearch){
+    STATE.provSearch = e.target.value; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
