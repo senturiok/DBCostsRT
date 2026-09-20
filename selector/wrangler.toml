@@ -1,0 +1,10 @@
+name = "rancho-trailers-selector"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+workers_dev = true
+
+# Attaches this worker directly to the apex domain. Cloudflare manages the
+# DNS record and certificate for a Workers Custom Domain automatically.
+[[routes]]
+pattern = "serviceranchotrailers.org"
+custom_domain = true
