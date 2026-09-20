@@ -375,6 +375,7 @@ function can(action){
   if(!key) return false;
   return !!(p.permisos && p.permisos[key]);
 }
+function isMasterUser(){ return !!(STATE.profile && STATE.profile.isMaster); }
 function permisosCount(permisos){
   var n=0; if(!permisos) return 0;
   PERMS.forEach(function(pm){ if(permisos[pm.key]) n++; });
@@ -1179,7 +1180,7 @@ function renderCatalogosView(){
           '<div class="prov-contact">'+rows+'</div>'+
           '<div class="prov-actions">'+
             (can("manageCatalogos") ? '<button class="btn" data-action="edit-proyecto" data-key="'+esc(p.key)+'">Editar</button>' : '')+
-            (can("deleteCatalogItem") ? '<button class="btn btn-danger" data-action="delete-proyecto" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
+            (isMasterUser() ? '<button class="btn btn-danger" data-action="delete-proyecto" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
           '</div>'+
         '</div>';
       }).join("")+'</div>' : '<div class="empty">No hay proyectos todavía.</div>');
@@ -1206,7 +1207,7 @@ function renderCatalogosView(){
           (rows ? '<div class="prov-contact">'+rows+'</div>' : '<p class="hint" style="margin:0">Sin datos de contacto todavía.</p>')+
           '<div class="prov-actions">'+
             (can("manageCatalogos") ? '<button class="btn" data-action="edit-proveedor" data-key="'+esc(p.key)+'">Editar</button>' : '')+
-            (can("deleteCatalogItem") ? '<button class="btn btn-danger" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
+            (isMasterUser() ? '<button class="btn btn-danger" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
           '</div>'+
         '</div>';
       }).join("")+'</div>' : '<div class="empty">'+(provQ?'Sin proveedores que coincidan con "'+esc(STATE.provSearch)+'".':'No hay proveedores todavía.')+'</div>');
@@ -1554,6 +1555,7 @@ document.addEventListener("click", function(e){
   else if(action==="edit-proyecto") openProyectoModal(el.dataset.key);
   else if(action==="delete-proyecto") deleteProyectoRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
   else if(action==="confirm-delete-proyecto"){
+    if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar proyectos.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
     var prKey=el.dataset.key, prNombre=el.dataset.nombre, prOrigen=el.dataset.origen, prDocId=el.dataset.id;
     var prOp = (prOrigen==="portal" && prDocId) ? STATE.db.collection("proyectos_nuevos").doc(prDocId).delete()
@@ -1571,6 +1573,7 @@ document.addEventListener("click", function(e){
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
   else if(action==="confirm-delete-proveedor"){
+    if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar proveedores.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
     var pKey=el.dataset.key, pNombre=el.dataset.nombre, pOrigen=el.dataset.origen, pDocId=el.dataset.id;
     var op = (pOrigen==="portal" && pDocId) ? STATE.db.collection("proveedores_nuevos").doc(pDocId).delete()
