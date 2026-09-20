@@ -403,6 +403,7 @@ var STATE = {
   proySearch:"",
   compareProjects:["","",""],
   catTab:"proyectos",
+  contTab:"proveedores",
   loaded:false
 };
 
@@ -1468,7 +1469,17 @@ function contKey(id){ return String(id).replace(/[^A-Za-z0-9_.-]/g,"_"); }
 function creditoInfo(g){ return STATE.gastosContabilidad[contKey(g.id)] || {}; }
 function creditoEstado(g){ return creditoInfo(g).estado || "pendiente"; }
 function quienSoy(){ return STATE.profile ? (STATE.profile.isMaster ? "Master Administrator" : STATE.profile.nombre) : "—"; }
+var CONT_TABS = ["proveedores"];
+var CONT_TAB_LABELS = { proveedores:"Proveedores" };
 function renderContabilidadView(){
+  var body = "";
+  if(STATE.contTab==="proveedores"){
+    body = renderContabilidadProveedoresTab();
+  }
+  return '<div class="tabs">'+CONT_TABS.map(function(t){return '<button class="tab" data-action="cont-tab" data-tab="'+t+'" aria-selected="'+(STATE.contTab===t)+'">'+CONT_TAB_LABELS[t]+'</button>';}).join("")+'</div>'+
+    '<div style="margin-top:14px">'+body+'</div>';
+}
+function renderContabilidadProveedoresTab(){
   var f = STATE.contFilters;
   var proyMap = allProyectos();
   var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
@@ -2349,6 +2360,7 @@ document.addEventListener("click", function(e){
     }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
+  else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
   else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
