@@ -233,8 +233,10 @@
     .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action]{display:none !important;}
     body, .content{padding:0 !important; background:#fff !important;}
     .card{box-shadow:none !important; border:1px solid #ccc !important; break-inside:avoid; background:#fff !important;}
-    .grid{display:block !important;}
-    .grid > *{margin-bottom:12px;}
+    .kpis{grid-template-columns:repeat(4,1fr) !important;}
+    .charts-row,.two-col{grid-template-columns:1fr !important;}
+    .table-wrap{overflow-x:visible !important;}
+    table{width:100% !important; min-width:0 !important; table-layout:auto;}
     table{font-size:11px;}
     thead{display:table-header-group;}
     tr{break-inside:avoid;}
@@ -985,7 +987,7 @@ function filteredReportGastos(){
   });
 }
 function reportRangeLabel(gastos){
-  var fechas = gastos.map(function(r){return r.fecha;}).filter(Boolean).sort();
+  var fechas = gastos.filter(function(r){return !r.flag_fecha;}).map(function(r){return r.fecha;}).filter(Boolean).sort();
   if(!fechas.length) return "Sin registros";
   return fmtDate(fechas[0]) + " – " + fmtDate(fechas[fechas.length-1]);
 }
