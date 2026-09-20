@@ -326,7 +326,7 @@ var STATE = {
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
-  dashFilters:{ proyecto:"", categoria:"", formaPago:"", desde:"", hasta:"" },
+  dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
   catTab:"proyectos",
   loaded:false
 };
@@ -715,6 +715,7 @@ function filteredDashboardGastos(){
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
+    if(f.estado && estadoDeProyecto(r.proyecto_key||"SIN_PROYECTO")!==f.estado) return false;
     if(f.desde && r.fecha && r.fecha<f.desde) return false;
     if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
     return true;
@@ -740,7 +741,10 @@ function renderDashboard(){
   var prevVal = prevMonth ? agg.byMonth[prevMonth] : null;
   var deltaTxt = "";
   if(prevVal){ var pct = ((lastVal-prevVal)/prevVal*100); deltaTxt = (pct>=0?"+":"")+pct.toFixed(0)+"% vs "+monthLabel(prevMonth); }
-  var activos = Object.keys(proyMap).filter(function(k){ return proyMap[k].es_valido && estadoDeProyecto(k)!=="terminado"; }).length;
+  var proyKeysInView = Object.keys(agg.byProyecto).filter(function(k){ return proyMap[k] && proyMap[k].es_valido; });
+  var mostrandoTerminados = STATE.dashFilters.estado==="terminado";
+  var proyCountLabel = mostrandoTerminados ? "Proyectos terminados" : "Proyectos activos";
+  var proyCount = proyKeysInView.filter(function(k){ return mostrandoTerminados ? estadoDeProyecto(k)==="terminado" : estadoDeProyecto(k)!=="terminado"; }).length;
   var lcId = "lc"+Date.now();
 
   var qualityCard = "";
@@ -767,11 +771,12 @@ function renderDashboard(){
     '</div>';
   }
 
-  var dashActive = !!(STATE.dashFilters.proyecto || STATE.dashFilters.categoria || STATE.dashFilters.formaPago || STATE.dashFilters.desde || STATE.dashFilters.hasta);
+  var dashActive = !!(STATE.dashFilters.proyecto || STATE.dashFilters.categoria || STATE.dashFilters.formaPago || STATE.dashFilters.estado || STATE.dashFilters.desde || STATE.dashFilters.hasta);
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Vista del dashboard</h3><span class="card-note">'+(dashActive?"Filtrada":"Mostrando todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
       '<select data-dashfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.dashFilters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-dashfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(STATE.dashFilters.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(STATE.dashFilters.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-dashfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.dashFilters.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-dashfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.dashFilters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.dashFilters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
       '<input type="date" data-dashfilter="desde" value="'+esc(STATE.dashFilters.desde)+'" title="Desde">'+
@@ -784,7 +789,7 @@ function renderDashboard(){
   filterBar +
   '<div class="grid kpis">'+
     '<div class="card"><div class="kpi-label">Total invertido</div><div class="kpi-value">'+fmtMoneyInt(agg.total)+'</div><div class="kpi-delta">'+agg.count+' registros</div></div>'+
-    '<div class="card"><div class="kpi-label">Proyectos activos</div><div class="kpi-value">'+activos+'</div><div class="kpi-delta">'+Object.keys(proyMap).filter(function(k){return proyMap[k].es_valido;}).length+' proyectos en total</div></div>'+
+    '<div class="card"><div class="kpi-label">'+proyCountLabel+'</div><div class="kpi-value">'+proyCount+'</div><div class="kpi-delta">'+Object.keys(proyMap).filter(function(k){return proyMap[k].es_valido;}).length+' proyectos en total</div></div>'+
     '<div class="card"><div class="kpi-label">Gasto '+(lastMonth?monthLabel(lastMonth):"reciente")+'</div><div class="kpi-value">'+fmtMoneyInt(lastVal)+'</div><div class="kpi-delta">'+deltaTxt+'</div></div>'+
     '<div class="card"><div class="kpi-label">Ticket promedio</div><div class="kpi-value">'+fmtMoneyInt(agg.count?agg.total/agg.count:0)+'</div><div class="kpi-delta">por factura</div></div>'+
   '</div>'+
@@ -1257,7 +1262,7 @@ document.addEventListener("click", function(e){
     STATE.db.collection(el.dataset.col).doc(el.dataset.id).delete().then(function(){ toast("Eliminado"); }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
-  else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",desde:"",hasta:""}; renderContent(); }
+  else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
   else if(action==="view-proyecto-gastos"){
     STATE.filters.proyecto = el.dataset.key; STATE.filters.page = 1;
     if(can("viewGastos")) setView("gastos");
