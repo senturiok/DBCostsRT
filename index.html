@@ -976,15 +976,17 @@ function renderCompararView(){
 }
 
 /* ================= REPORTES ================= */
-function filteredReportGastos(){
+function filteredReportGastos(dateField){
   var f = STATE.reportFilters;
+  dateField = dateField || "fecha";
   return allGastos().filter(function(r){
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
     if(f.estado && estadoDeProyecto(r.proyecto_key||"SIN_PROYECTO")!==f.estado) return false;
-    if(f.desde && r.fecha && r.fecha<f.desde) return false;
-    if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
+    var d = r[dateField];
+    if(f.desde && d && d<f.desde) return false;
+    if(f.hasta && d && d>f.hasta) return false;
     return true;
   });
 }
@@ -998,7 +1000,7 @@ function exportReportCSV(){
   var formaPagoLabel = {credito:"Credito", efectivo:"Efectivo"};
   var lines, filename;
   if(STATE.reportTemplate==="proveedores"){
-    var provRows = filteredReportGastos().slice().sort(function(a,b){
+    var provRows = filteredReportGastos("fecha_factura").slice().sort(function(a,b){
       var pa=(a.proveedor||"").toUpperCase(), pb=(b.proveedor||"").toUpperCase();
       if(pa!==pb) return pa<pb?-1:1;
       return (a.fecha_factura||"").localeCompare(b.fecha_factura||"");
@@ -1069,8 +1071,8 @@ function renderReportesView(){
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
-      '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="Desde">'+
-      '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="Hasta">'+
+      '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+(STATE.reportTemplate==="proveedores"?"Fecha de factura desde":"Fecha de registro desde")+'">'+
+      '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+(STATE.reportTemplate==="proveedores"?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
       (reportActive ? '<button class="btn btn-ghost" data-action="clear-report-filters">Limpiar</button>' : '')+
     '</div>'+
     '<div style="display:flex; gap:8px; margin-top:12px">'+
@@ -1085,7 +1087,7 @@ function renderReportesView(){
   }
 
   if(STATE.reportTemplate==="proveedores"){
-    return filterBar + renderTemplateProveedores(filteredReportGastos());
+    return filterBar + renderTemplateProveedores(filteredReportGastos("fecha_factura"));
   }
 
   var gastos = filteredReportGastos();
