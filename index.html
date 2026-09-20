@@ -1462,7 +1462,7 @@ function getRememberedName(){
 function renderRegistrarView(){
   var proyMap = allProyectos();
   var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido && estadoDeProyecto(p.key)!=="terminado";}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
-  var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
+  var cats = allCategorias().filter(function(c){return c.codigo!=="SIN-CAT";}).sort(function(a,b){return a.orden-b.orden;});
   var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,8);
   return '' +
   '<div class="card form-card">'+
