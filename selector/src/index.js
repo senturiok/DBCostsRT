@@ -3,9 +3,9 @@ const PAGE = `<!DOCTYPE html>
 <title>Rancho Trailers — Portales</title>
 <style>
   :root{
-    --bg:#eef1f2; --surface:#ffffff; --ink:#10161a; --ink-2:#55636b;
-    --line:#dde2e4; --accent:#c8501e; --accent-ink:#ffffff;
-    --shadow: 0 1px 2px rgba(16,22,26,.06), 0 8px 24px -12px rgba(16,22,26,.18);
+    --bg:#000000; --surface:#141414; --ink:#f4f4f4; --ink-2:#9a9a9a;
+    --line:#2a2a2a; --accent:#c8501e; --accent-ink:#ffffff;
+    --shadow: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px -12px rgba(0,0,0,.6);
     --font-display:"Oswald",system-ui,"Segoe UI",sans-serif;
     --font-body:"IBM Plex Sans",system-ui,"Segoe UI",sans-serif;
   }
@@ -15,15 +15,7 @@ const PAGE = `<!DOCTYPE html>
     background:var(--bg); color:var(--ink); font-family:var(--font-body); padding:24px;
   }
   .wrap{width:100%; max-width:720px; text-align:center;}
-  .brand-mark{
-    width:44px; height:44px; margin:0 auto 14px; border-radius:6px; background:var(--accent);
-    color:var(--accent-ink); display:flex; align-items:center; justify-content:center;
-    font-family:var(--font-display); font-size:20px;
-  }
-  h1{
-    font-family:var(--font-display); text-transform:uppercase; letter-spacing:.03em;
-    font-size:24px; margin:0 0 6px;
-  }
+  .logo{ width:100%; max-width:420px; height:auto; margin:0 auto 22px; display:block; }
   p.sub{color:var(--ink-2); font-size:13.5px; margin:0 0 28px;}
   .cards{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
   @media (max-width:560px){ .cards{grid-template-columns:1fr;} }
@@ -40,16 +32,15 @@ const PAGE = `<!DOCTYPE html>
   .card-desc{color:var(--ink-2); font-size:12.5px; margin:0;}
 </style>
 <div class="wrap">
-  <div class="brand-mark">RT</div>
-  <h1>Rancho Trailers</h1>
+  <img class="logo" src="/logo.webp" alt="Rancho Trailers">
   <p class="sub">Selecciona el portal al que quieres entrar.</p>
   <div class="cards">
     <a class="card" href="https://dbcosteo.serviceranchotrailers.org">
-      <div class="card-title">Costeo de Gastos</div>
+      <div class="card-title">Portal Compras</div>
       <p class="card-desc">Facturas, gastos y costeo por remolque.</p>
     </a>
     <a class="card" href="https://pcot.serviceranchotrailers.org">
-      <div class="card-title">Portal</div>
+      <div class="card-title">Portal de Cotizaciones</div>
       <p class="card-desc">pcot.serviceranchotrailers.org</p>
     </a>
   </div>

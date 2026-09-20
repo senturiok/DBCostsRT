@@ -3,6 +3,13 @@ main = "src/index.js"
 compatibility_date = "2024-11-01"
 workers_dev = true
 
+# The logo lives here instead of being base64-inlined in the worker script.
+# "/" never matches a static file, so it always falls through to fetch()
+# below; only /logo.webp is served directly by Static Assets.
+[assets]
+directory = "public"
+binding = "ASSETS"
+
 # Attaches this worker directly to the apex domain. Cloudflare manages the
 # DNS record and certificate for a Workers Custom Domain automatically.
 [[routes]]
