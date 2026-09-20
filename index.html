@@ -340,7 +340,7 @@ var NAV = [
 var STATE = {
   profile:null, view:"dashboard", sidebarOpen:false,
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
-  gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, perfiles:[],
+  gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
@@ -399,6 +399,13 @@ function allProyectos(){
   var map = {};
   STATE.proyectosCat.forEach(function(p){ map[p.key]={key:p.key,nombre:p.nombre,es_valido:p.es_valido,origen:"excel"}; });
   STATE.proyectosNuevos.forEach(function(p){ if(!map[p.key]) map[p.key]={key:p.key,nombre:p.nombre,es_valido:true,origen:"portal",_docId:p.id}; });
+  Object.keys(map).forEach(function(k){
+    var info = STATE.proyectosInfo[slugify(k)];
+    if(info && info.eliminado){ delete map[k]; return; }
+    map[k].tipoTraila = (info&&info.tipoTraila)||"";
+    map[k].tamanoTraila = (info&&info.tamanoTraila)||"";
+    if(info && info.nombre) map[k].nombre = info.nombre;
+  });
   return map;
 }
 function allProveedoresFull(){
@@ -515,6 +522,11 @@ function subscribeAll(){
     STATE.proveedoresInfo = m;
     if(STATE.loaded) rerenderView();
   }, function(){});
+  db.collection("proyectos_info").onSnapshot(function(snap){
+    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
+    STATE.proyectosInfo = m;
+    if(STATE.loaded) rerenderView();
+  }, function(){});
   db.collection("perfiles").onSnapshot(function(snap){
     STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
     tryRestorePendingProfile();
@@ -558,7 +570,7 @@ document.addEventListener("submit", function(e){
     }
   }
   else if(formId === "registrarForm") submitGasto(e.target);
-  else if(formId === "addProyectoForm") handleAddProyecto(e.target);
+  else if(formId === "proyectoForm") handleProyectoFormSubmit(e.target);
   else if(formId === "proveedorForm") handleProveedorFormSubmit(e.target);
   else if(formId === "addCategoriaForm") handleAddCategoria(e.target);
   else if(formId === "editGastoForm") handleEditGastoSubmit(e.target);
@@ -1151,17 +1163,26 @@ function renderCatalogosView(){
   var body = "";
   if(STATE.catTab==="proyectos"){
     var list = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
-    body = (can("manageCatalogos") ? '<form class="inline-form" id="addProyectoForm"><div class="field"><label>Nuevo proyecto</label><input name="nombre" placeholder="Nombre del proyecto" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
-      list.map(function(p){
+    body = (!STATE.db ? '<p class="hint" style="color:var(--warn); margin-bottom:10px">Conectando con la base de datos compartida…</p>' : "") +
+      (can("manageCatalogos") ? '<button class="btn btn-primary" data-action="new-proyecto" style="margin-bottom:14px">+ Agregar proyecto</button>' : "") +
+      (list.length ? '<div class="prov-grid">'+list.map(function(p){
         var estado = estadoDeProyecto(p.key);
-        return '<div class="list-row">'+
-          '<span class="name" data-action="view-proyecto-gastos" data-key="'+esc(p.key)+'" style="cursor:pointer" title="Ver gastos de este proyecto">'+esc(p.nombre)+'</span>'+
-          '<span class="badge '+(estado==="terminado"?"badge-muted":"badge-good")+'" '+(can("toggleEstado")?'data-action="toggle-estado" data-key="'+esc(p.key)+'" style="cursor:pointer"':'')+'>'+(estado==="terminado"?"Terminado":"Activo")+'</span>'+
-          '<span class="meta">'+fmtMoneyInt(agg.byProyecto[p.key]||0)+'</span>'+
-          '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
-          (p.origen==="portal"&&can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-catalog" data-col="proyectos_nuevos" data-id="'+esc(p._docId)+'" title="Eliminar">✕</button>' : '<span style="width:26px"></span>')+
+        var rows = "";
+        rows += '<div class="prov-contact-row"><span class="lbl">Estado</span><span class="badge '+(estado==="terminado"?"badge-muted":"badge-good")+'" '+(can("toggleEstado")?'data-action="toggle-estado" data-key="'+esc(p.key)+'" style="cursor:pointer"':'')+'>'+(estado==="terminado"?"Terminado":"Activo")+'</span></div>';
+        if(p.tipoTraila) rows += '<div class="prov-contact-row"><span class="lbl">Tipo</span><span>'+esc(p.tipoTraila)+'</span></div>';
+        if(p.tamanoTraila) rows += '<div class="prov-contact-row"><span class="lbl">Tamaño</span><span>'+esc(p.tamanoTraila)+'</span></div>';
+        return '<div class="prov-card">'+
+          '<div class="prov-card-head">'+
+            '<div><div class="prov-name" data-action="view-proyecto-gastos" data-key="'+esc(p.key)+'" style="cursor:pointer" title="Ver gastos de este proyecto">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtMoneyInt(agg.byProyecto[p.key]||0)+' invertido</div></div>'+
+            '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
+          '</div>'+
+          '<div class="prov-contact">'+rows+'</div>'+
+          '<div class="prov-actions">'+
+            (can("manageCatalogos") ? '<button class="btn" data-action="edit-proyecto" data-key="'+esc(p.key)+'">Editar</button>' : '')+
+            (can("deleteCatalogItem") ? '<button class="btn btn-danger" data-action="delete-proyecto" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
+          '</div>'+
         '</div>';
-      }).join("");
+      }).join("")+'</div>' : '<div class="empty">No hay proyectos todavía.</div>');
   } else if(STATE.catTab==="proveedores"){
     var provAll = allProveedoresFull();
     var provQ = STATE.provSearch.trim().toLowerCase();
@@ -1206,12 +1227,68 @@ function renderCatalogosView(){
     body+
   '</div>';
 }
-function handleAddProyecto(form){
-  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
-  var nombre = form.nombre.value.trim(); if(!nombre) return;
-  var key = normKey(nombre);
-  if(allProyectos()[key]){ toast("Ese proyecto ya existe.","err"); return; }
-  STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:key, creadoEn:new Date().toISOString()}).then(function(){ toast("Proyecto agregado ✓"); form.reset(); }).catch(function(){ toast("No se pudo agregar.","err"); });
+var TIPOS_TRAILA = ["CGT","ICT"];
+var TAMANOS_TRAILA = ["8x12","8x14","8x16","8x18","8x20","8x22","8x24"];
+function openProyectoModal(key){
+  var p = { key:"", nombre:"", tipoTraila:"", tamanoTraila:"" };
+  var isEdit = !!key;
+  if(isEdit){
+    var found = allProyectos()[key];
+    if(!found) return;
+    p = found;
+  }
+  openModal(
+    '<h3>'+(isEdit?"Editar proyecto":"Nuevo proyecto")+'</h3>'+
+    (STATE.db ? "" : '<p class="hint" style="color:var(--critical)">Conectando con la base de datos compartida… espera un momento antes de guardar.</p>')+
+    '<form id="proyectoForm">'+
+      '<input type="hidden" name="key" value="'+esc(p.key||"")+'">'+
+      '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(p.nombre)+'" required autofocus></div>'+
+      '<div class="field"><label>Tipo de traila</label><select name="tipoTraila"><option value="">Selecciona…</option>'+
+        TIPOS_TRAILA.map(function(t){ return '<option value="'+t+'"'+(p.tipoTraila===t?' selected':'')+'>'+t+'</option>'; }).join("")+
+      '</select></div>'+
+      '<div class="field"><label>Tamaño de traila</label><select name="tamanoTraila"><option value="">Selecciona…</option>'+
+        TAMANOS_TRAILA.map(function(t){ return '<option value="'+t+'"'+(p.tamanoTraila===t?' selected':'')+'>'+t+'</option>'; }).join("")+
+      '</select></div>'+
+      (isEdit ? '<p class="hint">Este cambio solo actualiza el directorio del proyecto; los gastos ya capturados no se modifican.</p>' : "")+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>'
+  );
+}
+function handleProyectoFormSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida. Espera un momento e inténtalo de nuevo.","err"); return; }
+  var fd = new FormData(form);
+  var key = fd.get("key");
+  var nombre = (fd.get("nombre")||"").trim();
+  if(!nombre){ toast("Escribe un nombre.","err"); return; }
+  var tipoTraila = fd.get("tipoTraila")||"";
+  var tamanoTraila = fd.get("tamanoTraila")||"";
+
+  if(key){
+    var infoKey = slugify(key);
+    var data = { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() };
+    STATE.db.doc("proyectos_info/"+infoKey).set(data).then(function(){
+      STATE.proyectosInfo[infoKey] = data;
+      toast("Proyecto actualizado ✓"); closeModal(); renderContent();
+    }).catch(function(err){ console.error(err); toast("No se pudo actualizar.","err"); });
+  } else {
+    var newKey = normKey(nombre);
+    if(allProyectos()[newKey]){ toast("Ese proyecto ya existe.","err"); return; }
+    var infoKey2 = slugify(newKey);
+    var infoData = (tipoTraila||tamanoTraila) ? { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() } : null;
+    var ops = [ STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:newKey, creadoEn:new Date().toISOString()}) ];
+    if(infoData) ops.push(STATE.db.doc("proyectos_info/"+infoKey2).set(infoData));
+    Promise.all(ops).then(function(){
+      STATE.proyectosNuevos.push({ id:"_local_"+uid(), nombre:nombre, key:newKey, creadoEn:new Date().toISOString() });
+      if(infoData) STATE.proyectosInfo[infoKey2] = infoData;
+      toast("Proyecto agregado ✓"); closeModal(); renderContent();
+    }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
+  }
+}
+function deleteProyectoRow(key, nombre, origen, docId){
+  openModal(
+    '<h3>Eliminar proyecto</h3><p class="hint">"'+esc(nombre)+'" ya no aparecerá disponible para registrar gastos ni en el directorio. Los gastos ya capturados con este proyecto no se modifican.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proyecto" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+  );
 }
 function openProveedorModal(key){
   var p = { key:"", nombre:"", telefono:"", email:"", direccion:"" };
@@ -1473,6 +1550,23 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
+  else if(action==="new-proyecto") openProyectoModal(null);
+  else if(action==="edit-proyecto") openProyectoModal(el.dataset.key);
+  else if(action==="delete-proyecto") deleteProyectoRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
+  else if(action==="confirm-delete-proyecto"){
+    if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+    var prKey=el.dataset.key, prNombre=el.dataset.nombre, prOrigen=el.dataset.origen, prDocId=el.dataset.id;
+    var prOp = (prOrigen==="portal" && prDocId) ? STATE.db.collection("proyectos_nuevos").doc(prDocId).delete()
+      : STATE.db.doc("proyectos_info/"+slugify(prKey)).set({eliminado:true, nombre:prNombre, updatedAt:new Date().toISOString()});
+    prOp.then(function(){
+      if(prOrigen==="portal" && prDocId){
+        STATE.proyectosNuevos = STATE.proyectosNuevos.filter(function(p){ return p.id!==prDocId; });
+      } else {
+        STATE.proyectosInfo[slugify(prKey)] = { eliminado:true, nombre:prNombre, updatedAt:new Date().toISOString() };
+      }
+      toast("Proyecto eliminado"); closeModal(); renderContent();
+    }).catch(function(){ toast("No se pudo eliminar.","err"); });
+  }
   else if(action==="new-proveedor") openProveedorModal(null);
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
