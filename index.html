@@ -1041,7 +1041,7 @@ function renderGastosView(){
 function getRememberedName(){ try{ return localStorage.getItem("rt_capturador")||""; }catch(e){ return ""; } }
 function renderRegistrarView(){
   var proyMap = allProyectos();
-  var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+  var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido && estadoDeProyecto(p.key)!=="terminado";}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
   var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
   var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,8);
   return '' +
