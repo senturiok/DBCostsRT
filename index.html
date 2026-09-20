@@ -971,11 +971,10 @@ function renderDashboard(){
 
   return '' +
   filterBar +
-  '<div class="grid kpis">'+
+  '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
     '<div class="card"><div class="kpi-label">Total invertido</div><div class="kpi-value">'+fmtMoneyInt(agg.total)+'</div><div class="kpi-delta">'+agg.count+' registros</div></div>'+
     '<div class="card"><div class="kpi-label">'+proyCountLabel+'</div><div class="kpi-value">'+proyCount+'</div><div class="kpi-delta">'+Object.keys(proyMap).filter(function(k){return proyMap[k].es_valido;}).length+' proyectos en total</div></div>'+
     '<div class="card"><div class="kpi-label">Gasto '+(lastMonth?monthLabel(lastMonth):"reciente")+'</div><div class="kpi-value">'+fmtMoneyInt(lastVal)+'</div><div class="kpi-delta">'+deltaTxt+'</div></div>'+
-    '<div class="card"><div class="kpi-label">Ticket promedio</div><div class="kpi-value">'+fmtMoneyInt(agg.count?agg.total/agg.count:0)+'</div><div class="kpi-delta">por factura</div></div>'+
   '</div>'+
   '<div class="grid charts-row" style="margin-top:14px">'+
     '<div class="card"><div class="card-head"><h3 class="card-title">Costo por proyecto</h3><span class="card-note">top 12</span></div>'+barListHTML(proyFold.top,{accent:true})+restNoteHTML(proyFold,"proyectos")+'</div>'+
@@ -1387,9 +1386,8 @@ function renderReportesView(){
       '<p class="hint" style="margin:4px 0 0">Periodo cubierto: '+reportRangeLabel(gastos)+' · Generado: '+fmtDate(todayISO())+' '+new Date().toLocaleTimeString("es-MX",{hour:"2-digit",minute:"2-digit"})+' · Por: '+esc(generadoPor)+'</p>'+
     '</div>'+
 
-    '<div class="grid kpis" style="margin-top:14px">'+
+    '<div class="grid" style="margin-top:14px; grid-template-columns:repeat(3,1fr)">'+
       '<div class="card"><div class="kpi-label">Total invertido</div><div class="kpi-value">'+fmtMoneyInt(agg.total)+'</div><div class="kpi-delta">'+agg.count+' registros</div></div>'+
-      '<div class="card"><div class="kpi-label">Ticket promedio</div><div class="kpi-value">'+fmtMoneyInt(agg.count?agg.total/agg.count:0)+'</div><div class="kpi-delta">por factura</div></div>'+
       '<div class="card"><div class="kpi-label">Total a crédito</div><div class="kpi-value">'+fmtMoneyInt(credito)+'</div><div class="kpi-delta">'+pct(credito)+' del total · por conciliar</div></div>'+
       '<div class="card"><div class="kpi-label">Proyectos incluidos</div><div class="kpi-value">'+proyRows.length+'</div><div class="kpi-delta">en este reporte</div></div>'+
     '</div>'+
@@ -1656,10 +1654,9 @@ function renderGastosView(){
     var credito = all.filter(function(r){return r.forma_pago==="credito";}).reduce(function(s,r){return s+r.importe;},0);
     proyectoResumen = '<div class="card" style="margin-bottom:14px">'+
       '<div class="card-head"><h3 class="card-title">Resumen · '+esc(proyectoNombre(STATE.filters.proyecto))+'</h3><span class="card-note">'+all.length+' registros</span></div>'+
-      '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
+      '<div class="grid" style="grid-template-columns:repeat(2,1fr)">'+
         '<div><div class="kpi-label">Total invertido</div><div class="kpi-value">'+fmtMoneyInt(total)+'</div></div>'+
         '<div><div class="kpi-label">A crédito (por conciliar)</div><div class="kpi-value">'+fmtMoneyInt(credito)+'</div></div>'+
-        '<div><div class="kpi-label">Ticket promedio</div><div class="kpi-value">'+fmtMoneyInt(all.length?total/all.length:0)+'</div></div>'+
       '</div>'+
       (catEntries.length ? '<div style="margin-top:16px">'+barListHTML(catEntries,{accent:true})+'</div>' : '')+
     '</div>';
