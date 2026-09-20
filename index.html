@@ -210,6 +210,18 @@
   .flag-list{display:flex; flex-direction:column; gap:8px;}
   .flag-item{display:flex; justify-content:space-between; align-items:center; font-size:12.5px; padding:8px 10px; background:var(--surface-2); border-radius:4px;}
 
+  /* ---------- Proveedores (directorio) ---------- */
+  .prov-grid{display:grid; grid-template-columns:repeat(auto-fill, minmax(230px,1fr)); gap:12px; margin-top:14px;}
+  .prov-card{background:var(--surface-2); border:1px solid var(--line); border-radius:5px; padding:14px; display:flex; flex-direction:column; gap:10px;}
+  .prov-card-head{display:flex; align-items:flex-start; justify-content:space-between; gap:8px;}
+  .prov-name{font-weight:700; font-size:14px; line-height:1.25;}
+  .prov-total{font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-top:2px;}
+  .prov-contact{display:flex; flex-direction:column; gap:5px; padding-top:6px; border-top:1px solid var(--line);}
+  .prov-contact-row{display:flex; gap:8px; align-items:baseline; font-size:12.5px; color:var(--ink);}
+  .prov-contact-row .lbl{color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; width:52px; flex:none;}
+  .prov-actions{display:flex; gap:6px; margin-top:auto; padding-top:2px;}
+  .prov-actions .btn{padding:6px 10px; font-size:12px; flex:1;}
+
   @media (max-width: 880px){
     .kpis{grid-template-columns:1fr 1fr;}
     .charts-row,.two-col,.form-grid{grid-template-columns:1fr;}
@@ -1052,19 +1064,23 @@ function renderCatalogosView(){
   } else if(STATE.catTab==="proveedores"){
     var provList = allProveedoresFull();
     body = (can("manageCatalogos") ? '<form class="inline-form" id="addProveedorForm"><div class="field"><label>Nuevo proveedor</label><input name="nombre" placeholder="Nombre del proveedor" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
-      provList.map(function(p){
-        var contact = [p.telefono, p.email, p.direccion].filter(Boolean).join(" · ");
-        return '<div class="list-row" style="align-items:flex-start">'+
-          '<span class="name" style="white-space:normal; overflow:visible; text-overflow:clip; display:flex; flex-direction:column; gap:2px;">'+
-            '<span>'+esc(p.nombre)+'</span>'+
-            (contact?'<span class="card-note" style="font-weight:400">'+esc(contact)+'</span>':'')+
-          '</span>'+
-          '<span class="meta">'+fmtMoneyInt(agg.byProveedor[p.original]||0)+'</span>'+
-          '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
-          (can("manageCatalogos") ? '<button class="icon-btn" data-action="edit-proveedor" data-key="'+esc(p.key)+'" title="Editar">✎</button>' : '')+
-          (can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'" title="Eliminar">✕</button>' : '')+
+      (provList.length ? '<div class="prov-grid">'+provList.map(function(p){
+        var rows = "";
+        if(p.telefono) rows += '<div class="prov-contact-row"><span class="lbl">Tel</span><span>'+esc(p.telefono)+'</span></div>';
+        if(p.email) rows += '<div class="prov-contact-row"><span class="lbl">Correo</span><span>'+esc(p.email)+'</span></div>';
+        if(p.direccion) rows += '<div class="prov-contact-row"><span class="lbl">Dirección</span><span>'+esc(p.direccion)+'</span></div>';
+        return '<div class="prov-card">'+
+          '<div class="prov-card-head">'+
+            '<div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtMoneyInt(agg.byProveedor[p.original]||0)+' invertido</div></div>'+
+            '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
+          '</div>'+
+          (rows ? '<div class="prov-contact">'+rows+'</div>' : '<p class="hint" style="margin:0">Sin datos de contacto todavía.</p>')+
+          '<div class="prov-actions">'+
+            (can("manageCatalogos") ? '<button class="btn" data-action="edit-proveedor" data-key="'+esc(p.key)+'">Editar</button>' : '')+
+            (can("deleteCatalogItem") ? '<button class="btn btn-danger" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
+          '</div>'+
         '</div>';
-      }).join("");
+      }).join("")+'</div>' : '<div class="empty">No hay proveedores todavía.</div>');
   } else {
     var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
     body = (can("addCategoria") ? '<form class="inline-form" id="addCategoriaForm"><div class="field"><label>Nueva categoría / subsistema</label><input name="nombre" placeholder="Ej. SG-B Rines y llantas" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
