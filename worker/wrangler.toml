@@ -16,7 +16,7 @@ binding = "ASSETS"
 [[d1_databases]]
 binding = "DB"
 database_name = "rancho-trailers-costeo-db"
-database_id = "REPLACE_AFTER_WRANGLER_D1_CREATE"
+database_id = "29d3005c-d953-4d62-ad12-5bac5ba7ca85"
 
 [[r2_buckets]]
 binding = "COMPROBANTES"
