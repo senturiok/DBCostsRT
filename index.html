@@ -222,6 +222,10 @@
   .prov-actions{display:flex; gap:6px; margin-top:auto; padding-top:2px;}
   .prov-actions .btn{padding:6px 10px; font-size:12px; flex:1;}
 
+  /* ---------- Comparar proyectos ---------- */
+  .cmp-flag-faltante{background:color-mix(in srgb, var(--warn) 16%, transparent);}
+  .cmp-flag-revisar{background:color-mix(in srgb, var(--critical) 14%, transparent);}
+
   @media (max-width: 880px){
     .kpis{grid-template-columns:1fr 1fr;}
     .charts-row,.two-col,.form-grid{grid-template-columns:1fr;}
@@ -328,6 +332,7 @@ var NAV = [
   { id:"gastos",     label:"Gastos",          perm:"viewGastos",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16v16H4z" opacity="0"/><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="14" y2="18"/></svg>' },
   { id:"registrar",  label:"Registrar gasto", perm:"addGasto",      icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>' },
   { id:"catalogos",  label:"Catálogos",       perm:"manageCatalogos", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7l3-3h5l2 2h8v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg>' },
+  { id:"comparar",   label:"Comparar proyectos", perm:"viewDashboard", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>' },
   { id:"usuarios",   label:"Usuarios",        perm:null,            icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
 ];
 
@@ -340,6 +345,7 @@ var STATE = {
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
   provSearch:"",
+  compareProjects:["","",""],
   catTab:"proyectos",
   loaded:false
 };
@@ -623,7 +629,7 @@ function setView(v){
 }
 function rerenderView(){ if(STATE.profile && STATE.view) renderContent(); }
 function renderContent(){
-  var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
+  var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
@@ -644,6 +650,7 @@ function renderContent(){
   else if(STATE.view==="gastos") c.innerHTML = renderGastosView();
   else if(STATE.view==="registrar") c.innerHTML = renderRegistrarView();
   else if(STATE.view==="catalogos") c.innerHTML = renderCatalogosView();
+  else if(STATE.view==="comparar") c.innerHTML = renderCompararView();
   else if(STATE.view==="usuarios") c.innerHTML = renderUsuariosView();
   mountCharts();
 
@@ -840,6 +847,97 @@ function renderDashboard(){
     '<div class="card"><div class="card-head"><h3 class="card-title">Principales proveedores</h3></div>'+barListHTML(provFold.top,{})+restNoteHTML(provFold,"proveedores")+'</div>'+
     qualityCard+
   '</div>';
+}
+
+/* ================= COMPARAR PROYECTOS ================= */
+function renderCompararView(){
+  var proyMap = allProyectos();
+  var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+  var slots = STATE.compareProjects;
+  var selectorsHTML = '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
+    [0,1,2].map(function(i){
+      return '<div class="field"><label>Proyecto '+(i+1)+(i===2?' (opcional)':'')+'</label>'+
+        '<select data-compareidx="'+i+'"><option value="">Selecciona…</option>'+
+        proyOptions.map(function(p){ return '<option value="'+esc(p.key)+'"'+(slots[i]===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>'; }).join("")+
+        '</select></div>';
+    }).join("")+
+  '</div>';
+
+  var selected = slots.filter(Boolean);
+  var uniqueSelected = selected.filter(function(k,i){ return selected.indexOf(k)===i; });
+
+  if(uniqueSelected.length < 2){
+    return '<div class="card">'+selectorsHTML+'<p class="hint" style="margin-top:14px">Selecciona al menos 2 proyectos (hasta 3) para ver su comparativa por subsistema.</p></div>';
+  }
+
+  var perProj = {};
+  uniqueSelected.forEach(function(key){
+    var gastos = allGastos().filter(function(r){ return r.proyecto_key===key; });
+    perProj[key] = { agg: computeAgg(gastos), estado: estadoDeProyecto(key) };
+  });
+
+  var headerCards = '<div class="grid" style="grid-template-columns:repeat('+uniqueSelected.length+',1fr); margin-top:14px">'+
+    uniqueSelected.map(function(key){
+      var pd = perProj[key];
+      return '<div class="card">'+
+        '<div class="card-head"><h3 class="card-title">'+esc(proyectoNombre(key))+'</h3>'+
+          '<span class="badge '+(pd.estado==="terminado"?"badge-muted":"badge-good")+'">'+(pd.estado==="terminado"?"Terminado":"Activo")+'</span>'+
+        '</div>'+
+        '<div class="kpi-value">'+fmtMoneyInt(pd.agg.total)+'</div>'+
+        '<div class="kpi-delta">'+pd.agg.count+' registros</div>'+
+        '<div style="margin-top:10px"><button class="btn" data-action="view-proyecto-gastos" data-key="'+esc(key)+'">Ver gastos</button></div>'+
+      '</div>';
+    }).join("")+
+  '</div>';
+
+  var cats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
+  var rows = "";
+  cats.forEach(function(c){
+    var values = uniqueSelected.map(function(key){ return perProj[key].agg.byCategoria[c.codigo]||0; });
+    var rowMax = Math.max.apply(null, values.concat([0]));
+    if(rowMax<=0) return;
+    var nonZero = values.filter(function(v){return v>0;});
+    var flag = null;
+    if(nonZero.length>0 && nonZero.length<values.length){ flag = "faltante"; }
+    else if(nonZero.length===values.length){
+      var maxV = Math.max.apply(null,values), minV = Math.min.apply(null,values);
+      if(minV>0 && (maxV/minV) >= 1.5) flag = "revisar";
+    }
+    var noteBadge = flag==="faltante" ? '<span class="badge badge-warn">Posible faltante</span>'
+      : flag==="revisar" ? '<span class="badge badge-critical">Revisar diferencia</span>' : "";
+    rows += '<tr>'+
+      '<td>'+esc(catLabel(c))+'</td>'+
+      values.map(function(v){
+        var pct = rowMax? Math.max(2, Math.round(v/rowMax*100)) : 0;
+        var cellFlag = flag==="faltante" && v===0 ? "cmp-flag-faltante" : (flag==="revisar" ? "cmp-flag-revisar" : "");
+        return '<td class="num '+cellFlag+'"><div>'+fmtMoneyInt(v)+'</div>'+
+          '<div class="bar-track" style="height:6px; margin-top:4px"><div class="bar-fill" style="width:'+pct+'%; background:'+(cellFlag?"var(--warn)":"var(--steel)")+'"></div></div>'+
+        '</td>';
+      }).join("")+
+      '<td>'+noteBadge+'</td>'+
+    '</tr>';
+  });
+
+  var totalRow = '<tr style="font-weight:700; border-top:2px solid var(--line-strong)">'+
+    '<td>Total</td>'+
+    uniqueSelected.map(function(key){ return '<td class="num">'+fmtMoney(perProj[key].agg.total)+'</td>'; }).join("")+
+    '<td></td>'+
+  '</tr>';
+
+  return '<div class="card">'+selectorsHTML+'</div>'+
+    headerCards+
+    '<div class="card" style="margin-top:14px">'+
+      '<div class="card-head"><h3 class="card-title">Costo por subsistema</h3><span class="card-note">lado a lado</span></div>'+
+      '<div class="table-wrap"><table>'+
+        '<thead><tr><th>Subsistema</th>'+uniqueSelected.map(function(key){return '<th class="num">'+esc(proyectoNombre(key))+'</th>';}).join("")+'<th>Nota</th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="'+(uniqueSelected.length+2)+'" class="empty">Sin gastos que comparar entre estos proyectos.</td></tr>')+'</tbody>'+
+        '<tfoot>'+totalRow+'</tfoot>'+
+      '</table></div>'+
+      '<p class="hint" style="margin-top:12px">'+
+        '<span class="badge badge-warn">Posible faltante</span> un proyecto no tiene costo capturado en ese subsistema mientras otro(s) sí. '+
+        '<span class="badge badge-critical">Revisar diferencia</span> el costo en ese subsistema difiere 50% o más entre los proyectos seleccionados.'+
+      '</p>'+
+    '</div>';
 }
 
 /* ================= GASTOS TABLE ================= */
@@ -1418,6 +1516,11 @@ document.addEventListener("input", debounce(function(e){
     STATE.provSearch = e.target.value; renderContent();
   }
 }, 260));
+document.addEventListener("change", function(e){
+  if(e.target && e.target.dataset && e.target.dataset.compareidx!==undefined){
+    STATE.compareProjects[parseInt(e.target.dataset.compareidx,10)] = e.target.value; renderContent();
+  }
+});
 document.addEventListener("change", function(e){
   if(e.target && e.target.dataset && e.target.dataset.filter && e.target.tagName==="SELECT"){
     STATE.filters[e.target.dataset.filter] = e.target.value; STATE.filters.page = 1; renderContent();
