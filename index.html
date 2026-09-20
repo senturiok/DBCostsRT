@@ -533,7 +533,12 @@ function subscribeAll(){
   var db = STATE.db;
   function sub(path, key){
     db.collection(path).onSnapshot(function(snap){
-      STATE[key] = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
+      var real = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
+      var realCids = {}; real.forEach(function(d){ if(d._cid) realCids[d._cid] = true; });
+      var pending = (STATE[key]||[]).filter(function(d){
+        return d.id && String(d.id).indexOf("_local_")===0 && !(d._cid && realCids[d._cid]);
+      });
+      STATE[key] = real.concat(pending);
       if(STATE.loaded) rerenderView();
     }, function(err){ console.warn("db "+path+" error", err); });
   }
@@ -1506,7 +1511,7 @@ function submitGasto(form){
     descripcion: (fd.get("descripcion")||"").trim(), factura: (fd.get("factura")||"").trim()||null,
     importe: importe, cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
     forma_pago: fd.get("forma_pago")||"efectivo",
-    capturadoPor: capturador, creadoEn: new Date().toISOString()
+    capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid()
   };
 
   var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
@@ -1674,10 +1679,11 @@ function handleProyectoFormSubmit(form){
     if(allProyectos()[newKey]){ toast("Ese proyecto ya existe.","err"); return; }
     var infoKey2 = slugify(newKey);
     var infoData = (tipoTraila||tamanoTraila) ? { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() } : null;
-    var ops = [ STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:newKey, creadoEn:new Date().toISOString()}) ];
+    var proyCid = uid();
+    var ops = [ STATE.db.collection("proyectos_nuevos").add({nombre:nombre, key:newKey, creadoEn:new Date().toISOString(), _cid:proyCid}) ];
     if(infoData) ops.push(STATE.db.doc("proyectos_info/"+infoKey2).set(infoData));
     Promise.all(ops).then(function(){
-      STATE.proyectosNuevos.push({ id:"_local_"+uid(), nombre:nombre, key:newKey, creadoEn:new Date().toISOString() });
+      STATE.proyectosNuevos.push({ id:"_local_"+proyCid, nombre:nombre, key:newKey, creadoEn:new Date().toISOString(), _cid:proyCid });
       if(infoData) STATE.proyectosInfo[infoKey2] = infoData;
       toast("Proyecto agregado ✓"); closeModal(); STATE.proySearch = ""; renderContent();
     }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
@@ -1734,10 +1740,11 @@ function handleProveedorFormSubmit(form){
     if(exists){ toast("Ese proveedor ya existe.","err"); return; }
     var newKey = slugify(nombre);
     var infoData = (telefono||email||direccion) ? { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() } : null;
-    var ops = [ STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}) ];
+    var provCid = uid();
+    var ops = [ STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString(), _cid:provCid}) ];
     if(infoData) ops.push(STATE.db.doc("proveedores_info/"+newKey).set(infoData));
     Promise.all(ops).then(function(){
-      STATE.proveedoresNuevos.push({ id:"_local_"+uid(), nombre:nombre, creadoEn:new Date().toISOString() });
+      STATE.proveedoresNuevos.push({ id:"_local_"+provCid, nombre:nombre, creadoEn:new Date().toISOString(), _cid:provCid });
       if(infoData) STATE.proveedoresInfo[newKey] = infoData;
       toast("Proveedor agregado ✓"); closeModal(); STATE.provSearch = ""; renderContent();
     }).catch(function(err){ console.error(err); toast("No se pudo agregar. Revisa tu conexión e inténtalo de nuevo.","err"); });
@@ -1753,7 +1760,11 @@ function handleAddCategoria(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
   var nombre = form.nombre.value.trim(); if(!nombre) return;
   var codigo = "SGX-"+slugify(nombre).slice(0,16);
-  STATE.db.collection("categorias_nuevas").add({nombre:nombre, codigo:codigo, creadoEn:new Date().toISOString()}).then(function(){ toast("Categoría agregada ✓"); form.reset(); }).catch(function(){ toast("No se pudo agregar.","err"); });
+  var catCid = uid();
+  STATE.db.collection("categorias_nuevas").add({nombre:nombre, codigo:codigo, creadoEn:new Date().toISOString(), _cid:catCid}).then(function(){
+    STATE.categoriasNuevas.push({ id:"_local_"+catCid, nombre:nombre, codigo:codigo, creadoEn:new Date().toISOString(), _cid:catCid });
+    toast("Categoría agregada ✓"); form.reset(); renderContent();
+  }).catch(function(){ toast("No se pudo agregar.","err"); });
 }
 
 /* ================= USUARIOS / PERFILES ================= */
