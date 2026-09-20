@@ -73,6 +73,7 @@
   .check-row:last-child{border-bottom:0;}
   .check-row input{width:auto; flex:none;}
   .field label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-2); font-weight:600;}
+  .req-mark{color:var(--critical); margin-left:2px;}
   input,select,textarea{
     font-family:var(--font-body); font-size:14px; padding:10px 11px; border:1px solid var(--line-strong);
     border-radius:3px; background:var(--surface); color:var(--ink); width:100%;
@@ -407,6 +408,7 @@ var STATE = {
 
 /* ================= UTILS ================= */
 function esc(s){ if(s===null||s===undefined) return ""; return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+function reqLabel(text){ return esc(text)+'<span class="req-mark" title="Obligatorio">*</span>'; }
 function normKey(s){ if(!s) return ""; return String(s).trim().toUpperCase().replace(/\s+/g," ").replace(/\.+$/,""); }
 function slugify(s){ var k=normKey(s); k=k.replace(/[^A-Z0-9_.~:@+-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,""); return k||("k"+Math.random().toString(36).slice(2,8)); }
 function uid(){ return "u"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -1733,20 +1735,20 @@ function renderRegistrarView(){
   '<div class="card form-card">'+
     '<form id="registrarForm">'+
       '<div class="form-grid">'+
-        '<div class="field"><label for="f_capturador">Tu nombre</label><input id="f_capturador" name="capturadoPor" required value="'+esc(getRememberedName())+'" placeholder="¿Quién registra?"></div>'+
-        '<div class="field"><label for="f_fecha">Fecha de registro</label><input type="date" id="f_fecha" name="fecha" value="'+todayISO()+'" required></div>'+
-        '<div class="field"><label for="f_proyecto">Proyecto</label><select id="f_proyecto" name="proyecto_key" required>'+
+        '<div class="field"><label for="f_capturador">'+reqLabel("Tu nombre")+'</label><input id="f_capturador" name="capturadoPor" required value="'+esc(getRememberedName())+'" placeholder="¿Quién registra?"></div>'+
+        '<div class="field"><label for="f_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="f_fecha" name="fecha" value="'+todayISO()+'" required></div>'+
+        '<div class="field"><label for="f_proyecto">'+reqLabel("Proyecto")+'</label><select id="f_proyecto" name="proyecto_key" required>'+
           '<option value="">Selecciona…</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'">'+esc(p.nombre)+'</option>';}).join("")+
         '</select></div>'+
-        '<div class="field"><label for="f_proveedor">Proveedor</label><input id="f_proveedor" name="proveedor" list="provDatalistReg" required placeholder="Nombre del proveedor"><datalist id="provDatalistReg">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist></div>'+
-        '<div class="field"><label for="f_fecha_factura">Fecha de factura</label><input type="date" id="f_fecha_factura" name="fecha_factura" required></div>'+
-        '<div class="field span2"><label for="f_desc">Descripción</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
-        '<div class="field"><label for="f_factura">N° de factura</label><input id="f_factura" name="factura" required placeholder="Número de factura"></div>'+
-        '<div class="field"><label for="f_categoria">Categoría</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
-        '<div class="field"><label for="f_importe">Importe</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div></div>'+
-        '<div class="field"><label for="f_forma_pago">Forma de pago</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
+        '<div class="field"><label for="f_proveedor">'+reqLabel("Proveedor")+'</label><input id="f_proveedor" name="proveedor" list="provDatalistReg" required placeholder="Nombre del proveedor"><datalist id="provDatalistReg">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist></div>'+
+        '<div class="field"><label for="f_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="f_fecha_factura" name="fecha_factura" required></div>'+
+        '<div class="field span2"><label for="f_desc">'+reqLabel("Descripción")+'</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
+        '<div class="field"><label for="f_factura">'+reqLabel("N° de factura")+'</label><input id="f_factura" name="factura" required placeholder="Número de factura"></div>'+
+        '<div class="field"><label for="f_categoria">'+reqLabel("Categoría")+'</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
+        '<div class="field"><label for="f_importe">'+reqLabel("Importe")+'</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div></div>'+
+        '<div class="field"><label for="f_forma_pago">'+reqLabel("Forma de pago")+'</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
       '</div>'+
-      '<p class="hint">Todos los campos son obligatorios. Proyecto y proveedor se guardan en el catálogo compartido para que todos los vean al instante.</p>'+
+      '<p class="hint"><span class="req-mark">*</span> Campo obligatorio. Proyecto y proveedor se guardan en el catálogo compartido para que todos los vean al instante.</p>'+
       '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto</button></div>'+
     '</form>'+
   '</div>'+
