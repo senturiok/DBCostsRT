@@ -325,7 +325,7 @@ var STATE = {
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
-  filters:{ proyecto:"", categoria:"", proveedor:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
+  filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   catTab:"proyectos",
   loaded:false
 };
@@ -368,6 +368,7 @@ function allGastos(){
       id:"n:"+g.id, proyecto_key:g.proyecto_key||normKey(g.proyecto), proyecto_raw:g.proyecto,
       fecha:g.fecha, fecha_factura:g.fecha_factura, proveedor:g.proveedor, descripcion:g.descripcion,
       factura:g.factura, importe:Number(g.importe)||0, cantidad:g.cantidad, kg:null, categoria:g.categoria,
+      forma_pago:g.forma_pago||null,
       flag_sin_proveedor:!g.proveedor, flag_sin_proyecto:!g.proyecto, flag_fecha:false,
       origen:"portal", capturadoPor:g.capturadoPor||"", _docId:g.id
     };
@@ -765,6 +766,7 @@ function filteredGastos(){
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.proveedor && normKey(r.proveedor)!==normKey(f.proveedor)) return false;
+    if(f.formaPago && r.forma_pago!==f.formaPago) return false;
     if(f.desde && r.fecha && r.fecha<f.desde) return false;
     if(f.hasta && r.fecha && r.fecha>f.hasta) return false;
     if(q){
@@ -802,6 +804,7 @@ function renderGastosView(){
       '<td class="desc-cell" title="'+esc(r.descripcion)+'">'+esc(r.descripcion||"—")+'</td>'+
       '<td class="num">'+esc(r.factura||"—")+'</td>'+
       '<td><span class="badge badge-steel">'+esc(catMap[r.categoria]||r.categoria||"—")+'</span></td>'+
+      '<td>'+(r.forma_pago==="credito"?'<span class="badge badge-warn">Crédito</span>':r.forma_pago==="efectivo"?'<span class="badge badge-good">Efectivo</span>':'<span class="badge badge-muted">—</span>')+'</td>'+
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td><span class="badge '+(r.origen==="portal"?"badge-accent":"badge-muted")+'">'+(r.origen==="portal"?"Portal":"Excel")+'</span></td>'+
       '<td>'+actions+'</td>'+
@@ -814,6 +817,7 @@ function renderGastosView(){
       '<select data-filter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.filters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
       '<select data-filter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(STATE.filters.categoria===c.codigo?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join("")+'</select>'+
       '<input type="text" list="provDatalist" placeholder="Proveedor" data-filter="proveedor" value="'+esc(STATE.filters.proveedor)+'">'+
+      '<select data-filter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(STATE.filters.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(STATE.filters.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
       '<input type="date" data-filter="desde" value="'+esc(STATE.filters.desde)+'" title="Desde">'+
       '<input type="date" data-filter="hasta" value="'+esc(STATE.filters.hasta)+'" title="Hasta">'+
       '<input type="text" class="q" placeholder="Buscar descripción, factura, proyecto…" data-filter="q" value="'+esc(STATE.filters.q)+'">'+
@@ -821,9 +825,9 @@ function renderGastosView(){
     '</div>'+
     '<datalist id="provDatalist">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
     '<div class="table-wrap"><table>'+
-      '<thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th class="num">Importe</th><th>Origen</th><th></th></tr></thead>'+
-      '<tbody>'+(rows||'<tr><td colspan="9" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
-      '<tfoot><tr><td colspan="6">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
+      '<thead><tr><th>Fecha</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Origen</th><th></th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="10" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
+      '<tfoot><tr><td colspan="7">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
     '</table></div>'+
     '<div class="pagination">'+
       '<span>Página '+STATE.filters.page+' de '+pages+'</span>'+
@@ -858,6 +862,7 @@ function renderRegistrarView(){
         '<div class="field"><label for="f_categoria">Categoría</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(c.nombre)+'</option>';}).join("")+'</select></div>'+
         '<div class="field"><label for="f_importe">Importe</label><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div>'+
         '<div class="field"><label for="f_cantidad">Cantidad</label><input type="number" id="f_cantidad" name="cantidad" step="1" min="1" value="1"></div>'+
+        '<div class="field"><label for="f_forma_pago">Forma de pago</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
       '</div>'+
       '<p class="hint">Los campos de proyecto y proveedor se guardan en el catálogo compartido para que todos los vean al instante.</p>'+
       '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto</button></div>'+
@@ -897,6 +902,7 @@ function submitGasto(form){
     fecha_factura: fd.get("fecha_factura")||null, proveedor: (fd.get("proveedor")||"").trim(),
     descripcion: (fd.get("descripcion")||"").trim(), factura: (fd.get("factura")||"").trim()||null,
     importe: importe, cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
+    forma_pago: fd.get("forma_pago")||"efectivo",
     capturadoPor: capturador, creadoEn: new Date().toISOString()
   };
 
@@ -928,7 +934,8 @@ function handleEditGastoSubmit(form){
     proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
     factura: (fd.get("factura")||"").trim()||null, fecha: fd.get("fecha")||null,
     fecha_factura: fd.get("fecha_factura")||null, importe: importe,
-    cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null
+    cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
+    forma_pago: fd.get("forma_pago")||"efectivo"
   };
   STATE.db.collection("gastos_nuevos").doc(id).update(data).then(function(){
     toast("Gasto actualizado ✓"); closeModal();
@@ -1131,6 +1138,7 @@ function editGastoRow(docId){
       '<div class="field"><label>Categoría</label><select name="categoria">'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(g.categoria===c.codigo?' selected':'')+'>'+esc(c.nombre)+'</option>';}).join("")+'</select></div>'+
       '<div class="field"><label>Importe</label><input type="number" step="0.01" name="importe" value="'+esc(g.importe)+'" required></div>'+
       '<div class="field"><label>Cantidad</label><input type="number" name="cantidad" value="'+esc(g.cantidad||1)+'"></div>'+
+      '<div class="field"><label>Forma de pago</label><select name="forma_pago"><option value="efectivo"'+(g.forma_pago!=="credito"?' selected':'')+'>Efectivo</option><option value="credito"'+(g.forma_pago==="credito"?' selected':'')+'>Crédito</option></select></div>'+
       '<div style="display:flex; gap:8px; margin-top:8px"><button class="btn btn-primary" type="submit">Guardar cambios</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
@@ -1148,10 +1156,11 @@ function exportCSV(){
   if(!STATE.downloads){ toast("La exportación no está disponible en esta vista.","err"); return; }
   var rows = filteredGastos();
   var catMap = catNameMap();
-  var header = ["Fecha","Proyecto","Proveedor","Descripcion","Factura","Categoria","Importe","Cantidad","Origen"];
+  var header = ["Fecha","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","Importe","Cantidad","Origen"];
   var lines = [header.join(",")];
+  var formaPagoLabel = {credito:"Credito", efectivo:"Efectivo"};
   rows.forEach(function(r){
-    lines.push([r.fecha||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
+    lines.push([r.fecha||"", proyectoNombre(r.proyecto_key), r.proveedor||"", r.descripcion||"", r.factura||"", catMap[r.categoria]||r.categoria||"", formaPagoLabel[r.forma_pago]||"", r.importe, r.cantidad||"", r.origen].map(csvEsc).join(","));
   });
   STATE.downloads.save({ filename:"gastos_rancho_trailers.csv", data: lines.join("\n") }).then(function(){
     toast("CSV descargado ✓");
@@ -1170,7 +1179,7 @@ document.addEventListener("click", function(e){
   else if(action==="export-csv") exportCSV();
   else if(action==="page-prev"){ if(STATE.filters.page>1){ STATE.filters.page--; renderContent(); } }
   else if(action==="page-next"){ STATE.filters.page++; renderContent(); }
-  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",desde:"",hasta:"",q:"",page:1,pageSize:50}; renderContent(); }
+  else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",q:"",page:1,pageSize:50}; renderContent(); }
   else if(action==="edit-gasto") editGastoRow(el.dataset.id);
   else if(action==="delete-gasto") deleteGastoRow(el.dataset.id);
   else if(action==="confirm-delete-gasto"){
