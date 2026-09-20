@@ -391,7 +391,7 @@ var STATE = {
   profile:null, view:"dashboard", sidebarOpen:false,
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
   gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, proyectosInfo:{}, gastosEdits:{}, perfiles:[],
-  db:null, downloads:null, _pendingRestoreId:null, _acSources:{},
+  db:null, downloads:null, assets:null, _pendingRestoreId:null, _acSources:{},
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", flag:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
@@ -490,7 +490,8 @@ function allGastos(){
       factura:g.factura, importe:Number(g.importe)||0, cantidad:g.cantidad, kg:null, categoria:g.categoria,
       forma_pago:g.forma_pago||null,
       flag_sin_proveedor:!g.proveedor, flag_sin_proyecto:!g.proyecto, flag_fecha:false,
-      origen:"portal", capturadoPor:g.capturadoPor||"", _docId:g.id
+      origen:"portal", capturadoPor:g.capturadoPor||"", _docId:g.id,
+      comprobanteId:g.comprobanteId||null, comprobanteUrl:g.comprobanteUrl||null, comprobanteTipo:g.comprobanteTipo||null
     };
   });
   return base.concat(extra);
@@ -585,6 +586,7 @@ function boot(){
   if(window.claude && window.claude.use){
     window.claude.use("db").then(function(db){ STATE.db=db; if(db) subscribeAll(); }).catch(function(){});
     window.claude.use("downloads").then(function(d){ STATE.downloads=d; }).catch(function(){});
+    window.claude.use("assets").then(function(a){ STATE.assets=a; }).catch(function(){});
   }
 }
 function tryRestorePendingProfile(){
@@ -1677,6 +1679,7 @@ function renderGastosView(){
         (canDeleteGasto ? '<button class="icon-btn" title="Eliminar" data-action="delete-gasto" data-id="'+esc(r.id)+'" data-origen="excel"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>' : '')+
       '</div>';
     }
+    var comprobante = r.comprobanteUrl ? '<a href="'+esc(r.comprobanteUrl)+'" target="_blank" rel="noopener" class="icon-btn" title="Ver comprobante">📎</a>' : '';
     return '<tr>'+
       '<td>'+fmtDate(r.fecha)+'</td>'+
       '<td>'+fmtDate(r.fecha_factura)+(r.flag_fecha?' <span class="badge badge-warn">revisar</span>':'')+'</td>'+
@@ -1688,6 +1691,7 @@ function renderGastosView(){
       '<td>'+(r.forma_pago==="credito"?'<span class="badge badge-warn">Crédito</span>':r.forma_pago==="efectivo"?'<span class="badge badge-good">Efectivo</span>':'<span class="badge badge-muted">—</span>')+'</td>'+
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td><span class="badge '+(r.origen==="portal"?"badge-accent":"badge-muted")+'">'+(r.origen==="portal"?"Portal":"Excel")+'</span>'+(r._edited?' <span class="badge badge-warn" title="Editado por '+esc((STATE.gastosEdits[String(r.id)]||{}).editadoPor||"")+'">Editado</span>':'')+'</td>'+
+      '<td>'+(comprobante||'<span class="hint">—</span>')+'</td>'+
       '<td>'+actions+'</td>'+
     '</tr>';
   }).join("");
@@ -1715,9 +1719,9 @@ function renderGastosView(){
     '</div>'+
     '<datalist id="provDatalist">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
     '<div class="table-wrap"><table>'+
-      '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Origen</th><th></th></tr></thead>'+
-      '<tbody>'+(rows||'<tr><td colspan="11" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
-      '<tfoot><tr><td colspan="8">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
+      '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Origen</th><th>Comprobante</th><th></th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="12" class="empty">Sin resultados con estos filtros.</td></tr>')+'</tbody>'+
+      '<tfoot><tr><td colspan="8">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="3"></td></tr></tfoot>'+
     '</table></div>'+
     '<div class="pagination">'+
       '<span>Página '+STATE.filters.page+' de '+pages+'</span>'+
@@ -1753,6 +1757,7 @@ function renderRegistrarView(){
         '<div class="field"><label for="f_categoria">'+reqLabel("Categoría")+'</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
         '<div class="field"><label for="f_importe">'+reqLabel("Importe")+'</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div></div>'+
         '<div class="field"><label for="f_forma_pago">'+reqLabel("Forma de pago")+'</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
+        '<div class="field span2"><label for="f_comprobante">Comprobante (foto o PDF)</label><input type="file" id="f_comprobante" name="comprobante" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"><span class="hint" style="margin-top:4px">Opcional.</span></div>'+
       '</div>'+
       '<p class="hint"><span class="req-mark">*</span> Campo obligatorio. Proyecto y proveedor se guardan en el catálogo compartido para que todos los vean al instante.</p>'+
       '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto</button></div>'+
@@ -1778,35 +1783,46 @@ function submitGasto(form){
   var capturador = (fd.get("capturadoPor")||"").trim();
   try{ localStorage.setItem("rt_capturador", capturador); }catch(e){}
 
-  var gasto = {
-    proyecto: proyNombre, proyecto_key: proyKey||"", fecha: fd.get("fecha")||todayISO(),
-    fecha_factura: fd.get("fecha_factura")||null, proveedor: (fd.get("proveedor")||"").trim(),
-    descripcion: (fd.get("descripcion")||"").trim(), factura: (fd.get("factura")||"").trim()||null,
-    importe: importe, cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
-    forma_pago: fd.get("forma_pago")||"efectivo",
-    capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid()
-  };
+  var file = form.comprobante && form.comprobante.files && form.comprobante.files[0];
+  if(file && !STATE.assets){ toast("La carga de archivos aún no está lista. Espera unos segundos e intenta de nuevo.","err"); return; }
+  var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
 
-  var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
-  var provNombre = gasto.proveedor;
-  var addingProveedor = false, provKey = null, provData = null;
-  if(provNombre){
-    var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
-    if(!known){
-      addingProveedor = true; provKey = slugify(provNombre);
-      provData = { nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() };
-      ops.push(STATE.db.doc("proveedores_nuevos/"+provKey).set(provData));
+  (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
+    var gasto = {
+      proyecto: proyNombre, proyecto_key: proyKey||"", fecha: fd.get("fecha")||todayISO(),
+      fecha_factura: fd.get("fecha_factura")||null, proveedor: (fd.get("proveedor")||"").trim(),
+      descripcion: (fd.get("descripcion")||"").trim(), factura: (fd.get("factura")||"").trim()||null,
+      importe: importe, cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
+      forma_pago: fd.get("forma_pago")||"efectivo",
+      capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid()
+    };
+    if(uploaded){ gasto.comprobanteId = uploaded.id; gasto.comprobanteUrl = uploaded.url; gasto.comprobanteTipo = uploaded.contentType; }
+
+    var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
+    var provNombre = gasto.proveedor;
+    var addingProveedor = false, provKey = null, provData = null;
+    if(provNombre){
+      var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
+      if(!known){
+        addingProveedor = true; provKey = slugify(provNombre);
+        provData = { nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() };
+        ops.push(STATE.db.doc("proveedores_nuevos/"+provKey).set(provData));
+      }
     }
-  }
-  Promise.all(ops).then(function(){
-    STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
-    if(addingProveedor) STATE.proveedoresNuevos.push(Object.assign({ id:provKey }, provData));
-    toast("Gasto guardado ✓");
-    form.reset();
-    document.getElementById("f_fecha").value = todayISO();
-    document.getElementById("f_capturador").value = capturador;
-    renderContent();
-  }).catch(function(err){ console.error(err); toast("No se pudo guardar. Intenta de nuevo.","err"); });
+    return Promise.all(ops).then(function(){
+      STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
+      if(addingProveedor) STATE.proveedoresNuevos.push(Object.assign({ id:provKey }, provData));
+      toast("Gasto guardado ✓");
+      form.reset();
+      document.getElementById("f_fecha").value = todayISO();
+      document.getElementById("f_capturador").value = capturador;
+      renderContent();
+    });
+  }).catch(function(err){
+    console.error(err);
+    if(submitBtn) submitBtn.disabled = false;
+    toast(file && err && err.code ? "No se pudo subir el archivo adjunto." : "No se pudo guardar. Intenta de nuevo.","err");
+  });
 }
 function handleEditGastoSubmit(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
@@ -1815,28 +1831,39 @@ function handleEditGastoSubmit(form){
   var origen = fd.get("origen");
   var importe = parseFloat(fd.get("importe"));
   if(!importe||importe<=0){ toast("Importe inválido.","err"); return; }
-  var data = {
-    proyecto: (fd.get("proyecto")||"").trim(), proyecto_key: normKey(fd.get("proyecto")),
-    proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
-    factura: (fd.get("factura")||"").trim()||null, fecha: fd.get("fecha")||null,
-    fecha_factura: fd.get("fecha_factura")||null, importe: importe,
-    cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
-    forma_pago: fd.get("forma_pago")||"efectivo"
-  };
-  if(origen==="excel"){
-    if(!isMasterUser()){ toast("Solo el Master Administrator puede editar registros importados de Excel.","err"); return; }
-    var editData = Object.assign({}, data, { editadoPor:quienSoy(), editadoEn:new Date().toISOString() });
-    STATE.db.doc("gastos_edits/"+id).set(editData).then(function(){
-      STATE.gastosEdits[id] = editData;
+  if(origen==="excel" && !isMasterUser()){ toast("Solo el Master Administrator puede editar registros importados de Excel.","err"); return; }
+  var file = form.comprobante && form.comprobante.files && form.comprobante.files[0];
+  if(file && !STATE.assets){ toast("La carga de archivos aún no está lista. Espera unos segundos e intenta de nuevo.","err"); return; }
+  var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
+
+  (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
+    var data = {
+      proyecto: (fd.get("proyecto")||"").trim(), proyecto_key: normKey(fd.get("proyecto")),
+      proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
+      factura: (fd.get("factura")||"").trim()||null, fecha: fd.get("fecha")||null,
+      fecha_factura: fd.get("fecha_factura")||null, importe: importe,
+      cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
+      forma_pago: fd.get("forma_pago")||"efectivo"
+    };
+    if(uploaded){ data.comprobanteId = uploaded.id; data.comprobanteUrl = uploaded.url; data.comprobanteTipo = uploaded.contentType; }
+
+    if(origen==="excel"){
+      var editData = Object.assign({}, STATE.gastosEdits[id]||{}, data, { editadoPor:quienSoy(), editadoEn:new Date().toISOString() });
+      return STATE.db.doc("gastos_edits/"+id).set(editData).then(function(){
+        STATE.gastosEdits[id] = editData;
+        toast("Gasto actualizado ✓"); closeModal(); renderContent();
+      });
+    }
+    return STATE.db.collection("gastos_nuevos").doc(id).update(data).then(function(){
+      var g = STATE.gastosNuevos.find(function(x){return x.id===id;});
+      if(g) Object.assign(g, data);
       toast("Gasto actualizado ✓"); closeModal(); renderContent();
-    }).catch(function(){ toast("No se pudo actualizar.","err"); });
-    return;
-  }
-  STATE.db.collection("gastos_nuevos").doc(id).update(data).then(function(){
-    var g = STATE.gastosNuevos.find(function(x){return x.id===id;});
-    if(g) Object.assign(g, data);
-    toast("Gasto actualizado ✓"); closeModal(); renderContent();
-  }).catch(function(){ toast("No se pudo actualizar.","err"); });
+    });
+  }).catch(function(err){
+    console.error(err);
+    if(submitBtn) submitBtn.disabled = false;
+    toast(file && err && err.code ? "No se pudo subir el archivo adjunto." : "No se pudo actualizar.","err");
+  });
 }
 
 /* ================= CATALOGOS ================= */
@@ -2224,6 +2251,11 @@ function editGastoRow(docId, origen){
       '<div class="field"><label>Importe</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" name="importe" value="'+esc(g.importe)+'" required></div></div>'+
       '<div class="field"><label>Cantidad</label><input type="number" name="cantidad" value="'+esc(g.cantidad||1)+'"></div>'+
       '<div class="field"><label>Forma de pago</label><select name="forma_pago"><option value="efectivo"'+(g.forma_pago!=="credito"?' selected':'')+'>Efectivo</option><option value="credito"'+(g.forma_pago==="credito"?' selected':'')+'>Crédito</option></select></div>'+
+      '<div class="field span2"><label>Comprobante (foto o PDF)</label>'+
+        (g.comprobanteUrl ? '<p class="hint" style="margin:0 0 6px"><a href="'+esc(g.comprobanteUrl)+'" target="_blank" rel="noopener">📎 Ver comprobante actual</a></p>' : '')+
+        '<input type="file" name="comprobante" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf">'+
+        '<span class="hint" style="margin-top:4px">Opcional. '+(g.comprobanteUrl?"Sube un archivo nuevo para reemplazar el actual.":"")+'</span>'+
+      '</div>'+
       '<div style="display:flex; gap:8px; margin-top:8px"><button class="btn btn-primary" type="submit">Guardar cambios</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
@@ -2285,9 +2317,11 @@ document.addEventListener("click", function(e){
       }).catch(function(){ toast("No se pudo eliminar.","err"); });
       return;
     }
+    var delGastoObj = STATE.gastosNuevos.find(function(x){return x.id===delGastoId;});
     STATE.db.collection("gastos_nuevos").doc(delGastoId).delete().then(function(){
       STATE.gastosNuevos = STATE.gastosNuevos.filter(function(x){return x.id!==delGastoId;});
       toast("Gasto eliminado"); closeModal(); renderContent();
+      if(delGastoObj && delGastoObj.comprobanteId && STATE.assets){ STATE.assets.delete(delGastoObj.comprobanteId).catch(function(){}); }
     }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="toggle-estado"){
