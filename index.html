@@ -323,7 +323,7 @@ var NAV = [
 var STATE = {
   profile:null, view:"dashboard", sidebarOpen:false,
   gastosBase:[], proyectosCat:[], proveedoresCat:[], categoriasCat:[], meta:null,
-  gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, perfiles:[],
+  gastosNuevos:[], proyectosNuevos:[], proveedoresNuevos:[], categoriasNuevas:[], proyectoEstado:{}, proveedoresInfo:{}, perfiles:[],
   db:null, downloads:null, _pendingRestoreId:null,
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
@@ -382,11 +382,26 @@ function allProyectos(){
   STATE.proyectosNuevos.forEach(function(p){ if(!map[p.key]) map[p.key]={key:p.key,nombre:p.nombre,es_valido:true,origen:"portal",_docId:p.id}; });
   return map;
 }
+function allProveedoresFull(){
+  var portalIds = {};
+  STATE.proveedoresNuevos.forEach(function(p){ portalIds[normKey(p.nombre)] = p.id; });
+  var names = {};
+  STATE.proveedoresCat.forEach(function(n){ names[normKey(n)] = n; });
+  STATE.proveedoresNuevos.forEach(function(p){ var k=normKey(p.nombre); if(!names[k]) names[k]=p.nombre; });
+  return Object.keys(names).map(function(k){
+    var original = names[k];
+    var key = slugify(original);
+    var info = STATE.proveedoresInfo[key] || {};
+    return {
+      nombre: info.nombre || original, original: original, key: key,
+      origen: portalIds[k] ? "portal" : "excel", _docId: portalIds[k] || null,
+      direccion: info.direccion||"", telefono: info.telefono||"", email: info.email||"",
+      eliminado: !!info.eliminado
+    };
+  }).filter(function(p){ return !p.eliminado; }).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+}
 function allProveedores(){
-  var set = {};
-  STATE.proveedoresCat.forEach(function(n){ set[normKey(n)]=n; });
-  STATE.proveedoresNuevos.forEach(function(p){ var k=normKey(p.nombre); if(!set[k]) set[k]=p.nombre; });
-  return Object.keys(set).map(function(k){return set[k];}).sort();
+  return allProveedoresFull().map(function(p){ return p.nombre; }).sort();
 }
 function allCategorias(){
   var list = STATE.categoriasCat.slice();
@@ -476,6 +491,11 @@ function subscribeAll(){
     STATE.proyectoEstado = m;
     if(STATE.loaded) rerenderView();
   }, function(){});
+  db.collection("proveedores_info").onSnapshot(function(snap){
+    var m={}; snap.docs.forEach(function(d){ m[d.id]=d.data(); });
+    STATE.proveedoresInfo = m;
+    if(STATE.loaded) rerenderView();
+  }, function(){});
   db.collection("perfiles").onSnapshot(function(snap){
     STATE.perfiles = snap.docs.map(function(d){ var data=d.data()||{}; data.id=d.id; return data; });
     tryRestorePendingProfile();
@@ -521,6 +541,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "registrarForm") submitGasto(e.target);
   else if(formId === "addProyectoForm") handleAddProyecto(e.target);
   else if(formId === "addProveedorForm") handleAddProveedor(e.target);
+  else if(formId === "editProveedorForm") handleEditProveedorSubmit(e.target);
   else if(formId === "addCategoriaForm") handleAddCategoria(e.target);
   else if(formId === "editGastoForm") handleEditGastoSubmit(e.target);
   else if(formId === "perfilForm") handlePerfilSubmit(e.target);
@@ -1029,16 +1050,19 @@ function renderCatalogosView(){
         '</div>';
       }).join("");
   } else if(STATE.catTab==="proveedores"){
-    var portalNames = {}; STATE.proveedoresNuevos.forEach(function(p){ portalNames[normKey(p.nombre)]=p.id; });
-    var names = allProveedores();
+    var provList = allProveedoresFull();
     body = (can("manageCatalogos") ? '<form class="inline-form" id="addProveedorForm"><div class="field"><label>Nuevo proveedor</label><input name="nombre" placeholder="Nombre del proveedor" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : "") +
-      names.map(function(n){
-        var isPortal = portalNames[normKey(n)];
-        return '<div class="list-row">'+
-          '<span class="name">'+esc(n)+'</span>'+
-          '<span class="meta">'+fmtMoneyInt(agg.byProveedor[n]||0)+'</span>'+
-          '<span class="badge '+(isPortal?"badge-accent":"badge-muted")+'">'+(isPortal?"Portal":"Excel")+'</span>'+
-          (isPortal&&can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-catalog" data-col="proveedores_nuevos" data-id="'+esc(isPortal)+'" title="Eliminar">✕</button>' : '<span style="width:26px"></span>')+
+      provList.map(function(p){
+        var contact = [p.telefono, p.email, p.direccion].filter(Boolean).join(" · ");
+        return '<div class="list-row" style="align-items:flex-start">'+
+          '<span class="name" style="white-space:normal; overflow:visible; text-overflow:clip; display:flex; flex-direction:column; gap:2px;">'+
+            '<span>'+esc(p.nombre)+'</span>'+
+            (contact?'<span class="card-note" style="font-weight:400">'+esc(contact)+'</span>':'')+
+          '</span>'+
+          '<span class="meta">'+fmtMoneyInt(agg.byProveedor[p.original]||0)+'</span>'+
+          '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
+          (can("manageCatalogos") ? '<button class="icon-btn" data-action="edit-proveedor" data-key="'+esc(p.key)+'" title="Editar">✎</button>' : '')+
+          (can("deleteCatalogItem") ? '<button class="icon-btn" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'" title="Eliminar">✕</button>' : '')+
         '</div>';
       }).join("");
   } else {
@@ -1071,6 +1095,45 @@ function handleAddProveedor(form){
   var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
   if(exists){ toast("Ese proveedor ya existe.","err"); return; }
   STATE.db.collection("proveedores_nuevos").add({nombre:nombre, creadoEn:new Date().toISOString()}).then(function(){ toast("Proveedor agregado ✓"); form.reset(); }).catch(function(){ toast("No se pudo agregar.","err"); });
+}
+function editProveedorModal(key){
+  var p = null;
+  var full = allProveedoresFull();
+  for(var i=0;i<full.length;i++){ if(full[i].key===key){ p=full[i]; break; } }
+  if(!p) return;
+  openModal(
+    '<h3>Editar proveedor</h3>'+
+    '<form id="editProveedorForm">'+
+      '<input type="hidden" name="key" value="'+esc(p.key)+'">'+
+      '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(p.nombre)+'" required></div>'+
+      '<div class="field"><label>Teléfono</label><input name="telefono" value="'+esc(p.telefono)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Correo electrónico</label><input type="email" name="email" value="'+esc(p.email)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Dirección</label><input name="direccion" value="'+esc(p.direccion)+'" placeholder="Opcional"></div>'+
+      '<p class="hint">Los gastos ya capturados conservan el nombre del proveedor tal como se registraron; este cambio solo actualiza el directorio.</p>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>'
+  );
+}
+function handleEditProveedorSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form);
+  var key = fd.get("key");
+  var nombre = (fd.get("nombre")||"").trim();
+  if(!nombre){ toast("Escribe un nombre.","err"); return; }
+  var data = {
+    nombre: nombre, telefono: (fd.get("telefono")||"").trim(),
+    email: (fd.get("email")||"").trim(), direccion: (fd.get("direccion")||"").trim(),
+    updatedAt: new Date().toISOString()
+  };
+  STATE.db.doc("proveedores_info/"+key).set(data).then(function(){
+    toast("Proveedor actualizado ✓"); closeModal();
+  }).catch(function(){ toast("No se pudo actualizar.","err"); });
+}
+function deleteProveedorRow(key, nombre, origen, docId){
+  openModal(
+    '<h3>Eliminar proveedor</h3><p class="hint">"'+esc(nombre)+'" ya no aparecerá disponible para registrar nuevos gastos ni en el directorio. Los gastos ya capturados con este proveedor no se modifican.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proveedor" data-key="'+esc(key)+'" data-nombre="'+esc(nombre)+'" data-origen="'+esc(origen)+'" data-id="'+esc(docId||"")+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>'
+  );
 }
 function handleAddCategoria(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
@@ -1263,6 +1326,15 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
+  else if(action==="edit-proveedor") editProveedorModal(el.dataset.key);
+  else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
+  else if(action==="confirm-delete-proveedor"){
+    if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+    var pKey=el.dataset.key, pNombre=el.dataset.nombre, pOrigen=el.dataset.origen, pDocId=el.dataset.id;
+    var op = (pOrigen==="portal" && pDocId) ? STATE.db.collection("proveedores_nuevos").doc(pDocId).delete()
+      : STATE.db.doc("proveedores_info/"+pKey).set({eliminado:true, nombre:pNombre, updatedAt:new Date().toISOString()});
+    op.then(function(){ toast("Proveedor eliminado"); closeModal(); }).catch(function(){ toast("No se pudo eliminar.","err"); });
+  }
   else if(action==="view-proyecto-gastos"){
     STATE.filters.proyecto = el.dataset.key; STATE.filters.page = 1;
     if(can("viewGastos")) setView("gastos");
