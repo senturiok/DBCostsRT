@@ -802,6 +802,23 @@ function renderGastosView(){
   var canEditDelete = can("editGasto");
   var catMap = catNameMap();
 
+  var proyectoResumen = "";
+  if(STATE.filters.proyecto){
+    var byCat = {};
+    all.forEach(function(r){ var c = r.categoria||"SIN-CAT"; byCat[c] = (byCat[c]||0) + r.importe; });
+    var catEntries = Object.keys(byCat).map(function(c){ return {label: catMap[c]||c, value: byCat[c]}; }).sort(byVal);
+    var credito = all.filter(function(r){return r.forma_pago==="credito";}).reduce(function(s,r){return s+r.importe;},0);
+    proyectoResumen = '<div class="card" style="margin-bottom:14px">'+
+      '<div class="card-head"><h3 class="card-title">Resumen · '+esc(proyectoNombre(STATE.filters.proyecto))+'</h3><span class="card-note">'+all.length+' registros</span></div>'+
+      '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
+        '<div><div class="kpi-label">Total invertido</div><div class="kpi-value">'+fmtMoneyInt(total)+'</div></div>'+
+        '<div><div class="kpi-label">A crédito (por conciliar)</div><div class="kpi-value">'+fmtMoneyInt(credito)+'</div></div>'+
+        '<div><div class="kpi-label">Ticket promedio</div><div class="kpi-value">'+fmtMoneyInt(all.length?total/all.length:0)+'</div></div>'+
+      '</div>'+
+      (catEntries.length ? '<div style="margin-top:16px">'+barListHTML(catEntries,{accent:true})+'</div>' : '')+
+    '</div>';
+  }
+
   var rows = pageRows.map(function(r){
     var actions = "";
     if(r.origen==="portal" && canEditDelete){
@@ -825,6 +842,7 @@ function renderGastosView(){
   }).join("");
 
   return '' +
+  proyectoResumen +
   '<div class="card">'+
     '<div class="filters">'+
       '<select data-filter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(STATE.filters.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
@@ -968,7 +986,7 @@ function renderCatalogosView(){
       list.map(function(p){
         var estado = estadoDeProyecto(p.key);
         return '<div class="list-row">'+
-          '<span class="name">'+esc(p.nombre)+'</span>'+
+          '<span class="name" data-action="view-proyecto-gastos" data-key="'+esc(p.key)+'" style="cursor:pointer" title="Ver gastos de este proyecto">'+esc(p.nombre)+'</span>'+
           '<span class="badge '+(estado==="terminado"?"badge-muted":"badge-good")+'" '+(can("toggleEstado")?'data-action="toggle-estado" data-key="'+esc(p.key)+'" style="cursor:pointer"':'')+'>'+(estado==="terminado"?"Terminado":"Activo")+'</span>'+
           '<span class="meta">'+fmtMoneyInt(agg.byProyecto[p.key]||0)+'</span>'+
           '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
@@ -1209,6 +1227,10 @@ document.addEventListener("click", function(e){
     STATE.db.collection(el.dataset.col).doc(el.dataset.id).delete().then(function(){ toast("Eliminado"); }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
+  else if(action==="view-proyecto-gastos"){
+    STATE.filters.proyecto = el.dataset.key; STATE.filters.page = 1;
+    if(can("viewGastos")) setView("gastos");
+  }
   else if(action==="new-perfil") openPerfilModal(null);
   else if(action==="edit-perfil") editPerfilRow(el.dataset.id);
   else if(action==="delete-perfil") deletePerfilRow(el.dataset.id);
