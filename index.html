@@ -961,7 +961,6 @@ function renderDashboard(){
   var provEntries = Object.keys(agg.byProveedor).map(function(k){ return {label:k, value: agg.byProveedor[k]}; });
   var provFold = foldTop(provEntries, 10);
   var months = Object.keys(agg.byMonth).sort();
-  var monthPoints = months.map(function(m){ return {label: monthLabel(m), value: agg.byMonth[m]}; });
   var lastMonth = months[months.length-1];
   var prevMonth = months[months.length-2];
   var lastVal = lastMonth ? agg.byMonth[lastMonth] : 0;
@@ -972,7 +971,6 @@ function renderDashboard(){
   var mostrandoTerminados = STATE.dashFilters.estado==="terminado";
   var proyCountLabel = mostrandoTerminados ? "Proyectos terminados" : "Proyectos activos";
   var proyCount = proyKeysInView.filter(function(k){ return mostrandoTerminados ? estadoDeProyecto(k)==="terminado" : estadoDeProyecto(k)!=="terminado"; }).length;
-  var lcId = "lc"+Date.now();
 
   var qualityCard = "";
   if(can("viewQuality")){
@@ -1032,12 +1030,60 @@ function renderDashboard(){
     '<div class="card"><div class="card-head"><h3 class="card-title">Costo por subsistema (SG)</h3></div>'+barListHTML(catEntries,{})+'</div>'+
   '</div>'+
   '<div class="grid" style="margin-top:14px">'+
-    '<div class="card"><div class="card-head"><h3 class="card-title">Tendencia mensual</h3><span class="card-note">'+(months[0]?fmtDate(months[0]+"-01")+" – "+fmtDate(lastMonth+"-01"):"")+'</span></div>'+lineChartHTML(lcId, monthPoints)+'</div>'+
+    '<div class="card" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">'+
+      '<div><h3 class="card-title" style="margin:0 0 4px">Tendencia mensual</h3><p class="hint" style="margin:0">'+(months[0]?fmtDate(months[0]+"-01")+" – "+fmtDate(lastMonth+"-01"):"Sin datos suficientes.")+'</p></div>'+
+      '<button class="btn btn-primary" data-action="open-trend-popup">Ver tendencia mensual</button>'+
+    '</div>'+
   '</div>'+
   '<div class="grid two-col" style="margin-top:14px">'+
     '<div class="card"><div class="card-head"><h3 class="card-title">Principales proveedores</h3></div>'+barListHTML(provFold.top,{})+restNoteHTML(provFold,"proveedores")+'</div>'+
     qualityCard+
   '</div>';
+}
+function buildTrendChartHTML(){
+  var agg = computeAgg(filteredDashboardGastos());
+  var months = Object.keys(agg.byMonth).sort();
+  var monthPoints = months.map(function(m){ return {label: monthLabel(m), value: agg.byMonth[m]}; });
+  var lastMonth = months[months.length-1];
+  var lcId = "lc"+Date.now();
+  return '<div class="card"><div class="card-head"><h3 class="card-title">Tendencia mensual</h3><span class="card-note">'+(months[0]?fmtDate(months[0]+"-01")+" – "+fmtDate(lastMonth+"-01"):"")+'</span></div>'+lineChartHTML(lcId, monthPoints)+'</div>';
+}
+function openTrendPopup(){
+  var html = buildTrendChartHTML();
+  var css = Array.prototype.map.call(document.querySelectorAll("style"), function(s){return s.textContent;}).join("\n");
+  var w = null;
+  try{ w = window.open("", "_blank", "width=760,height=520"); }catch(e){ w = null; }
+  if(!w){ toast("No se pudo abrir la ventana. Revisa que tu navegador no la haya bloqueado.","err"); return; }
+  w.document.open();
+  w.document.write(
+    '<!doctype html><html><head><meta charset="utf-8"><title>Tendencia mensual — Rancho Trailers</title>'+
+    '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">'+
+    '<style>'+css+'</style>'+
+    '</head><body style="padding:20px; background:var(--bg)">'+html+'</body></html>'
+  );
+  w.document.close();
+  // Same hover-tooltip behavior as the main page's line charts (index.html's
+  // document-level "mousemove"/"mouseleave" listeners), scoped to this
+  // popup's own document since it's a separate window.
+  w.document.addEventListener("mousemove", function(e){
+    var hit = e.target.closest && e.target.closest(".lc-hit");
+    if(!hit) return;
+    var id = hit.dataset.id;
+    var tip = w.document.getElementById(id+"-tip");
+    var svg = w.document.getElementById(id);
+    if(!tip||!svg) return;
+    var svgRect = svg.getBoundingClientRect();
+    var scaleX = svgRect.width/640;
+    var cx = parseFloat(hit.dataset.cx)*scaleX;
+    var cy = parseFloat(hit.dataset.cy)*(svgRect.height/190);
+    tip.style.left = cx+"px"; tip.style.top = cy+"px"; tip.style.display="block";
+    tip.textContent = hit.dataset.label+" · "+fmtMoneyInt(parseFloat(hit.dataset.value));
+  });
+  w.document.addEventListener("mouseleave", function(e){
+    if(e.target && e.target.classList && e.target.classList.contains("chart-wrap")){
+      var tip = e.target.querySelector(".lc-tooltip"); if(tip) tip.style.display="none";
+    }
+  }, true);
 }
 
 /* ================= COMPARAR PROYECTOS ================= */
@@ -2406,6 +2452,7 @@ document.addEventListener("click", function(e){
   else if(action==="page-prev"){ if(STATE.filters.page>1){ STATE.filters.page--; renderContent(); } }
   else if(action==="page-next"){ STATE.filters.page++; renderContent(); }
   else if(action==="clear-filters"){ STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",flag:"",q:"",page:1,pageSize:50}; renderContent(); }
+  else if(action==="open-trend-popup") openTrendPopup();
   else if(action==="goto-quality"){
     STATE.filters = {proyecto:"",categoria:"",proveedor:"",formaPago:"",desde:"",hasta:"",mes:"",anio:"",flag:el.dataset.flag,q:"",page:1,pageSize:50};
     setView("gastos");
