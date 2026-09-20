@@ -1037,9 +1037,9 @@ function exportReportCSV(){
       if(pa!==pb) return pa<pb?-1:1;
       return (a.fecha_factura||"").localeCompare(b.fecha_factura||"");
     });
-    lines = [["Proveedor","FechaFactura","Factura","Monto","TipoDePago","Estado"].join(",")];
+    lines = [["Proveedor","Proyecto","FechaFactura","Factura","Monto","TipoDePago","Estado"].join(",")];
     consRows.forEach(function(r){
-      lines.push([r.proveedor||"", r.fecha_factura||"", r.factura||"", r.importe, formaPagoLabel[r.forma_pago]||"", estadoCreditoLabel(r)].map(csvEsc).join(","));
+      lines.push([r.proveedor||"", proyectoNombre(r.proyecto_key), r.fecha_factura||"", r.factura||"", r.importe, formaPagoLabel[r.forma_pago]||"", estadoCreditoLabel(r)].map(csvEsc).join(","));
     });
     filename = "template_consolidado_proveedores_rancho_trailers.csv";
   } else if(STATE.reportTemplate==="sgx"){
@@ -1118,7 +1118,7 @@ function renderTemplateConsolidado(gastos){
   var bodyRows = [];
   var curProv = null, subtotal = 0;
   function flushSubtotal(){
-    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="3">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="2"></td></tr>');
+    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="4">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="2"></td></tr>');
   }
   rows.forEach(function(r){
     var prov = r.proveedor||"—";
@@ -1126,6 +1126,7 @@ function renderTemplateConsolidado(gastos){
     subtotal += r.importe;
     bodyRows.push('<tr>'+
       '<td>'+esc(r.proveedor||"—")+'</td>'+
+      '<td>'+esc(proyectoNombre(r.proyecto_key))+'</td>'+
       '<td>'+fmtDate(r.fecha_factura)+'</td>'+
       '<td>'+esc(r.factura||"—")+'</td>'+
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
@@ -1143,10 +1144,10 @@ function renderTemplateConsolidado(gastos){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
-        '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="6" class="empty">Sin registros con estos filtros.</td></tr>')+
+        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th></tr></thead>'+
+        '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="7" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="3">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="4">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
