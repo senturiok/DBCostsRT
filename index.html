@@ -366,7 +366,7 @@ var STATE = {
   db:null, downloads:null, _pendingRestoreId:null,
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
-  reportFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
+  reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"" },
   reportGenerated:false,
   reportTemplate:"completo",
   gastosContabilidad:{},
@@ -1001,6 +1001,7 @@ function filteredReportGastos(dateField){
   dateField = dateField || "fecha";
   return allGastos().filter(function(r){
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
+    if(f.proveedor && normKey(r.proveedor)!==normKey(f.proveedor)) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
     if(f.estado && estadoDeProyecto(r.proyecto_key||"SIN_PROYECTO")!==f.estado) return false;
@@ -1081,13 +1082,15 @@ function renderReportesView(){
   var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
   var allCats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
   var f = STATE.reportFilters;
-  var reportActive = !!(f.proyecto||f.categoria||f.formaPago||f.estado||f.desde||f.hasta);
+  var provOptions = allProveedores();
+  var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.desde||f.hasta);
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
       '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option></select>'+
       '<select data-reportfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-reportfilter="proveedor"><option value="">Todos los proveedores</option>'+provOptions.map(function(n){return '<option value="'+esc(n)+'"'+(normKey(f.proveedor)===normKey(n)?' selected':'')+'>'+esc(n)+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
@@ -2002,7 +2005,7 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; renderContent(); }
-  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; STATE.reportGenerated=false; renderContent(); }
+  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
   else if(action==="print-report") window.print();
   else if(action==="export-report-csv") exportReportCSV();
