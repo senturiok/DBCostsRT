@@ -16,10 +16,11 @@ const PAGE = `<!DOCTYPE html>
       var(--bg);
     color:var(--ink); font-family:var(--font-body); padding:24px;
   }
-  .wrap{width:100%; max-width:760px; text-align:center;}
+  .wrap{width:100%; max-width:1080px; text-align:center;}
   .logo{ width:100%; max-width:420px; height:auto; margin:0 auto 20px; display:block; }
   p.sub{color:var(--ink-2); font-size:14px; margin:0 0 36px; letter-spacing:.01em;}
-  .cards{display:grid; grid-template-columns:1fr 1fr; gap:20px;}
+  .cards{display:grid; grid-template-columns:repeat(3, 1fr); gap:20px;}
+  @media (max-width:860px){ .cards{grid-template-columns:1fr 1fr;} }
   @media (max-width:560px){ .cards{grid-template-columns:1fr;} }
   a.card{
     position:relative; display:flex; flex-direction:column; align-items:flex-start; text-align:left;
@@ -71,6 +72,14 @@ const PAGE = `<!DOCTYPE html>
       </div>
       <div class="card-title">Portal de Cotizaciones</div>
       <p class="card-desc">pcot.serviceranchotrailers.org</p>
+      <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+    <a class="card" href="https://pcobranza.serviceranchotrailers.org">
+      <div class="card-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M14.5 9.5a2.5 2 0 0 0-2.5-1.5c-1.66 0-3 .9-3 2s1.34 2 3 2 3 .9 3 2-1.34 2-3 2a2.5 2 0 0 1-2.5-1.5"/><line x1="12" y1="6" x2="12" y2="8"/><line x1="12" y1="16" x2="12" y2="18"/></svg>
+      </div>
+      <div class="card-title">Portal de Cobranza</div>
+      <p class="card-desc">pcobranza.serviceranchotrailers.org</p>
       <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
     </a>
   </div>
