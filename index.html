@@ -812,7 +812,17 @@ function setView(v){
   closeSidebar();
   renderContent();
 }
-function rerenderView(){ if(STATE.profile && STATE.view) renderContent(); }
+function rerenderView(){
+  if(!STATE.profile || !STATE.view) return;
+  var c = document.getElementById("content");
+  var ae = document.activeElement;
+  // A routine poll (every ~7s) must never blow away an in-progress form
+  // (Registrar gasto, Agregar categoría) just because the interval fired —
+  // skip the destructive re-render while focus is inside one. Filter/search
+  // inputs aren't wrapped in a <form>, so they keep updating live as before.
+  if(ae && c && c.contains(ae) && ae.closest("form")) return;
+  renderContent();
+}
 function renderContent(){
   var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
