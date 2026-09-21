@@ -982,7 +982,7 @@ function renderDashboard(){
   var prevVal = prevMonth ? agg.byMonth[prevMonth] : null;
   var deltaTxt = "";
   if(prevVal){ var pct = ((lastVal-prevVal)/prevVal*100); deltaTxt = (pct>=0?"+":"")+pct.toFixed(0)+"% vs "+monthLabel(prevMonth); }
-  var proyKeysInView = Object.keys(agg.byProyecto).filter(function(k){ return proyMap[k] && proyMap[k].es_valido; });
+  var proyKeysInView = Object.keys(proyMap).filter(function(k){ return proyMap[k].es_valido && (!STATE.dashFilters.proyecto || STATE.dashFilters.proyecto===k); });
   var mostrandoTerminados = STATE.dashFilters.estado==="terminado";
   var proyCountLabel = mostrandoTerminados ? "Proyectos terminados" : "Proyectos activos";
   var proyCount = proyKeysInView.filter(function(k){ return mostrandoTerminados ? estadoDeProyecto(k)==="terminado" : estadoDeProyecto(k)!=="terminado"; }).length;
