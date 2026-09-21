@@ -16,11 +16,11 @@ const PAGE = `<!DOCTYPE html>
       var(--bg);
     color:var(--ink); font-family:var(--font-body); padding:24px;
   }
-  .wrap{width:100%; max-width:1080px; text-align:center;}
+  .wrap{width:100%; max-width:1320px; text-align:center;}
   .logo{ width:100%; max-width:420px; height:auto; margin:0 auto 20px; display:block; }
   p.sub{color:var(--ink-2); font-size:14px; margin:0 0 36px; letter-spacing:.01em;}
-  .cards{display:grid; grid-template-columns:repeat(3, 1fr); gap:20px;}
-  @media (max-width:860px){ .cards{grid-template-columns:1fr 1fr;} }
+  .cards{display:grid; grid-template-columns:repeat(4, 1fr); gap:20px;}
+  @media (max-width:1040px){ .cards{grid-template-columns:1fr 1fr;} }
   @media (max-width:560px){ .cards{grid-template-columns:1fr;} }
   a.card{
     position:relative; display:flex; flex-direction:column; align-items:flex-start; text-align:left;
@@ -80,6 +80,14 @@ const PAGE = `<!DOCTYPE html>
       </div>
       <div class="card-title">Portal de Cobranza</div>
       <p class="card-desc">pcobranza.serviceranchotrailers.org</p>
+      <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+    <a class="card" href="https://produccion.serviceranchotrailers.org">
+      <div class="card-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M4 20V10l6 4v-4l6 4v-4l4 3v7"/></svg>
+      </div>
+      <div class="card-title">Portal de Producción</div>
+      <p class="card-desc">produccion.serviceranchotrailers.org</p>
       <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
     </a>
   </div>
