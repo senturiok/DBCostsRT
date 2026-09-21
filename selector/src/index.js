@@ -73,6 +73,14 @@ const PAGE = `<!DOCTYPE html>
       <p class="card-desc">pcot.serviceranchotrailers.org</p>
       <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
     </a>
+    <a class="card" href="https://produccion.serviceranchotrailers.org">
+      <div class="card-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 20h20"/><path d="M4 20V10l5-5 5 5v10"/><path d="M14 20v-6l4-3 4 3v6"/></svg>
+      </div>
+      <div class="card-title">Portal de Producción</div>
+      <p class="card-desc">Control y seguimiento de producción.</p>
+      <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
   </div>
 </div>
 `;
