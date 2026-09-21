@@ -406,6 +406,7 @@ var STATE = {
   contFilters:{ proveedor:"", proyecto:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
   provSearch:"",
   proySearch:"",
+  proyEstadoFilter:"activo",
   compareProjects:["","",""],
   catTab:"proyectos",
   contTab:"proveedores",
@@ -1997,13 +1998,20 @@ function renderCatalogosView(){
   if(STATE.catTab==="proyectos"){
     var listAll = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
     var proyQ = STATE.proySearch.trim().toLowerCase();
-    var list = proyQ ? listAll.filter(function(p){
+    var listByEstado = STATE.proyEstadoFilter ? listAll.filter(function(p){ return estadoDeProyecto(p.key)===STATE.proyEstadoFilter; }) : listAll;
+    var list = proyQ ? listByEstado.filter(function(p){
       var hay = (p.nombre+" "+(p.tipoTraila||"")+" "+(p.tamanoTraila||"")+" "+estadoDeProyecto(p.key)).toLowerCase();
       return hay.indexOf(proyQ)>-1;
-    }) : listAll;
+    }) : listByEstado;
     body = (!STATE.db ? '<p class="hint" style="color:var(--warn); margin-bottom:10px">Conectando con la base de datos compartida…</p>' : "") +
       (can("manageCatalogos") ? '<button class="btn btn-primary" data-action="new-proyecto" style="margin-bottom:14px">+ Agregar proyecto</button>' : "") +
-      '<div class="filters"><input type="text" class="q" placeholder="Buscar proyecto por nombre, tipo, tamaño o estado…" data-proysearch="1" value="'+esc(STATE.proySearch)+'"></div>'+
+      '<div class="filters"><input type="text" class="q" placeholder="Buscar proyecto por nombre, tipo, tamaño o estado…" data-proysearch="1" value="'+esc(STATE.proySearch)+'">'+
+        '<select data-proyestadofilter="1">'+
+          '<option value="activo"'+(STATE.proyEstadoFilter==="activo"?' selected':'')+'>Solo activos</option>'+
+          '<option value="terminado"'+(STATE.proyEstadoFilter==="terminado"?' selected':'')+'>Solo terminados</option>'+
+          '<option value=""'+(STATE.proyEstadoFilter===""?' selected':'')+'>Todos</option>'+
+        '</select>'+
+      '</div>'+
       (list.length ? '<div class="prov-grid">'+list.map(function(p){
         var estado = estadoDeProyecto(p.key);
         var rows = "";
@@ -2021,7 +2029,7 @@ function renderCatalogosView(){
             (isMasterUser() ? '<button class="btn btn-danger" data-action="delete-proyecto" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
           '</div>'+
         '</div>';
-      }).join("")+'</div>' : '<div class="empty">'+(proyQ?'Sin proyectos que coincidan con "'+esc(STATE.proySearch)+'".':'No hay proyectos todavía.')+'</div>');
+      }).join("")+'</div>' : '<div class="empty">'+(proyQ?'Sin proyectos que coincidan con "'+esc(STATE.proySearch)+'".':(STATE.proyEstadoFilter?'No hay proyectos '+(STATE.proyEstadoFilter==="activo"?"activos":"terminados")+'.':'No hay proyectos todavía.'))+'</div>');
   } else if(STATE.catTab==="proveedores"){
     var provAll = allProveedoresFull();
     var provQ = STATE.provSearch.trim().toLowerCase();
@@ -2649,6 +2657,8 @@ document.addEventListener("change", function(e){
     STATE.reportTemplate = e.target.value; STATE.reportGenerated=false; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.contfilter && e.target.tagName==="SELECT"){
     STATE.contFilters[e.target.dataset.contfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.proyestadofilter){
+    STATE.proyEstadoFilter = e.target.value; renderContent();
   }
 });
 document.addEventListener("DOMContentLoaded", boot);
