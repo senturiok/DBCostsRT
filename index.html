@@ -818,10 +818,14 @@ function rerenderView(){
   var c = document.getElementById("content");
   var ae = document.activeElement;
   // A routine poll (every ~7s) must never blow away an in-progress form
-  // (Registrar gasto, Agregar categoría) just because the interval fired —
-  // skip the destructive re-render while focus is inside one. Filter/search
-  // inputs aren't wrapped in a <form>, so they keep updating live as before.
-  if(ae && c && c.contains(ae) && ae.closest("form")) return;
+  // (Registrar gasto, Agregar categoría) or an open filter — replacing the
+  // DOM node under an open <select>/<datalist> closes it, and typing into a
+  // filter loses focus — so skip the destructive re-render while focus is
+  // inside a form OR on any input/select/textarea being used to filter.
+  if(ae && c && c.contains(ae)){
+    var tag = ae.tagName;
+    if(ae.closest("form") || tag==="INPUT" || tag==="SELECT" || tag==="TEXTAREA") return;
+  }
   renderContent();
 }
 function renderContent(){
