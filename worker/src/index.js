@@ -153,6 +153,7 @@ function summarizeForLog(collection, data) {
     if (data.fecha_exportacion) parts.push("exportado " + data.fecha_exportacion);
     if (data.fecha_venta) parts.push("vendido " + data.fecha_venta);
     if (data.precio_venta_usd) parts.push("US$" + Number(data.precio_venta_usd).toLocaleString("en-US"));
+    if (Array.isArray(data.archivos) && data.archivos.length) parts.push(data.archivos.length + " archivo" + (data.archivos.length === 1 ? "" : "s"));
     return parts.join(" · ");
   }
   if (collection === "tipos_cambio") return (data.fecha || "") + " → " + data.fix + " (" + (data.fuente || "") + ")";

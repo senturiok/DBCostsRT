@@ -230,6 +230,10 @@
   .prov-total{font-family:var(--font-mono); font-size:11px; color:var(--muted); margin-top:2px;}
   .prov-contact{display:flex; flex-direction:column; gap:5px; padding-top:6px; border-top:1px solid var(--line);}
   .prov-contact-row{display:flex; gap:8px; align-items:baseline; font-size:12.5px; color:var(--ink);}
+  .archivo-usd-row{display:flex; gap:8px; align-items:center; font-size:13px;}
+  .archivo-usd-row a{flex:1; min-width:0; overflow-wrap:anywhere;}
+  .field .archivo-usd-row input[type=checkbox]{width:auto; flex:none; margin:0;}
+  .field .archivo-usd-row label{margin:0; font-size:12px; font-weight:500; text-transform:none; letter-spacing:0; color:var(--ink-2); cursor:pointer;}
   .prov-contact-row .lbl{color:var(--muted); font-size:10px; text-transform:uppercase; letter-spacing:.06em; width:52px; flex:none;}
   .prov-actions{display:flex; gap:6px; margin-top:auto; padding-top:2px;}
   .prov-actions .btn{padding:6px 10px; font-size:12px; flex:1;}
@@ -2897,6 +2901,8 @@ function renderHoustonProyectosTab(){
     if(i.fecha_exportacion) rows += '<div class="prov-contact-row"><span class="lbl">Exportó</span><span>'+esc(fmtDate(i.fecha_exportacion))+(i.pedimento?' · Ped. '+esc(i.pedimento):'')+'</span></div>';
     if(i.fecha_venta) rows += '<div class="prov-contact-row"><span class="lbl">Vendió</span><span>'+esc(fmtDate(i.fecha_venta))+(i.cliente?' · '+esc(i.cliente):'')+'</span></div>';
     if(i.precio_venta_usd) rows += '<div class="prov-contact-row"><span class="lbl">Precio</span><span class="num">'+fmtUsd(Number(i.precio_venta_usd))+'</span></div>';
+    var archivos = proyectoUsdArchivos(i);
+    if(archivos.length) rows += '<div class="prov-contact-row"><span class="lbl">Archivos</span><span>'+archivosUsdLinksHTML(archivos)+'</span></div>';
     return '<div class="prov-card">'+
       '<div class="prov-card-head"><div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtUsdInt(houstonPorProy[p.key]||0)+' en Houston</div></div>'+estadoHoustonBadge(p.key)+'</div>'+
       '<div class="prov-contact">'+rows+'</div>'+
@@ -2911,8 +2917,13 @@ function renderHoustonProyectosTab(){
     (cards ? '<div class="prov-grid">'+cards+'</div>' : '<div class="empty">Sin proyectos con estos filtros.</div>')+
   '</div>';
 }
+function proyectoUsdArchivos(i){ return Array.isArray(i && i.archivos) ? i.archivos.filter(function(a){ return a && a.url; }) : []; }
+function archivosUsdLinksHTML(archivos){
+  return archivos.map(function(a){ return '<a href="'+esc(a.url)+'" target="_blank" rel="noopener" title="'+esc(a.nombre||"Archivo")+'">📎 '+esc(a.nombre||"Archivo")+'</a>'; }).join("<br>");
+}
 function openProyectoUsdModal(key){
   var i = proyectoUsdInfo(key);
+  var archivos = proyectoUsdArchivos(i);
   openModal('<h3>'+esc(proyectoNombre(key))+' · exportación y venta</h3>'+
     '<form id="proyectoUsdForm"><input type="hidden" name="key" value="'+esc(key)+'">'+
       '<div class="field"><label>Fecha de exportación</label><input type="date" name="fecha_exportacion" value="'+esc(i.fecha_exportacion||"")+'"></div>'+
@@ -2921,6 +2932,12 @@ function openProyectoUsdModal(key){
       '<div class="field"><label>Precio de venta (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" min="0" name="precio_venta_usd" value="'+esc(i.precio_venta_usd||"")+'" placeholder="0.00"></div></div>'+
       '<div class="field"><label>Cliente</label><input name="cliente" value="'+esc(i.cliente||"")+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Notas</label><input name="notas" value="'+esc(i.notas||"")+'" placeholder="Opcional"></div>'+
+      (archivos.length ? '<div class="field"><label>Archivos guardados</label><div style="display:flex; flex-direction:column; gap:4px">'+
+        archivos.map(function(a, n){ return '<div class="archivo-usd-row">'+
+          '<a href="'+esc(a.url)+'" target="_blank" rel="noopener">📎 '+esc(a.nombre||"Archivo")+'</a>'+
+          '<input type="checkbox" id="pu_quitar_'+n+'" name="quitar_archivo" value="'+esc(a.id)+'"><label for="pu_quitar_'+n+'">Quitar</label></div>'; }).join("")+
+      '</div></div>' : '')+
+      '<div class="field"><label for="pu_archivos">Agregar archivos (fotos o PDF)</label><input type="file" id="pu_archivos" name="archivos" multiple accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"><span class="hint" style="margin-top:4px">Pedimento, factura de venta, title, fotos de entrega… Puedes elegir varios a la vez (máximo 20 MB cada uno).</span></div>'+
       '<p class="hint">Deja las fechas vacías si todavía no ocurre. La venta requiere fecha de exportación.</p>'+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>');
@@ -2932,13 +2949,46 @@ function handleProyectoUsdSubmit(form){
   var precio = parseFloat(fd.get("precio_venta_usd"));
   if(venta && !exp){ toast("Captura primero la fecha de exportación.","err"); return; }
   if(venta && exp && venta<exp){ toast("La fecha de venta no puede ser anterior a la de exportación.","err"); return; }
-  var data = { key:key, fecha_exportacion:exp||null, pedimento:(fd.get("pedimento")||"").trim(), fecha_venta:venta||null,
-    precio_venta_usd: isFinite(precio)&&precio>0 ? precio : null, cliente:(fd.get("cliente")||"").trim(), notas:(fd.get("notas")||"").trim(),
-    actualizadoPor:quienSoy(), updatedAt:new Date().toISOString() };
-  var slug = slugify(key);
-  STATE.db.doc("proyectos_usd/"+slug).set(data).then(function(){
+  var quitar = fd.getAll("quitar_archivo");
+  var previos = proyectoUsdArchivos(proyectoUsdInfo(key));
+  var quitados = previos.filter(function(a){ return quitar.indexOf(a.id)>=0; });
+  var conservados = previos.filter(function(a){ return quitar.indexOf(a.id)<0; });
+  var nuevos = Array.prototype.slice.call((form.archivos && form.archivos.files) || []);
+  var MAX_BYTES = 20*1024*1024;
+  var grande = nuevos.filter(function(f){ return f.size>MAX_BYTES; })[0];
+  if(grande){ toast('"'+grande.name+'" pesa más de 20 MB.',"err"); return; }
+  var submitBtn = form.querySelector('button[type=submit]');
+  if(submitBtn){ submitBtn.disabled = true; if(nuevos.length) submitBtn.textContent = "Subiendo "+nuevos.length+" archivo"+(nuevos.length===1?"":"s")+"…"; }
+  function reenable(){ if(submitBtn){ submitBtn.disabled = false; submitBtn.textContent = "Guardar"; } }
+  var subidos = [];
+  // Uno por uno para que, si alguno falla, se sepa cuál y no se guarde nada a medias.
+  var chain = Promise.resolve();
+  nuevos.forEach(function(file){
+    chain = chain.then(function(){
+      return STATE.assets.upload(file).then(function(up){
+        subidos.push({ id:up.id, url:up.url, tipo:up.contentType||file.type||"", nombre:file.name, subidoPor:quienSoy(), subidoEn:new Date().toISOString() });
+      }, function(err){
+        var e = new Error('No se pudo subir "'+file.name+'"'+(err && err.code ? ": "+err.code : "."));
+        e.upload = true; throw e;
+      });
+    });
+  });
+  var slug = slugify(key), data;
+  chain.then(function(){
+    data = { key:key, fecha_exportacion:exp||null, pedimento:(fd.get("pedimento")||"").trim(), fecha_venta:venta||null,
+      precio_venta_usd: isFinite(precio)&&precio>0 ? precio : null, cliente:(fd.get("cliente")||"").trim(), notas:(fd.get("notas")||"").trim(),
+      archivos: conservados.concat(subidos),
+      actualizadoPor:quienSoy(), updatedAt:new Date().toISOString() };
+    return STATE.db.doc("proyectos_usd/"+slug).set(data);
+  }).then(function(){
     STATE.proyectosUsd[slug] = data; toast("Proyecto actualizado ✓"); closeModal(); renderContent();
-  }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Houston." : "No se pudo guardar.","err"); });
+    if(quitados.length && isMasterUser() && STATE.assets){ quitados.forEach(function(a){ STATE.assets.delete(a.id).catch(function(){}); }); }
+  }).catch(function(err){
+    reenable();
+    // Lo que sí alcanzó a subir no quedó ligado a nada: se limpia si se puede.
+    if(isMasterUser() && STATE.assets){ subidos.forEach(function(a){ STATE.assets.delete(a.id).catch(function(){}); }); }
+    toast(err && err.upload ? err.message : err && err.status===403 ? "No tienes permiso del módulo Houston." : "No se pudo guardar.","err");
+  });
 }
 
 /* ---------- Categorías USD ---------- */
@@ -3151,6 +3201,7 @@ function openCostoDetalleModal(key){
       '<div class="flag-item"><span>Precio de venta</span><span class="num">'+(r.venta?fmtUsd(r.venta):'—')+'</span></div>'+
       '<div class="flag-item"><span>Margen</span><span class="num" style="color:'+(r.margen<0?"var(--critical)":"var(--good)")+'">'+(r.margen===null?'—':fmtUsd(r.margen)+' ('+r.margenPct.toFixed(1)+'%)')+'</span></div>'+
     '</div>'+
+    (proyectoUsdArchivos(i).length ? '<h3 class="card-title" style="margin:14px 0 6px">Archivos</h3><div style="font-size:13px">'+archivosUsdLinksHTML(proyectoUsdArchivos(i))+'</div>' : '')+
     '<div style="display:flex; gap:8px; margin-top:14px">'+(can("manageHouston")?'<button class="btn" data-action="edit-proyecto-usd" data-key="'+esc(key)+'">Editar exportación / venta</button>':'')+'<button class="btn" data-action="modal-close">Cerrar</button></div>'
   );
   var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "680px";
