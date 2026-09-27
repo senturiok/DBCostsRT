@@ -1649,13 +1649,6 @@ function renderContabilidadProveedoresTab(){
     '</div>'+
   '</div>';
 
-  var kpis = '<div class="grid kpis">'+
-    '<div class="card"><div class="kpi-label">Total a crédito</div><div class="kpi-value">'+fmtMoneyInt(totalCredito)+'</div><div class="kpi-delta">'+filtered.length+' facturas</div></div>'+
-    '<div class="card"><div class="kpi-label">Verificado</div><div class="kpi-value">'+fmtMoneyInt(totalVerificado)+'</div><div class="kpi-delta">cotejado contra el proveedor</div></div>'+
-    '<div class="card"><div class="kpi-label">Pendiente de pago</div><div class="kpi-value">'+fmtMoneyInt(totalPendientePago)+'</div><div class="kpi-delta">verificado, falta pagar</div></div>'+
-    '<div class="card"><div class="kpi-label">Pagado</div><div class="kpi-value">'+fmtMoneyInt(totalPagado)+'</div><div class="kpi-delta">ciclo completo</div></div>'+
-  '</div>';
-
   var estadoBadge = {
     pendiente: '<span class="badge badge-muted">Pendiente</span>',
     verificado: '<span class="badge badge-steel">Verificado</span>',
@@ -1684,6 +1677,13 @@ function renderContabilidadProveedoresTab(){
     if(!grp.comprobanteUrl && r.comprobanteUrl) grp.comprobanteUrl = r.comprobanteUrl;
   });
   var groups = groupOrder.map(function(k){ return groupsMap[k]; });
+
+  var kpis = '<div class="grid kpis">'+
+    '<div class="card"><div class="kpi-label">Total a crédito</div><div class="kpi-value">'+fmtMoneyInt(totalCredito)+'</div><div class="kpi-delta">'+groups.length+' factura'+(groups.length===1?"":"s")+'</div></div>'+
+    '<div class="card"><div class="kpi-label">Verificado</div><div class="kpi-value">'+fmtMoneyInt(totalVerificado)+'</div><div class="kpi-delta">cotejado contra el proveedor</div></div>'+
+    '<div class="card"><div class="kpi-label">Pendiente de pago</div><div class="kpi-value">'+fmtMoneyInt(totalPendientePago)+'</div><div class="kpi-delta">verificado, falta pagar</div></div>'+
+    '<div class="card"><div class="kpi-label">Pagado</div><div class="kpi-value">'+fmtMoneyInt(totalPagado)+'</div><div class="kpi-delta">ciclo completo</div></div>'+
+  '</div>';
 
   var rows = groups.map(function(grp){
     var ids = grp.items.map(function(r){ return r.id; });
