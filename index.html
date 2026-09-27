@@ -3192,7 +3192,7 @@ function renderHoustonTcTab(){
   return '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
       '<div class="card"><div class="kpi-label">Último FIX</div><div class="kpi-value">'+(last?fmtTc(last.fix):"—")+'</div><div class="kpi-delta">'+(last?fmtDate(last.fecha):"Sin datos todavía")+'</div></div>'+
       '<div class="card"><div class="kpi-label">Días cargados</div><div class="kpi-value">'+list.length+'</div><div class="kpi-delta">'+(list.length?fmtDate(list[0].fecha)+" – "+fmtDate(last.fecha):"")+'</div></div>'+
-      '<div class="card"><div class="kpi-label">Fuente</div><div class="kpi-value" style="font-size:18px; font-family:var(--font-display)">Banxico FIX</div><div class="kpi-delta">Serie SF43718 · se actualiza sola en días hábiles</div></div>'+
+      '<div class="card"><div class="kpi-label">Fuente</div><div class="kpi-value" style="font-size:18px; font-family:var(--font-display)">Banxico FIX</div><div class="kpi-delta">Serie SF43718 · se actualiza sola todos los días a las 23:00 (CDT)</div></div>'+
     '</div>'+
     '<div class="grid two-col" style="margin-top:14px">'+
       '<div class="card"><div class="card-head"><h3 class="card-title">Cómo se usa</h3></div>'+
