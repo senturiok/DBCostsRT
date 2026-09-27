@@ -425,7 +425,7 @@ var STATE = {
   gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{},
   houstonTab:"gastos",
   usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", page:1, pageSize:50 },
-  costoFilters:{ estado:"", q:"", orden:"total" },
+  costoFilters:{ estado:"", q:"", orden:"total", mes:"", anio:"" },
   tcSyncing:false,
   loaded:false
 };
@@ -2815,6 +2815,7 @@ function computeCostoTotal(){
     var x = rows[k], info = proyectoUsdInfo(k);
     x.nombre = proyMap[k].nombre;
     x.estado = estadoHouston(k);
+    x.fecha_exportacion = info.fecha_exportacion || null;
     x.tcProm = x.usdMx>0 ? x.mxnConTc/x.usdMx : null;
     x.total = x.usdMx + x.indirectoUsd + x.houston + x.overhead;
     x.venta = Number(info.precio_venta_usd)||0;
@@ -3248,6 +3249,8 @@ function filteredCostoRows(){
   var ct = computeCostoTotal();
   var rows = ct.rows.filter(function(r){
     if(f.estado && r.estado!==f.estado) return false;
+    if(f.anio && (!r.fecha_exportacion || r.fecha_exportacion.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!r.fecha_exportacion || r.fecha_exportacion.slice(5,7)!==f.mes)) return false;
     if(q && r.nombre.toLowerCase().indexOf(q)===-1) return false;
     return true;
   });
@@ -3294,11 +3297,13 @@ function renderCostoTotalView(){
     '</tr>';
   }).join("");
 
+  var allCostoRows = computeCostoTotal().rows;
   return '<div class="card" style="margin-bottom:14px"><div class="filters" style="margin:0">'+
       '<select data-costofilter="estado"><option value="">Todos los proyectos</option>'+["mexico","exportado","vendido"].map(function(e){return '<option value="'+e+'"'+(f.estado===e?' selected':'')+'>'+ESTADO_HOUSTON_LABEL[e]+'</option>';}).join("")+'</select>'+
+      mesAnioOptionsHTML("costofilter", f.mes, f.anio, allCostoRows, "fecha_exportacion")+
       '<select data-costofilter="orden"><option value="total"'+(f.orden==="total"?' selected':'')+'>Ordenar: mayor costo</option><option value="nombre"'+(f.orden==="nombre"?' selected':'')+'>Ordenar: nombre</option><option value="margen"'+(f.orden==="margen"?' selected':'')+'>Ordenar: menor margen</option></select>'+
       '<input type="text" class="q" placeholder="Buscar proyecto…" data-costofilter="q" value="'+esc(f.q)+'">'+
-    '</div></div>'+
+    '</div><p class="hint" style="margin:8px 0 0">El filtro de mes/año usa la fecha de exportación (importación a Houston), no la fecha de venta.</p></div>'+
     '<div class="grid kpis">'+
       '<div class="card"><div class="kpi-label">Costo total</div><div class="kpi-value">'+fmtUsdInt(sum("total"))+'</div><div class="kpi-delta">'+rows.length+' proyectos · México '+fmtUsdInt(sum("usdMx")+sum("indirectoUsd"))+' + Houston '+fmtUsdInt(sum("houston")+sum("overhead"))+'</div></div>'+
       '<div class="card"><div class="kpi-label">Ventas</div><div class="kpi-value">'+fmtUsdInt(ventas)+'</div><div class="kpi-delta">'+vendidos.length+' remolques con precio de venta</div></div>'+
