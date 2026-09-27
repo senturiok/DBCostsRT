@@ -2968,6 +2968,7 @@ function gastoUsdFormFields(g){
   var proveedoresUsd = {};
   allProveedoresUsdFull(false).forEach(function(p){ proveedoresUsd[normKey(p.nombre)] = p.nombre; });
   STATE.gastosUsd.forEach(function(x){ if(x.proveedor) proveedoresUsd[normKey(x.proveedor)] = x.proveedor; });
+  STATE._acSources["usd-proyecto"] = proyOpts.map(function(p){ return p.nombre; });
   return '<div class="form-grid">'+
     '<div class="field"><label for="u_capturador">'+reqLabel("Tu nombre")+'</label><input id="u_capturador" name="capturadoPor" required value="'+esc(g.capturadoPor||getRememberedName())+'"></div>'+
     '<div class="field"><label for="u_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="u_fecha" name="fecha" value="'+esc(g.fecha||todayISO())+'" required></div>'+
@@ -2975,9 +2976,7 @@ function gastoUsdFormFields(g){
       '<option value="proyecto"'+(tipo==="proyecto"?' selected':'')+'>De un proyecto (remolque)</option>'+
       '<option value="overhead"'+(tipo==="overhead"?' selected':'')+'>Gasto general Houston (se prorratea)</option>'+
     '</select></div>'+
-    '<div class="field" data-usd-proyecto-field="1"'+(tipo==="overhead"?' style="display:none"':'')+'><label for="u_proyecto">'+reqLabel("Proyecto")+'</label><select id="u_proyecto" name="proyecto_key"><option value="">Selecciona…</option>'+
-      proyOpts.map(function(p){ return '<option value="'+esc(p.key)+'"'+(g.proyecto_key===p.key?' selected':'')+'>'+esc(p.nombre)+' · '+ESTADO_HOUSTON_LABEL[estadoHouston(p.key)]+'</option>'; }).join("")+
-    '</select></div>'+
+    '<div class="field" data-usd-proyecto-field="1"'+(tipo==="overhead"?' style="display:none"':'')+'><label for="u_proyecto">'+reqLabel("Proyecto")+'</label><div class="ac-wrap"><input id="u_proyecto" name="proyecto_nombre" autocomplete="off" data-ac="usd-proyecto" value="'+esc(g.proyecto_key?proyectoNombre(g.proyecto_key):(g.proyecto||""))+'" placeholder="Escribe para buscar…"><div class="ac-list" id="ac-usd-proyecto"></div></div></div>'+
     '<div class="field"><label for="u_proveedor">'+reqLabel("Proveedor")+'</label><input id="u_proveedor" name="proveedor" list="provUsdDatalist" required value="'+esc(g.proveedor||"")+'" placeholder="Nombre del proveedor"><datalist id="provUsdDatalist">'+Object.keys(proveedoresUsd).sort().map(function(k){return '<option value="'+esc(proveedoresUsd[k])+'">';}).join("")+'</datalist></div>'+
     '<div class="field"><label for="u_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="u_fecha_factura" name="fecha_factura" required value="'+esc(g.fecha_factura||"")+'"></div>'+
     '<div class="field span2"><label for="u_desc">'+reqLabel("Descripción")+'</label><input id="u_desc" name="descripcion" required value="'+esc(g.descripcion||"")+'" placeholder="¿Qué se pagó o compró?"></div>'+
@@ -3019,8 +3018,13 @@ function submitGastoUsd(form, isEdit){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
   var fd = new FormData(form);
   var tipo = fd.get("tipo_usd")==="overhead" ? "overhead" : "proyecto";
-  var proyKey = tipo==="proyecto" ? (fd.get("proyecto_key")||"") : "";
-  if(tipo==="proyecto" && !proyKey){ toast("Selecciona el proyecto, o marca el gasto como gasto general.","err"); return; }
+  var proyKey = "";
+  if(tipo==="proyecto"){
+    var proyNombreInput = (fd.get("proyecto_nombre")||"").trim();
+    var matchedProy = proyNombreInput ? validProyectoOptions().filter(function(p){ return normKey(p.nombre)===normKey(proyNombreInput); })[0] : null;
+    proyKey = matchedProy ? matchedProy.key : "";
+    if(!proyKey){ toast("Escribe y selecciona un proyecto válido de la lista, o marca el gasto como gasto general.","err"); return; }
+  }
   var importe = parseFloat(fd.get("importe_usd"));
   if(!importe || importe<=0){ toast("Escribe un importe válido.","err"); return; }
   var capturador = (fd.get("capturadoPor")||"").trim();
