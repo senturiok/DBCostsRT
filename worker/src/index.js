@@ -22,9 +22,10 @@ const LIST_COLLECTIONS = ["gastos_nuevos", "proyectos_nuevos", "proveedores_nuev
 const MAP_COLLECTIONS = [
   "proyecto_estado", "proveedores_info", "proyectos_info", "gastos_edits", "gastos_contabilidad",
   // Módulo Houston (USD): categorías USD (id = código), ciclo de vida
-  // exportación/venta por proyecto (id = slug del proyecto) y tipo de cambio
-  // FIX de Banxico (id = fecha YYYY-MM-DD).
-  "categorias_usd", "proyectos_usd", "tipos_cambio",
+  // exportación/venta por proyecto (id = slug del proyecto), tipo de cambio
+  // FIX de Banxico (id = fecha YYYY-MM-DD) y directorio de proveedores USD
+  // (id = slug del nombre, sin origen Excel).
+  "categorias_usd", "proyectos_usd", "tipos_cambio", "proveedores_usd",
 ];
 const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS]);
 
@@ -134,6 +135,7 @@ const COLLECTION_LABELS = {
   categorias_usd: "Categoría USD",
   proyectos_usd: "Exportación/venta",
   tipos_cambio: "Tipo de cambio",
+  proveedores_usd: "Proveedor USD",
 };
 
 function summarizeForLog(collection, data) {
@@ -148,6 +150,7 @@ function summarizeForLog(collection, data) {
     return parts.join(" · ");
   }
   if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : (data.clave ? data.clave + " · " : "") + (data.nombre || "");
+  if (collection === "proveedores_usd") return data.eliminado ? "Eliminado: " + (data.nombre || "") : data.nombre || "";
   if (collection === "proyectos_usd") {
     const parts = [data.key || ""];
     if (data.fecha_exportacion) parts.push("exportado " + data.fecha_exportacion);
@@ -311,10 +314,10 @@ function authorizeWrite(profile, collection, method, payload) {
     return hasModule(profile, moduleKey) ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para esta acción." };
   }
 
-  if (collection === "categorias_usd") {
-    // Igual que proyectos_info/proveedores_info: "eliminar" una categoría USD
-    // es un {eliminado:true} (soft delete, para que los gastos ya capturados
-    // conserven su etiqueta), y eliminar siempre es solo del master.
+  if (collection === "categorias_usd" || collection === "proveedores_usd") {
+    // Igual que proyectos_info/proveedores_info: "eliminar" una categoría o
+    // proveedor USD es un {eliminado:true} (soft delete, para que los gastos
+    // ya capturados conserven su etiqueta), y eliminar siempre es solo del master.
     if (payload && payload.eliminado === true) {
       return profile.isMaster ? { ok: true } : { ok: false, status: 403, error: "Solo el Master Administrator puede eliminar." };
     }
