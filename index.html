@@ -777,6 +777,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "addCategoriaUsdForm") handleCategoriaUsdSubmit(e.target);
   else if(formId === "proyectoUsdForm") handleProyectoUsdSubmit(e.target);
   else if(formId === "proveedorUsdForm") handleProveedorUsdFormSubmit(e.target);
+  else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
 
@@ -919,6 +920,32 @@ function fechaTerminado(key){
   if(e.fecha_terminado) return e.fecha_terminado;
   if(e.updatedAt){ var d = new Date(e.updatedAt); if(!isNaN(d)) return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
   return null;
+}
+function openFechaTerminadoModal(key){
+  if(estadoDeProyecto(key)!=="terminado") return;
+  var fecha = fechaTerminado(key) || todayISO();
+  openModal(
+    '<h3>Fecha de terminado</h3>'+
+    '<p class="hint" style="margin-top:0">Esta fecha decide en qué mes se le reparten a "'+esc(proyectoNombre(key))+'" los indirectos de México.</p>'+
+    '<form id="fechaTerminadoForm">'+
+      '<input type="hidden" name="key" value="'+esc(key)+'">'+
+      '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(fecha)+'" required></div>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>'
+  );
+}
+function handleFechaTerminadoSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form);
+  var key = fd.get("key"), fecha = fd.get("fecha");
+  if(!fecha){ toast("Selecciona una fecha.","err"); return; }
+  var slug = slugify(key);
+  var prev = STATE.proyectoEstado[slug] || {};
+  var data = Object.assign({}, prev, { estado:"terminado", key:key, fecha_terminado:fecha, updatedAt:new Date().toISOString() });
+  STATE.db.doc("proyecto_estado/"+slug).set(data).then(function(){
+    STATE.proyectoEstado[slug] = data;
+    toast("Fecha de terminado actualizada ✓"); closeModal(); renderContent();
+  }).catch(function(){ toast("No se pudo actualizar.","err"); });
 }
 
 /* ================= CHARTS ================= */
@@ -2181,7 +2208,12 @@ function renderCatalogosView(){
       (list.length ? '<div class="prov-grid">'+list.map(function(p){
         var estado = estadoDeProyecto(p.key);
         var rows = "";
-        rows += '<div class="prov-contact-row"><span class="lbl">Estado</span><span class="badge '+(estado==="terminado"?"badge-muted":"badge-good")+'" '+(can("toggleEstado")?'data-action="toggle-estado" data-key="'+esc(p.key)+'" style="cursor:pointer"':'')+'>'+(estado==="terminado"?"Terminado":"Activo")+'</span>'+(estado==="terminado"&&fechaTerminado(p.key)?' <span class="hint">'+esc(fmtDate(fechaTerminado(p.key)))+'</span>':'')+'</div>';
+        rows += '<div class="prov-contact-row"><span class="lbl">Estado</span><span class="badge '+(estado==="terminado"?"badge-muted":"badge-good")+'" '+(can("toggleEstado")?'data-action="toggle-estado" data-key="'+esc(p.key)+'" style="cursor:pointer"':'')+'>'+(estado==="terminado"?"Terminado":"Activo")+'</span>'+
+          (estado==="terminado" ? (can("toggleEstado")
+            ? ' <span class="hint" data-action="edit-fecha-terminado" data-key="'+esc(p.key)+'" style="cursor:pointer; text-decoration:underline dotted" title="Editar fecha de terminado">'+(fechaTerminado(p.key)?esc(fmtDate(fechaTerminado(p.key))):"Agregar fecha")+' ✎</span>'
+            : (fechaTerminado(p.key) ? ' <span class="hint">'+esc(fmtDate(fechaTerminado(p.key)))+'</span>' : ""))
+          : "")+
+        '</div>';
         if(p.tipoTraila) rows += '<div class="prov-contact-row"><span class="lbl">Tipo</span><span>'+esc(p.tipoTraila)+'</span></div>';
         if(p.tamanoTraila) rows += '<div class="prov-contact-row"><span class="lbl">Tamaño</span><span>'+esc(p.tamanoTraila)+'</span></div>';
         return '<div class="prov-card">'+
@@ -3621,6 +3653,7 @@ document.addEventListener("click", function(e){
       STATE.proyectoEstado[estadoSlug] = estadoData; renderContent();
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
+  else if(action==="edit-fecha-terminado") openFechaTerminadoModal(el.dataset.key);
   else if(action==="delete-catalog"){
     if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar categorías.","err"); return; }
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
