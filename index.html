@@ -902,7 +902,9 @@ function closeSidebar(){ document.getElementById("sidebar").classList.remove("op
 
 /* ================= LOOKUPS ================= */
 function catShortCode(codigo){ if(!codigo) return ""; var i = codigo.indexOf("-"); return i>-1 ? codigo.slice(0,i) : codigo; }
-function catLabel(c){ return catShortCode(c.codigo)+" · "+c.nombre; }
+/* c.clave: ID visible editable (solo categorías USD); el código interno no cambia. */
+function catClave(c){ return (c && c.clave) || catShortCode(c && c.codigo); }
+function catLabel(c){ return catClave(c)+" · "+c.nombre; }
 function catNameMap(){ var m={}; allCategorias().forEach(function(c){ m[c.codigo]=catLabel(c); }); return m; }
 function proyectoNombre(key){ if(key==="SIN_PROYECTO"||!key) return "Sin proyecto asignado"; var p=allProyectos()[key]; return p?p.nombre:key; }
 function estadoDeProyecto(key){ var slug=slugify(key); var e=STATE.proyectoEstado[slug]; return (e&&e.estado)?e.estado:"activo"; }
@@ -2571,6 +2573,7 @@ function allCategoriasUsd(includeDeleted){
     } else {
       map[codigo] = { codigo:codigo, nombre:o.nombre||codigo, orden:typeof o.orden==="number"?o.orden:100, origen:"portal", eliminado:!!o.eliminado };
     }
+    if(o.clave) map[codigo].clave = o.clave;
   });
   return Object.keys(map).map(function(k){ return map[k]; })
     .filter(function(c){ return includeDeleted || !c.eliminado; })
@@ -3130,7 +3133,7 @@ function renderHoustonCategoriasTab(){
   var canEdit = can("manageHouston"), master = isMasterUser();
   function rowHTML(c){
     return '<div class="list-row">'+
-      '<span class="name">'+esc(catShortCode(c.codigo))+' · '+esc(c.nombre)+'</span>'+
+      '<span class="name">'+esc(catLabel(c))+'</span>'+
       '<span class="meta">'+fmtUsdInt(totals[c.codigo]||0)+'</span>'+
       '<span class="badge '+(c.origen==="portal"?"badge-accent":"badge-muted")+'">'+(c.origen==="portal"?"Agregada":"Predeterminada")+'</span>'+
       (c.eliminado
@@ -3149,8 +3152,9 @@ function openCategoriaUsdModal(codigo){
   var c = allCategoriasUsd(true).filter(function(x){return x.codigo===codigo;})[0];
   if(!c) return;
   openModal('<h3>Editar categoría USD</h3><form id="categoriaUsdForm"><input type="hidden" name="codigo" value="'+esc(codigo)+'">'+
-    '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(c.nombre)+'" required autofocus></div>'+
-    '<p class="hint">El código ('+esc(catShortCode(codigo))+') no cambia, así que los gastos ya capturados toman el nombre nuevo.</p>'+
+    '<div class="field"><label for="cu_clave">ID</label><input id="cu_clave" name="clave" value="'+esc(catClave(c))+'" maxlength="12" required></div>'+
+    '<div class="field"><label for="cu_nombre">Nombre</label><input id="cu_nombre" name="nombre" value="'+esc(c.nombre)+'" required></div>'+
+    '<p class="hint">Los gastos ya capturados con esta categoría toman el ID y el nombre nuevos.</p>'+
     '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
   '</form>');
 }
@@ -3160,9 +3164,16 @@ function handleCategoriaUsdSubmit(form){
   var codigo = form.codigo ? form.codigo.value : "";
   var existing = allCategoriasUsd(true);
   if(existing.some(function(c){ return c.codigo!==codigo && normKey(c.nombre)===normKey(nombre) && !c.eliminado; })){ toast("Ya existe una categoría con ese nombre.","err"); return; }
+  var clave = form.clave ? (form.clave.value||"").trim() : "";
+  if(form.clave){
+    if(!clave){ toast("Escribe el ID de la categoría.","err"); return; }
+    var dup = existing.filter(function(c){ return c.codigo!==codigo && normKey(catClave(c))===normKey(clave); })[0];
+    if(dup){ toast('El ID "'+clave+'" ya lo usa '+catLabel(dup)+'.',"err"); return; }
+  }
   var data;
   if(codigo){
     data = Object.assign({}, STATE.categoriasUsd[codigo]||{}, { codigo:codigo, nombre:nombre, updatedAt:new Date().toISOString() });
+    if(form.clave){ if(clave===catShortCode(codigo)) delete data.clave; else data.clave = clave; }
   } else {
     var base = "USX-"+slugify(nombre).slice(0,16), n = 2;
     codigo = base;
