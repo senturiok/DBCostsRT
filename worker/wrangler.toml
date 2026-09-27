@@ -26,8 +26,10 @@ bucket_name = "rancho-trailers-comprobantes"
 # (never commit the actual value)
 
 # Tipo de cambio FIX de Banxico (serie SF43718). Banxico lo publica en días
-# hábiles alrededor de las 12:00 (CDMX); se consulta dos veces por si acaso.
+# hábiles alrededor de las 12:00 (CDMX); se consulta todos los días a las
+# 23:00 CDT (Houston, horario de verano). Cloudflare usa UTC y no cambia de
+# horario: 04:00 UTC = 23:00 CDT, y 22:00 cuando rige el horario de invierno (CST).
 # Requiere: wrangler secret put BANXICO_TOKEN
 # (token gratuito en https://www.banxico.org.mx/SieAPIRest/service/v1/token)
 [triggers]
-crons = ["30 18 * * 1-5", "30 23 * * 1-5"]
+crons = ["0 4 * * *"]
