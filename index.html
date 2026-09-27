@@ -2708,12 +2708,15 @@ function computeOverheadProrrateo(){
 }
 
 /* ---------- Indirectos de México ----------
-   Todo lo registrado en el proyecto GASTO GENERAL es indirecto. El de cada
-   mes se reparte entre los proyectos que se marcaron como terminados en ese
-   mes, en proporción a su costo directo en México. Si en un mes no se terminó
-   ningún proyecto, el monto pasa al siguiente mes que sí tenga terminados. */
-var INDIRECTO_PROYECTO_KEY = "GASTO GENERAL";
-function esProyectoIndirecto(key){ return normKey(key||"")===INDIRECTO_PROYECTO_KEY; }
+   Todo lo registrado en alguno de estos proyectos es indirecto (GASTO GENERAL:
+   gastos generales/administrativos; CONSUMIBLES G: gastos variables de
+   producción). El de cada mes se reparte entre los proyectos que se marcaron
+   como terminados en ese mes, en proporción a su costo directo en México. Si
+   en un mes no se terminó ningún proyecto, el monto pasa al siguiente mes que
+   sí tenga terminados. */
+var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G"];
+var INDIRECTO_PROYECTOS_LABEL = INDIRECTO_PROYECTO_KEYS.join(" y ");
+function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
 function computeIndirectosMx(){
   var porMes = {}, sinFecha = { n:0, mxn:0 }, directo = {}, nGastos = 0;
   allGastos().forEach(function(r){
@@ -2764,7 +2767,7 @@ function renderIndirectosView(){
   var proyAsignados = Object.keys(ix.porProyecto).filter(function(k){ return ix.porProyecto[k].monto>0.004; });
   var avisos = [];
   if(ix.pendiente>0.004) avisos.push(fmtMoney(ix.pendiente)+' de indirectos todavía no se asignan: se sumarán al siguiente mes en que se termine algún proyecto.');
-  if(ix.sinFecha.n) avisos.push(ix.sinFecha.n+' gasto(s) de GASTO GENERAL por '+fmtMoney(ix.sinFecha.mxn)+' no tienen una fecha válida y no se prorratean.');
+  if(ix.sinFecha.n) avisos.push(ix.sinFecha.n+' gasto(s) de '+INDIRECTO_PROYECTOS_LABEL+' por '+fmtMoney(ix.sinFecha.mxn)+' no tienen una fecha válida y no se prorratean.');
   if(ix.terminadosSinFecha.length) avisos.push('Sin fecha de terminado (no reciben indirectos): '+ix.terminadosSinFecha.map(function(k){ return esc(proyectoNombre(k)); }).join(", ")+'. Márcalos como activos y otra vez como terminados en Catálogos para registrar la fecha.');
 
   var filasMes = ix.filas.slice().reverse().map(function(f){
@@ -2794,7 +2797,7 @@ function renderIndirectosView(){
   var totDirecto = proyAsignados.reduce(function(s,k){ return s+ix.porProyecto[k].directo; },0);
 
   return '<div class="grid kpis">'+
-      '<div class="card"><div class="kpi-label">Indirectos registrados</div><div class="kpi-value">'+fmtMoneyInt(ix.total)+'</div><div class="kpi-delta">'+ix.nGastos+' gastos en GASTO GENERAL</div></div>'+
+      '<div class="card"><div class="kpi-label">Indirectos registrados</div><div class="kpi-value">'+fmtMoneyInt(ix.total)+'</div><div class="kpi-delta">'+ix.nGastos+' gastos en '+INDIRECTO_PROYECTOS_LABEL+'</div></div>'+
       '<div class="card"><div class="kpi-label">Asignado a proyectos</div><div class="kpi-value">'+fmtMoneyInt(ix.asignado)+'</div><div class="kpi-delta">'+proyAsignados.length+' proyectos terminados</div></div>'+
       '<div class="card"><div class="kpi-label">Por asignar</div><div class="kpi-value"'+(ix.pendiente>0.004?' style="color:var(--warn)"':'')+'>'+fmtMoneyInt(ix.pendiente)+'</div><div class="kpi-delta">espera al siguiente terminado</div></div>'+
       '<div class="card"><div class="kpi-label">Indirecto sobre directo</div><div class="kpi-value">'+(totDirecto>0?(ix.asignado/totDirecto*100).toFixed(1)+'%':'—')+'</div><div class="kpi-delta">de los proyectos que ya recibieron</div></div>'+
@@ -2812,9 +2815,9 @@ function renderIndirectosView(){
       '<div class="card-head"><h3 class="card-title">Por mes</h3><span class="card-note">Más reciente primero</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th class="num">Viene de meses anteriores</th><th>Proyectos terminados</th><th class="num">Asignado</th><th class="num">Pasa al siguiente</th></tr></thead>'+
-        '<tbody>'+(filasMes||'<tr><td colspan="6" class="empty">Sin gastos en GASTO GENERAL.</td></tr>')+'</tbody>'+
+        '<tbody>'+(filasMes||'<tr><td colspan="6" class="empty">Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.</td></tr>')+'</tbody>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">Todo lo registrado en el proyecto GASTO GENERAL se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). Se reparte entre los proyectos marcados como terminados ese mes, en proporción a su costo directo en México. El mes de terminado es el día en que se marcó como terminado en Catálogos.</p>'+
+      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). Se reparte entre los proyectos marcados como terminados ese mes, en proporción a su costo directo en México. El mes de terminado es el día en que se marcó como terminado en Catálogos.</p>'+
     '</div>';
 }
 
@@ -3462,7 +3465,7 @@ function renderCostoTotalView(){
         '<tbody>'+(body||'<tr><td colspan="12" class="empty">Sin proyectos con estos filtros.</td></tr>')+'</tbody>'+
         '<tfoot><tr><td colspan="2">Total ('+rows.length+')</td><td class="num">'+fmtMoneyInt(sum("mxn"))+'</td><td></td><td class="num">'+fmtUsdInt(sum("usdMx"))+'</td><td class="num">'+fmtUsdInt(sum("indirectoUsd"))+'</td><td class="num">'+fmtUsdInt(sum("houston"))+'</td><td class="num">'+fmtUsdInt(sum("overhead"))+'</td><td class="num">'+fmtUsdInt(sum("total"))+'</td><td class="num">'+fmtUsdInt(ventas)+'</td><td class="num">'+(vendidos.length?fmtUsdInt(margen):'—')+'</td><td></td></tr></tfoot>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte del GASTO GENERAL que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston se reparte cada mes entre los remolques en Houston según sus días ahí.</p>'+
+      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte de '+INDIRECTO_PROYECTOS_LABEL+' que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston se reparte cada mes entre los remolques en Houston según sus días ahí.</p>'+
     '</div>';
 }
 function openCostoDetalleModal(key){
