@@ -422,7 +422,8 @@ var STATE = {
   usuariosTab:"perfiles",
   activityLog:null,
   activityLogLoading:false,
-  gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{},
+  gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{}, proveedoresUsd:{},
+  provUsdSearch:"",
   houstonTab:"gastos",
   usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", page:1, pageSize:50 },
   costoFilters:{ estado:"", q:"", orden:"total", mes:"", anio:"" },
@@ -656,6 +657,7 @@ function applyStateSnapshot(state){
   STATE.categoriasUsd = state.categorias_usd || {};
   STATE.proyectosUsd = state.proyectos_usd || {};
   STATE.tiposCambio = state.tipos_cambio || {};
+  STATE.proveedoresUsd = state.proveedores_usd || {};
   _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
@@ -774,6 +776,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "categoriaUsdForm") handleCategoriaUsdSubmit(e.target);
   else if(formId === "addCategoriaUsdForm") handleCategoriaUsdSubmit(e.target);
   else if(formId === "proyectoUsdForm") handleProyectoUsdSubmit(e.target);
+  else if(formId === "proveedorUsdForm") handleProveedorUsdFormSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
 
@@ -2581,6 +2584,16 @@ function allCategoriasUsd(includeDeleted){
 }
 function catUsdNameMap(){ var m={}; allCategoriasUsd(true).forEach(function(c){ m[c.codigo]=catLabel(c); }); return m; }
 
+/* Directorio de proveedores en USD (Houston), independiente del de México.
+   Vive solo en proveedores_usd (id = slug del nombre); no hay origen Excel. */
+function allProveedoresUsdFull(includeDeleted){
+  return Object.keys(STATE.proveedoresUsd).map(function(key){
+    var p = STATE.proveedoresUsd[key] || {};
+    return { key:key, nombre:p.nombre||key, telefono:p.telefono||"", email:p.email||"", direccion:p.direccion||"", eliminado:!!p.eliminado };
+  }).filter(function(p){ return includeDeleted || !p.eliminado; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+}
+function allProveedoresUsd(){ return allProveedoresUsdFull(false).map(function(p){ return p.nombre; }); }
+
 /* ---------- Tipo de cambio FIX ---------- */
 var _tcCache = null;
 function tcSorted(){
@@ -2828,12 +2841,13 @@ function computeCostoTotal(){
 }
 
 /* ================= VISTA: HOUSTON ================= */
-var HOUSTON_TABS = ["gastos","registrar","proyectos","categorias","tipo_cambio"];
-var HOUSTON_TAB_LABELS = { gastos:"Gastos USD", registrar:"Registrar gasto USD", proyectos:"Exportación y venta", categorias:"Categorías USD", tipo_cambio:"Tipo de cambio" };
+var HOUSTON_TABS = ["gastos","registrar","proyectos","proveedores","categorias","tipo_cambio"];
+var HOUSTON_TAB_LABELS = { gastos:"Gastos USD", registrar:"Registrar gasto USD", proyectos:"Exportación y venta", proveedores:"Proveedores", categorias:"Categorías USD", tipo_cambio:"Tipo de cambio" };
 function renderHoustonView(){
   var t = STATE.houstonTab;
   var body = t==="registrar" ? renderHoustonRegistrarTab()
     : t==="proyectos" ? renderHoustonProyectosTab()
+    : t==="proveedores" ? renderHoustonProveedoresTab()
     : t==="categorias" ? renderHoustonCategoriasTab()
     : t==="tipo_cambio" ? renderHoustonTcTab()
     : renderHoustonGastosTab();
@@ -2919,7 +2933,9 @@ function gastoUsdFormFields(g){
     var old = allCategoriasUsd(true).filter(function(c){return c.codigo===g.categoria;})[0];
     if(old) cats = cats.concat([old]);
   }
-  var proveedoresUsd = {}; STATE.gastosUsd.forEach(function(x){ if(x.proveedor) proveedoresUsd[normKey(x.proveedor)] = x.proveedor; });
+  var proveedoresUsd = {};
+  allProveedoresUsdFull(false).forEach(function(p){ proveedoresUsd[normKey(p.nombre)] = p.nombre; });
+  STATE.gastosUsd.forEach(function(x){ if(x.proveedor) proveedoresUsd[normKey(x.proveedor)] = x.proveedor; });
   return '<div class="form-grid">'+
     '<div class="field"><label for="u_capturador">'+reqLabel("Tu nombre")+'</label><input id="u_capturador" name="capturadoPor" required value="'+esc(g.capturadoPor||getRememberedName())+'"></div>'+
     '<div class="field"><label for="u_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="u_fecha" name="fecha" value="'+esc(g.fecha||todayISO())+'" required></div>'+
@@ -3192,6 +3208,98 @@ function setCategoriaUsdEliminada(codigo, eliminado){
   var data = Object.assign({}, STATE.categoriasUsd[codigo]||{}, { codigo:codigo, nombre:c.nombre, eliminado:eliminado, updatedAt:new Date().toISOString() });
   STATE.db.doc("categorias_usd/"+codigo).set(data).then(function(){
     STATE.categoriasUsd[codigo] = data; toast(eliminado ? "Categoría eliminada" : "Categoría restaurada ✓"); closeModal(); renderContent();
+  }).catch(function(){ toast("No se pudo actualizar.","err"); });
+}
+
+/* ---------- Proveedores (Houston / USD) ---------- */
+function renderHoustonProveedoresTab(){
+  var canEdit = can("manageHouston"), master = isMasterUser();
+  var totals = {};
+  allGastosUsd().forEach(function(g){ if(g.proveedor) totals[normKey(g.proveedor)] = (totals[normKey(g.proveedor)]||0) + g.importe_usd; });
+  var q = STATE.provUsdSearch.trim().toLowerCase();
+  var all = allProveedoresUsdFull(true).filter(function(p){
+    var hay = (p.nombre+" "+p.telefono+" "+p.email+" "+p.direccion).toLowerCase();
+    return !q || hay.indexOf(q)>-1;
+  });
+  var activos = all.filter(function(p){return !p.eliminado;}), eliminados = all.filter(function(p){return p.eliminado;});
+  function cardHTML(p){
+    var rows = "";
+    if(p.telefono) rows += '<div class="prov-contact-row"><span class="lbl">Tel</span><span>'+esc(p.telefono)+'</span></div>';
+    if(p.email) rows += '<div class="prov-contact-row"><span class="lbl">Correo</span><span>'+esc(p.email)+'</span></div>';
+    if(p.direccion) rows += '<div class="prov-contact-row"><span class="lbl">Dirección</span><span>'+esc(p.direccion)+'</span></div>';
+    return '<div class="prov-card">'+
+      '<div class="prov-card-head">'+
+        '<div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtUsdInt(totals[normKey(p.nombre)]||0)+' en Houston</div></div>'+
+        (p.eliminado ? '<span class="badge badge-muted">Eliminado</span>' : '')+
+      '</div>'+
+      (rows ? '<div class="prov-contact">'+rows+'</div>' : '<p class="hint" style="margin:0">Sin datos de contacto todavía.</p>')+
+      '<div class="prov-actions">'+
+        (p.eliminado
+          ? (master ? '<button class="btn" data-action="restore-proveedor-usd" data-key="'+esc(p.key)+'">Restaurar</button>' : '')
+          : (canEdit ? '<button class="btn" data-action="edit-proveedor-usd" data-key="'+esc(p.key)+'">Editar</button>' : '')+
+            (master ? '<button class="btn btn-danger" data-action="delete-proveedor-usd" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'">Eliminar</button>' : ''))+
+      '</div>'+
+    '</div>';
+  }
+  return '<div class="card">'+
+    (canEdit ? '<button class="btn btn-primary" data-action="new-proveedor-usd" style="margin-bottom:14px">+ Agregar proveedor USD</button>' : "") +
+    '<div class="filters"><input type="text" class="q" placeholder="Buscar proveedor por nombre, teléfono, correo o dirección…" data-provusdsearch="1" value="'+esc(STATE.provUsdSearch)+'"></div>'+
+    (activos.length ? '<div class="prov-grid">'+activos.map(cardHTML).join("")+'</div>' : '<div class="empty">'+(q?'Sin proveedores que coincidan con "'+esc(STATE.provUsdSearch)+'".':'Todavía no hay proveedores USD. Agrega el primero.')+'</div>')+
+    (eliminados.length ? '<h3 class="card-title" style="margin:20px 0 6px">Eliminados</h3><p class="hint" style="margin-top:0">Ya no aparecen al capturar gastos USD; los gastos que los usan conservan el nombre.</p><div class="prov-grid">'+eliminados.map(cardHTML).join("")+'</div>' : '')+
+  '</div>';
+}
+function openProveedorUsdModal(key){
+  var p = { key:"", nombre:"", telefono:"", email:"", direccion:"" };
+  var isEdit = !!key;
+  if(isEdit){
+    var found = allProveedoresUsdFull(true).filter(function(x){return x.key===key;})[0];
+    if(!found) return;
+    p = found;
+  }
+  openModal(
+    '<h3>'+(isEdit?"Editar proveedor USD":"Nuevo proveedor USD")+'</h3>'+
+    '<form id="proveedorUsdForm">'+
+      '<input type="hidden" name="key" value="'+esc(p.key)+'">'+
+      '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(p.nombre)+'" required autofocus></div>'+
+      '<div class="field"><label>Teléfono</label><input name="telefono" value="'+esc(p.telefono)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Correo electrónico</label><input type="email" name="email" value="'+esc(p.email)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Dirección</label><input name="direccion" value="'+esc(p.direccion)+'" placeholder="Opcional"></div>'+
+      (isEdit ? '<p class="hint">Los gastos ya capturados conservan el nombre del proveedor tal como se registraron; este cambio solo actualiza el directorio.</p>' : "")+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>'
+  );
+}
+function handleProveedorUsdFormSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form);
+  var key = fd.get("key");
+  var nombre = (fd.get("nombre")||"").trim();
+  if(!nombre){ toast("Escribe un nombre.","err"); return; }
+  var telefono = (fd.get("telefono")||"").trim();
+  var email = (fd.get("email")||"").trim();
+  var direccion = (fd.get("direccion")||"").trim();
+  var existing = allProveedoresUsdFull(true);
+  if(existing.some(function(p){ return p.key!==key && normKey(p.nombre)===normKey(nombre); })){ toast("Ya existe un proveedor con ese nombre.","err"); return; }
+  var finalKey = key;
+  if(!finalKey){
+    var base = slugify(nombre), n = 2; finalKey = base;
+    while(STATE.proveedoresUsd[finalKey]) finalKey = base+"-"+(n++);
+  }
+  var prev = STATE.proveedoresUsd[finalKey] || {};
+  var data = Object.assign({}, prev, { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() });
+  if(!key) data.creadoEn = new Date().toISOString();
+  STATE.db.doc("proveedores_usd/"+finalKey).set(data).then(function(){
+    STATE.proveedoresUsd[finalKey] = data;
+    toast(key ? "Proveedor actualizado ✓" : "Proveedor agregado ✓"); closeModal(); STATE.provUsdSearch = ""; renderContent();
+  }).catch(function(err){ console.error(err); toast("No se pudo guardar.","err"); });
+}
+function setProveedorUsdEliminado(key, eliminado){
+  if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar o restaurar proveedores.","err"); return; }
+  var prev = STATE.proveedoresUsd[key] || {};
+  var data = Object.assign({}, prev, { eliminado:eliminado, updatedAt:new Date().toISOString() });
+  STATE.db.doc("proveedores_usd/"+key).set(data).then(function(){
+    STATE.proveedoresUsd[key] = data;
+    toast(eliminado ? "Proveedor eliminado" : "Proveedor restaurado ✓"); closeModal(); renderContent();
   }).catch(function(){ toast("No se pudo actualizar.","err"); });
 }
 
@@ -3616,6 +3724,11 @@ document.addEventListener("click", function(e){
   else if(action==="delete-categoria-usd") openModal('<h3>Eliminar categoría USD</h3><p class="hint">"'+esc(el.dataset.nombre)+'" dejará de aparecer para registrar gastos nuevos. Los gastos ya capturados con esta categoría no se modifican, y la puedes restaurar después.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-categoria-usd" data-codigo="'+esc(el.dataset.codigo)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
   else if(action==="confirm-delete-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, true);
   else if(action==="restore-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, false);
+  else if(action==="new-proveedor-usd") openProveedorUsdModal(null);
+  else if(action==="edit-proveedor-usd") openProveedorUsdModal(el.dataset.key);
+  else if(action==="delete-proveedor-usd") openModal('<h3>Eliminar proveedor USD</h3><p class="hint">"'+esc(el.dataset.nombre)+'" dejará de aparecer para registrar gastos nuevos. Los gastos ya capturados con este proveedor no se modifican, y lo puedes restaurar después.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proveedor-usd" data-key="'+esc(el.dataset.key)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
+  else if(action==="confirm-delete-proveedor-usd") setProveedorUsdEliminado(el.dataset.key, true);
+  else if(action==="restore-proveedor-usd") setProveedorUsdEliminado(el.dataset.key, false);
   else if(action==="sync-tc") syncTiposCambio();
   else if(action==="costo-detalle") openCostoDetalleModal(el.dataset.key);
   else if(action==="goto-houston-tab"){ STATE.houstonTab = el.dataset.tab; if(firstAllowedNavHas("houston")) setView("houston"); }
@@ -3656,6 +3769,8 @@ document.addEventListener("input", debounce(function(e){
     STATE.dashFilters[e.target.dataset.dashfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.provsearch){
     STATE.provSearch = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.provusdsearch){
+    STATE.provUsdSearch = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.proysearch){
     STATE.proySearch = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.reportfilter){
