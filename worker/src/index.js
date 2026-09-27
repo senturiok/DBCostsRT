@@ -147,7 +147,7 @@ function summarizeForLog(collection, data) {
     }
     return parts.join(" · ");
   }
-  if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : data.nombre || "";
+  if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : (data.clave ? data.clave + " · " : "") + (data.nombre || "");
   if (collection === "proyectos_usd") {
     const parts = [data.key || ""];
     if (data.fecha_exportacion) parts.push("exportado " + data.fecha_exportacion);
