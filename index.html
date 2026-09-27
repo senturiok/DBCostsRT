@@ -377,7 +377,9 @@ var PERMS = [
   { key:"catalogos",    label:"Catálogos" },
   { key:"comparar",     label:"Comparar proyectos" },
   { key:"reportes",     label:"Reportes" },
-  { key:"contabilidad", label:"Contabilidad" }
+  { key:"contabilidad", label:"Contabilidad" },
+  { key:"houston",      label:"Houston (USD)" },
+  { key:"costo_total",  label:"Costo total (USD)" }
 ];
 
 var NAV = [
@@ -388,6 +390,8 @@ var NAV = [
   { id:"comparar",   label:"Comparar proyectos", perm:"viewComparar", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>' },
   { id:"reportes",   label:"Reportes",        perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h9l3 3v3"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>' },
   { id:"contabilidad", label:"Contabilidad",  perm:"verifyPago",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
+  { id:"houston",    label:"Houston (USD)",   perm:"viewHouston",   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="7" width="14" height="10" rx="1"/><path d="M15 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>' },
+  { id:"costo_total", label:"Costo total (USD)", perm:"viewCostoTotal", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
   { id:"usuarios",   label:"Usuarios",        perm:null,            icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' }
 ];
 
@@ -413,6 +417,11 @@ var STATE = {
   usuariosTab:"perfiles",
   activityLog:null,
   activityLogLoading:false,
+  gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{},
+  houstonTab:"gastos",
+  usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", page:1, pageSize:50 },
+  costoFilters:{ estado:"", q:"", orden:"total" },
+  tcSyncing:false,
   loaded:false
 };
 
@@ -465,7 +474,9 @@ var PERM_MAP = {
   manageCatalogos:"catalogos", addCategoria:"catalogos", toggleEstado:"catalogos",
   viewComparar:"comparar",
   viewReportes:"reportes", exportReportes:"reportes",
-  verifyPago:"contabilidad"
+  verifyPago:"contabilidad",
+  viewHouston:"houston", editGastoUsd:"houston", manageHouston:"houston",
+  viewCostoTotal:"costo_total"
 };
 function can(action){
   var p = STATE.profile;
@@ -636,6 +647,11 @@ function applyStateSnapshot(state){
   STATE.gastosEdits = state.gastos_edits || {};
   STATE.gastosContabilidad = state.gastos_contabilidad || {};
   STATE.perfiles = state.perfiles || [];
+  applyList("gastosUsd","gastos_usd");
+  STATE.categoriasUsd = state.categorias_usd || {};
+  STATE.proyectosUsd = state.proyectos_usd || {};
+  STATE.tiposCambio = state.tipos_cambio || {};
+  _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
 }
@@ -748,6 +764,12 @@ document.addEventListener("submit", function(e){
   else if(formId === "addCategoriaForm") handleAddCategoria(e.target);
   else if(formId === "editGastoForm") handleEditGastoSubmit(e.target);
   else if(formId === "perfilForm") handlePerfilSubmit(e.target);
+  else if(formId === "gastoUsdForm") submitGastoUsd(e.target, false);
+  else if(formId === "editGastoUsdForm") submitGastoUsd(e.target, true);
+  else if(formId === "categoriaUsdForm") handleCategoriaUsdSubmit(e.target);
+  else if(formId === "addCategoriaUsdForm") handleCategoriaUsdSubmit(e.target);
+  else if(formId === "proyectoUsdForm") handleProyectoUsdSubmit(e.target);
+  else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
 
 /* ================= SHELL / NAV ================= */
@@ -765,7 +787,8 @@ function enterShell(){
   document.getElementById("gateUser").value = "";
   document.getElementById("pw").value = "";
   renderRoleChip();
-  var startView = firstAllowedNav();
+  var hashView = (location.hash||"").replace(/^#/,"");
+  var startView = (hashView && firstAllowedNavHas(hashView)) ? hashView : firstAllowedNav();
   if(startView){
     setView(startView);
   } else {
@@ -829,15 +852,17 @@ function rerenderView(){
   renderContent();
 }
 function renderContent(){
-  var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
+  var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
   actions.innerHTML = (STATE.view==="gastos" && can("exportGastos")) ? '<button class="btn" data-action="export-csv">Exportar CSV</button>'
-    : (STATE.view==="usuarios" && STATE.profile && STATE.profile.isMaster) ? '<button class="btn btn-primary" data-action="new-perfil">+ Nuevo perfil</button>' : "";
+    : (STATE.view==="usuarios" && STATE.profile && STATE.profile.isMaster) ? '<button class="btn btn-primary" data-action="new-perfil">+ Nuevo perfil</button>'
+    : (STATE.view==="houston" && STATE.houstonTab==="gastos") ? '<button class="btn" data-action="export-usd-csv">Exportar CSV</button>'
+    : (STATE.view==="costo_total") ? '<button class="btn" data-action="export-costo-csv">Exportar CSV</button>' : "";
   var c = document.getElementById("content");
 
-  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter"];
+  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter","usdfilter","costofilter"];
   var ae = document.activeElement, activeSelector = null, selStart = null, selEnd = null;
   if(ae && ae.dataset && c.contains(ae)){
     for(var fi=0; fi<focusAttrs.length; fi++){
@@ -854,6 +879,8 @@ function renderContent(){
   else if(STATE.view==="reportes") c.innerHTML = renderReportesView();
   else if(STATE.view==="contabilidad") c.innerHTML = renderContabilidadView();
   else if(STATE.view==="usuarios") c.innerHTML = renderUsuariosView();
+  else if(STATE.view==="houston") c.innerHTML = renderHoustonView();
+  else if(STATE.view==="costo_total") c.innerHTML = renderCostoTotalView();
   mountCharts();
 
   if(activeSelector){
@@ -2492,6 +2519,659 @@ function deletePerfilRow(id){
   );
 }
 
+/* ================= HOUSTON (USD) ================= */
+/* La operación en USD vive aparte de la de MXN: sus propias colecciones
+   (gastos_usd, categorias_usd, proyectos_usd) y nunca se suma con los gastos
+   en pesos. La única mezcla ocurre en "Costo total (USD)", que convierte cada
+   gasto MXN al FIX de Banxico de su fecha (tipos_cambio). */
+function fmtUsd(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var neg=n<0; n=Math.abs(n); return (neg?"-":"")+"US$"+n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtUsdInt(n){ if(n===null||n===undefined||isNaN(n)) return "—"; var neg=n<0; n=Math.abs(n); return (neg?"-":"")+"US$"+Math.round(n).toLocaleString("en-US"); }
+function fmtTc(n){ return (n===null||n===undefined||isNaN(n)) ? "—" : Number(n).toFixed(4); }
+
+var CATEGORIAS_USD_DEFAULT = [
+  { codigo:"US1-Flete",      nombre:"Flete / transporte",        orden:1 },
+  { codigo:"US2-Aduana",     nombre:"Aduana / broker",           orden:2 },
+  { codigo:"US3-Almacenaje", nombre:"Almacenaje / yarda",        orden:3 },
+  { codigo:"US4-Reparacion", nombre:"Reparaciones y ajustes",    orden:4 },
+  { codigo:"US5-Partes",     nombre:"Partes compradas en EUA",   orden:5 },
+  { codigo:"US6-Registro",   nombre:"Registro / title / placas", orden:6 },
+  { codigo:"US7-Comision",   nombre:"Comisión de venta",         orden:7 },
+  { codigo:"US8-Otros",      nombre:"Otros",                     orden:8 }
+];
+var FORMAS_PAGO_USD = [
+  { v:"tarjeta", l:"Tarjeta" }, { v:"transferencia", l:"Transferencia" },
+  { v:"efectivo", l:"Efectivo" }, { v:"credito", l:"Crédito" }
+];
+function formaPagoUsdLabel(v){ for(var i=0;i<FORMAS_PAGO_USD.length;i++){ if(FORMAS_PAGO_USD[i].v===v) return FORMAS_PAGO_USD[i].l; } return v||"—"; }
+
+/* Predeterminadas + lo que se haya editado/agregado/eliminado en categorias_usd (id = código). */
+function allCategoriasUsd(includeDeleted){
+  var map = {};
+  CATEGORIAS_USD_DEFAULT.forEach(function(c){ map[c.codigo] = { codigo:c.codigo, nombre:c.nombre, orden:c.orden, origen:"default", eliminado:false }; });
+  Object.keys(STATE.categoriasUsd).forEach(function(codigo){
+    var o = STATE.categoriasUsd[codigo] || {};
+    if(map[codigo]){
+      if(o.nombre) map[codigo].nombre = o.nombre;
+      map[codigo].eliminado = !!o.eliminado;
+    } else {
+      map[codigo] = { codigo:codigo, nombre:o.nombre||codigo, orden:typeof o.orden==="number"?o.orden:100, origen:"portal", eliminado:!!o.eliminado };
+    }
+  });
+  return Object.keys(map).map(function(k){ return map[k]; })
+    .filter(function(c){ return includeDeleted || !c.eliminado; })
+    .sort(function(a,b){ return a.orden-b.orden || a.nombre.localeCompare(b.nombre); });
+}
+function catUsdNameMap(){ var m={}; allCategoriasUsd(true).forEach(function(c){ m[c.codigo]=catLabel(c); }); return m; }
+
+/* ---------- Tipo de cambio FIX ---------- */
+var _tcCache = null;
+function tcSorted(){
+  if(_tcCache) return _tcCache;
+  _tcCache = Object.keys(STATE.tiposCambio).map(function(k){
+    var t = STATE.tiposCambio[k] || {};
+    return { fecha:t.fecha||k, fix:Number(t.fix), fuente:t.fuente||"" };
+  }).filter(function(t){ return /^\d{4}-\d{2}-\d{2}$/.test(t.fecha) && t.fix>0; })
+    .sort(function(a,b){ return a.fecha<b.fecha?-1:a.fecha>b.fecha?1:0; });
+  return _tcCache;
+}
+/* FIX publicado en esa fecha o, si fue fin de semana/festivo, el último anterior. */
+function tcParaFecha(fecha){
+  var list = tcSorted();
+  if(!fecha || !list.length || fecha < list[0].fecha) return null;
+  var lo=0, hi=list.length-1;
+  while(lo<hi){ var mid=(lo+hi+1)>>1; if(list[mid].fecha<=fecha) lo=mid; else hi=mid-1; }
+  return list[lo];
+}
+function fechaParaTc(r){
+  if(r.fecha_factura && !isImplausibleYear(r.fecha_factura)) return r.fecha_factura;
+  return r.fecha;
+}
+
+/* ---------- Ciclo de vida Houston ---------- */
+function proyectoUsdInfo(key){ return STATE.proyectosUsd[slugify(key)] || {}; }
+function estadoHouston(key){
+  var i = proyectoUsdInfo(key);
+  if(i.fecha_venta) return "vendido";
+  if(i.fecha_exportacion) return "exportado";
+  return "mexico";
+}
+var ESTADO_HOUSTON_LABEL = { mexico:"En México", exportado:"En Houston", vendido:"Vendido" };
+var ESTADO_HOUSTON_BADGE = { mexico:"badge-muted", exportado:"badge-steel", vendido:"badge-good" };
+function estadoHoustonBadge(key){ var e = estadoHouston(key); return '<span class="badge '+ESTADO_HOUSTON_BADGE[e]+'">'+ESTADO_HOUSTON_LABEL[e]+'</span>'; }
+
+function allGastosUsd(){
+  return STATE.gastosUsd.map(function(g){
+    var overhead = g.tipo==="overhead" || !g.proyecto_key;
+    return Object.assign({}, g, { _docId:g.id, tipo: overhead?"overhead":"proyecto", proyecto_key: overhead?"":g.proyecto_key, importe_usd:Number(g.importe_usd)||0 });
+  });
+}
+
+/* ---------- Prorrateo del overhead ----------
+   El gasto general de Houston de cada mes se reparte entre los remolques que
+   estuvieron en Houston ese mes, en proporción a los días que estuvieron ahí
+   (desde la fecha de exportación hasta la de venta, ambas inclusive). Si en
+   un mes no hubo ningún remolque en Houston, ese overhead queda sin asignar. */
+function dayNum(iso){ var p=iso.split("-"); return Date.UTC(+p[0], +p[1]-1, +p[2])/86400000; }
+function computeOverheadProrrateo(){
+  var porMes = {};
+  allGastosUsd().forEach(function(g){
+    if(g.tipo!=="overhead") return;
+    var d = fechaParaTc(g); if(!d) return;
+    var ym = d.slice(0,7);
+    porMes[ym] = (porMes[ym]||0) + g.importe_usd;
+  });
+  var proyMap = allProyectos();
+  var enHouston = Object.keys(proyMap).map(function(k){
+    var i = proyectoUsdInfo(k);
+    return i.fecha_exportacion ? { key:k, desde:dayNum(i.fecha_exportacion), hasta:i.fecha_venta?dayNum(i.fecha_venta):Infinity } : null;
+  }).filter(Boolean);
+  var porProyecto = {}, detalle = {}, sinAsignar = 0, sinAsignarMeses = [];
+  Object.keys(porMes).sort().forEach(function(ym){
+    var y=+ym.slice(0,4), m=+ym.slice(5,7);
+    var ini = Date.UTC(y,m-1,1)/86400000, fin = Date.UTC(y,m,0)/86400000;
+    var dias = {}, totalDias = 0;
+    enHouston.forEach(function(p){
+      var a = Math.max(ini, p.desde), b = Math.min(fin, p.hasta);
+      if(b>=a){ dias[p.key] = b-a+1; totalDias += b-a+1; }
+    });
+    if(!totalDias){ sinAsignar += porMes[ym]; sinAsignarMeses.push(ym); return; }
+    Object.keys(dias).forEach(function(k){
+      var share = dias[k]/totalDias, monto = porMes[ym]*share;
+      porProyecto[k] = (porProyecto[k]||0) + monto;
+      (detalle[k] = detalle[k]||[]).push({ ym:ym, overheadMes:porMes[ym], dias:dias[k], totalDias:totalDias, share:share, monto:monto });
+    });
+  });
+  return { porMes:porMes, porProyecto:porProyecto, detalle:detalle, sinAsignar:sinAsignar, sinAsignarMeses:sinAsignarMeses };
+}
+
+/* ---------- Consolidado por proyecto ---------- */
+function computeCostoTotal(){
+  var proyMap = allProyectos();
+  var rows = {};
+  function row(k){
+    if(!rows[k]) rows[k] = { key:k, mxn:0, mxnConTc:0, usdMx:0, sinTc:0, sinTcMxn:0, mxByCat:{}, houston:0, houstonByCat:{}, overhead:0, gastosMx:0, gastosUsd:0 };
+    return rows[k];
+  }
+  allGastos().forEach(function(r){
+    var k = r.proyecto_key; if(!k || !proyMap[k]) return;
+    var x = row(k), v = Number(r.importe)||0;
+    x.mxn += v; x.gastosMx++;
+    var tc = tcParaFecha(fechaParaTc(r));
+    if(!tc){ x.sinTc++; x.sinTcMxn += v; return; }
+    var usd = v/tc.fix;
+    x.mxnConTc += v; x.usdMx += usd;
+    var c = r.categoria||"SIN-CAT";
+    if(!x.mxByCat[c]) x.mxByCat[c] = { mxn:0, usd:0 };
+    x.mxByCat[c].mxn += v; x.mxByCat[c].usd += usd;
+  });
+  allGastosUsd().forEach(function(g){
+    if(g.tipo!=="proyecto" || !proyMap[g.proyecto_key]) return;
+    var x = row(g.proyecto_key);
+    x.houston += g.importe_usd; x.gastosUsd++;
+    var c = g.categoria||"—";
+    x.houstonByCat[c] = (x.houstonByCat[c]||0) + g.importe_usd;
+  });
+  var pr = computeOverheadProrrateo();
+  Object.keys(pr.porProyecto).forEach(function(k){ if(proyMap[k]) row(k).overhead = pr.porProyecto[k]; });
+  Object.keys(proyMap).forEach(function(k){ if(proyMap[k].es_valido && STATE.proyectosUsd[slugify(k)]) row(k); });
+  var list = Object.keys(rows).filter(function(k){ return proyMap[k].es_valido; }).map(function(k){
+    var x = rows[k], info = proyectoUsdInfo(k);
+    x.nombre = proyMap[k].nombre;
+    x.estado = estadoHouston(k);
+    x.tcProm = x.usdMx>0 ? x.mxnConTc/x.usdMx : null;
+    x.total = x.usdMx + x.houston + x.overhead;
+    x.venta = Number(info.precio_venta_usd)||0;
+    x.margen = x.venta ? x.venta - x.total : null;
+    x.margenPct = x.venta ? x.margen/x.venta*100 : null;
+    x.overheadDetalle = pr.detalle[k] || [];
+    return x;
+  });
+  return { rows:list, prorrateo:pr };
+}
+
+/* ================= VISTA: HOUSTON ================= */
+var HOUSTON_TABS = ["gastos","registrar","proyectos","categorias","tipo_cambio"];
+var HOUSTON_TAB_LABELS = { gastos:"Gastos USD", registrar:"Registrar gasto USD", proyectos:"Exportación y venta", categorias:"Categorías USD", tipo_cambio:"Tipo de cambio" };
+function renderHoustonView(){
+  var t = STATE.houstonTab;
+  var body = t==="registrar" ? renderHoustonRegistrarTab()
+    : t==="proyectos" ? renderHoustonProyectosTab()
+    : t==="categorias" ? renderHoustonCategoriasTab()
+    : t==="tipo_cambio" ? renderHoustonTcTab()
+    : renderHoustonGastosTab();
+  return '<div class="tabs">'+HOUSTON_TABS.map(function(x){return '<button class="tab" data-action="houston-tab" data-tab="'+x+'" aria-selected="'+(t===x)+'">'+HOUSTON_TAB_LABELS[x]+'</button>';}).join("")+'</div>'+body;
+}
+function validProyectoOptions(){
+  var proyMap = allProyectos();
+  return Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
+}
+function proyectoUsdLabel(g){ return g.tipo==="overhead" ? '<span class="badge badge-accent">Gasto general</span>' : esc(proyectoNombre(g.proyecto_key)); }
+
+function filteredGastosUsd(){
+  var f = STATE.usdFilters, q = f.q.trim().toLowerCase();
+  return allGastosUsd().filter(function(g){
+    if(f.proyecto==="__overhead" && g.tipo!=="overhead") return false;
+    if(f.proyecto && f.proyecto!=="__overhead" && g.proyecto_key!==f.proyecto) return false;
+    if(f.categoria && g.categoria!==f.categoria) return false;
+    if(f.anio && (!g.fecha || g.fecha.slice(0,4)!==f.anio)) return false;
+    if(f.mes && (!g.fecha || g.fecha.slice(5,7)!==f.mes)) return false;
+    if(q){
+      var hay = ((g.descripcion||"")+" "+(g.factura||"")+" "+(g.proveedor||"")+" "+proyectoNombre(g.proyecto_key)).toLowerCase();
+      if(hay.indexOf(q)===-1) return false;
+    }
+    return true;
+  }).sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||"") || (b.creadoEn||"").localeCompare(a.creadoEn||""); });
+}
+function renderHoustonGastosTab(){
+  var f = STATE.usdFilters;
+  var all = filteredGastosUsd();
+  var total = all.reduce(function(s,g){return s+g.importe_usd;},0);
+  var pages = Math.max(1, Math.ceil(all.length/f.pageSize));
+  if(f.page>pages) f.page = pages;
+  var pageRows = all.slice((f.page-1)*f.pageSize, f.page*f.pageSize);
+  var catMap = catUsdNameMap();
+  var canEdit = can("editGastoUsd"), canDel = isMasterUser();
+  var rows = pageRows.map(function(g){
+    var actions = '<div class="row-actions">'+
+      (canEdit ? '<button class="icon-btn" title="Editar" data-action="edit-gasto-usd" data-id="'+esc(g._docId)+'"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>' : '')+
+      (canDel ? '<button class="icon-btn" title="Eliminar" data-action="delete-gasto-usd" data-id="'+esc(g._docId)+'"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>' : '')+
+    '</div>';
+    return '<tr>'+
+      '<td style="white-space:nowrap">'+fmtDate(g.fecha)+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(g.fecha_factura)+'</td>'+
+      '<td>'+proyectoUsdLabel(g)+'</td>'+
+      '<td>'+esc(g.proveedor||"—")+'</td>'+
+      '<td class="desc-cell" title="'+esc(g.descripcion)+'">'+esc(g.descripcion||"—")+'</td>'+
+      '<td class="num">'+esc(g.factura||"—")+'</td>'+
+      '<td><span class="badge badge-steel">'+esc(catMap[g.categoria]||g.categoria||"—")+'</span></td>'+
+      '<td>'+esc(formaPagoUsdLabel(g.forma_pago))+'</td>'+
+      '<td class="num">'+fmtUsd(g.importe_usd)+'</td>'+
+      '<td>'+esc(g.capturadoPor||"—")+'</td>'+
+      '<td>'+(g.comprobanteUrl ? '<a href="'+esc(g.comprobanteUrl)+'" target="_blank" rel="noopener" class="icon-btn" title="Ver comprobante">📎</a>' : '<span class="hint">—</span>')+'</td>'+
+      '<td>'+actions+'</td>'+
+    '</tr>';
+  }).join("");
+  var proyOpts = validProyectoOptions();
+  var cats = allCategoriasUsd(true);
+  return '<div class="card">'+
+    '<div class="filters">'+
+      '<select data-usdfilter="proyecto"><option value="">Todos (proyectos y generales)</option><option value="__overhead"'+(f.proyecto==="__overhead"?' selected':'')+'>Solo gastos generales (overhead)</option>'+proyOpts.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-usdfilter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+(c.eliminado?' (eliminada)':'')+'</option>';}).join("")+'</select>'+
+      mesAnioOptionsHTML("usdfilter", f.mes, f.anio, allGastosUsd(), "fecha")+
+      '<input type="text" class="q" placeholder="Buscar descripción, factura, proveedor…" data-usdfilter="q" value="'+esc(f.q)+'">'+
+      '<button class="btn btn-ghost" data-action="clear-usd-filters">Limpiar</button>'+
+    '</div>'+
+    '<div class="table-wrap"><table>'+
+      '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th class="num">Factura</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe USD</th><th>Capturó</th><th>Comprobante</th><th></th></tr></thead>'+
+      '<tbody>'+(rows||'<tr><td colspan="12" class="empty">'+(STATE.gastosUsd.length?'Sin resultados con estos filtros.':'Todavía no hay gastos en USD. Captura el primero en "Registrar gasto USD".')+'</td></tr>')+'</tbody>'+
+      '<tfoot><tr><td colspan="8">Total filtrado ('+all.length+' registros)</td><td class="num">'+fmtUsd(total)+'</td><td colspan="3"></td></tr></tfoot>'+
+    '</table></div>'+
+    '<div class="pagination"><span>Página '+f.page+' de '+pages+'</span>'+
+      '<span><button class="btn" data-action="usd-page-prev" '+(f.page<=1?'disabled':'')+'>Anterior</button> '+
+      '<button class="btn" data-action="usd-page-next" '+(f.page>=pages?'disabled':'')+'>Siguiente</button></span></div>'+
+  '</div>';
+}
+
+function gastoUsdFormFields(g){
+  g = g || {};
+  var tipo = g.tipo || "proyecto";
+  var proyOpts = validProyectoOptions();
+  var cats = allCategoriasUsd(false);
+  if(g.categoria && !cats.some(function(c){return c.codigo===g.categoria;})){
+    var old = allCategoriasUsd(true).filter(function(c){return c.codigo===g.categoria;})[0];
+    if(old) cats = cats.concat([old]);
+  }
+  var proveedoresUsd = {}; STATE.gastosUsd.forEach(function(x){ if(x.proveedor) proveedoresUsd[normKey(x.proveedor)] = x.proveedor; });
+  return '<div class="form-grid">'+
+    '<div class="field"><label for="u_capturador">'+reqLabel("Tu nombre")+'</label><input id="u_capturador" name="capturadoPor" required value="'+esc(g.capturadoPor||getRememberedName())+'"></div>'+
+    '<div class="field"><label for="u_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="u_fecha" name="fecha" value="'+esc(g.fecha||todayISO())+'" required></div>'+
+    '<div class="field"><label for="u_tipo">'+reqLabel("Tipo de gasto")+'</label><select id="u_tipo" name="tipo_usd">'+
+      '<option value="proyecto"'+(tipo==="proyecto"?' selected':'')+'>De un proyecto (remolque)</option>'+
+      '<option value="overhead"'+(tipo==="overhead"?' selected':'')+'>Gasto general Houston (se prorratea)</option>'+
+    '</select></div>'+
+    '<div class="field" data-usd-proyecto-field="1"'+(tipo==="overhead"?' style="display:none"':'')+'><label for="u_proyecto">'+reqLabel("Proyecto")+'</label><select id="u_proyecto" name="proyecto_key"><option value="">Selecciona…</option>'+
+      proyOpts.map(function(p){ return '<option value="'+esc(p.key)+'"'+(g.proyecto_key===p.key?' selected':'')+'>'+esc(p.nombre)+' · '+ESTADO_HOUSTON_LABEL[estadoHouston(p.key)]+'</option>'; }).join("")+
+    '</select></div>'+
+    '<div class="field"><label for="u_proveedor">'+reqLabel("Proveedor")+'</label><input id="u_proveedor" name="proveedor" list="provUsdDatalist" required value="'+esc(g.proveedor||"")+'" placeholder="Nombre del proveedor"><datalist id="provUsdDatalist">'+Object.keys(proveedoresUsd).sort().map(function(k){return '<option value="'+esc(proveedoresUsd[k])+'">';}).join("")+'</datalist></div>'+
+    '<div class="field"><label for="u_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="u_fecha_factura" name="fecha_factura" required value="'+esc(g.fecha_factura||"")+'"></div>'+
+    '<div class="field span2"><label for="u_desc">'+reqLabel("Descripción")+'</label><input id="u_desc" name="descripcion" required value="'+esc(g.descripcion||"")+'" placeholder="¿Qué se pagó o compró?"></div>'+
+    '<div class="field"><label for="u_factura">N° de factura / recibo</label><input id="u_factura" name="factura" value="'+esc(g.factura||"")+'" placeholder="Opcional"></div>'+
+    '<div class="field"><label for="u_categoria">'+reqLabel("Categoría")+'</label><select id="u_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(g.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
+    '<div class="field"><label for="u_importe">'+reqLabel("Importe (USD)")+'</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="u_importe" name="importe_usd" step="0.01" min="0.01" required placeholder="0.00" value="'+esc(g.importe_usd||"")+'"></div></div>'+
+    '<div class="field"><label for="u_forma_pago">'+reqLabel("Forma de pago")+'</label><select id="u_forma_pago" name="forma_pago">'+FORMAS_PAGO_USD.map(function(o){return '<option value="'+o.v+'"'+(g.forma_pago===o.v?' selected':'')+'>'+o.l+'</option>';}).join("")+'</select></div>'+
+    '<div class="field span2"><label for="u_comprobante">Comprobante (foto o PDF)</label>'+
+      (g.comprobanteUrl ? '<p class="hint" style="margin:0 0 6px"><a href="'+esc(g.comprobanteUrl)+'" target="_blank" rel="noopener">📎 Ver comprobante actual</a></p>' : '')+
+      '<input type="file" id="u_comprobante" name="comprobante" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"><span class="hint" style="margin-top:4px">Opcional.</span></div>'+
+  '</div>';
+}
+function renderHoustonRegistrarTab(){
+  if(!can("editGastoUsd")) return '<div class="card"><p class="hint">Tu perfil no tiene permiso para capturar gastos en USD.</p></div>';
+  var recientes = STATE.gastosUsd.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,8);
+  return '<div class="card form-card"><form id="gastoUsdForm">'+
+      gastoUsdFormFields(null)+
+      '<p class="hint"><span class="req-mark">*</span> Campo obligatorio. Los importes de este módulo son en <strong>dólares (USD)</strong> y se guardan separados de los gastos en pesos. '+
+      'Un <strong>gasto general</strong> (renta, nómina, servicios de Houston…) no se asigna a un remolque: se reparte cada mes entre los remolques que estuvieron en Houston, según sus días ahí.</p>'+
+      '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto USD</button></div>'+
+    '</form></div>'+
+    '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos gastos USD capturados</h3></div>'+
+      (recientes.length ? '<div class="barlist">'+recientes.map(function(r){
+        var lbl = (r.tipo==="overhead"||!r.proyecto_key) ? "Gasto general" : proyectoNombre(r.proyecto_key);
+        return '<div class="flag-item"><span>'+esc(fmtDate(r.fecha))+' · '+esc(lbl)+' · '+esc(r.proveedor||"—")+' <span class="card-note">('+esc(r.capturadoPor||"—")+')</span>'+comprobanteIcon(r)+'</span><span class="num">'+fmtUsdInt(r.importe_usd)+'</span></div>';
+      }).join("")+'</div>' : '<div class="empty">Nada capturado todavía.</div>')+
+    '</div>';
+}
+function openEditGastoUsdModal(id){
+  var g = allGastosUsd().filter(function(x){ return x._docId===id; })[0];
+  if(!g) return;
+  openModal('<h3>Editar gasto USD</h3><form id="editGastoUsdForm"><input type="hidden" name="gastoId" value="'+esc(id)+'">'+
+    gastoUsdFormFields(g)+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar cambios</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+  '</form>');
+  var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "720px";
+}
+function submitGastoUsd(form, isEdit){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form);
+  var tipo = fd.get("tipo_usd")==="overhead" ? "overhead" : "proyecto";
+  var proyKey = tipo==="proyecto" ? (fd.get("proyecto_key")||"") : "";
+  if(tipo==="proyecto" && !proyKey){ toast("Selecciona el proyecto, o marca el gasto como gasto general.","err"); return; }
+  var importe = parseFloat(fd.get("importe_usd"));
+  if(!importe || importe<=0){ toast("Escribe un importe válido.","err"); return; }
+  var capturador = (fd.get("capturadoPor")||"").trim();
+  try{ localStorage.setItem("rt_capturador", capturador); }catch(e){}
+  var file = form.comprobante && form.comprobante.files && form.comprobante.files[0];
+  var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
+  (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
+    var data = {
+      tipo: tipo, proyecto_key: proyKey, proyecto: proyKey ? proyectoNombre(proyKey) : "",
+      fecha: fd.get("fecha")||todayISO(), fecha_factura: fd.get("fecha_factura")||null,
+      proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
+      factura: (fd.get("factura")||"").trim()||null, categoria: fd.get("categoria")||null,
+      importe_usd: importe, moneda: "USD", forma_pago: fd.get("forma_pago")||"tarjeta", capturadoPor: capturador
+    };
+    if(uploaded){ data.comprobanteId = uploaded.id; data.comprobanteUrl = uploaded.url; data.comprobanteTipo = uploaded.contentType; }
+    if(isEdit){
+      var id = fd.get("gastoId");
+      data.editadoPor = quienSoy(); data.editadoEn = new Date().toISOString();
+      return STATE.db.collection("gastos_usd").doc(id).update(data).then(function(){
+        var g = STATE.gastosUsd.find(function(x){ return x.id===id; }); if(g) Object.assign(g, data);
+        toast("Gasto USD actualizado ✓"); closeModal(); renderContent();
+      });
+    }
+    data.creadoEn = new Date().toISOString(); data._cid = uid();
+    return STATE.db.collection("gastos_usd").add(data).then(function(){
+      STATE.gastosUsd.push(Object.assign({ id:"_local_"+uid() }, data));
+      toast("Gasto USD guardado ✓");
+      renderContent();
+    });
+  }).catch(function(err){
+    console.error(err);
+    if(submitBtn) submitBtn.disabled = false;
+    toast(file && err && err.code ? "No se pudo subir el archivo adjunto." : "No se pudo guardar. Intenta de nuevo.","err");
+  });
+}
+function deleteGastoUsd(id){
+  if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar gastos.","err"); return; }
+  var g = STATE.gastosUsd.find(function(x){ return x.id===id; });
+  STATE.db.collection("gastos_usd").doc(id).delete().then(function(){
+    STATE.gastosUsd = STATE.gastosUsd.filter(function(x){ return x.id!==id; });
+    toast("Gasto USD eliminado"); closeModal(); renderContent();
+    if(g && g.comprobanteId && STATE.assets){ STATE.assets.delete(g.comprobanteId).catch(function(){}); }
+  }).catch(function(){ toast("No se pudo eliminar.","err"); });
+}
+
+/* ---------- Exportación y venta ---------- */
+function renderHoustonProyectosTab(){
+  var f = STATE.usdFilters, q = f.proyQ.trim().toLowerCase();
+  var houstonPorProy = {};
+  allGastosUsd().forEach(function(g){ if(g.tipo==="proyecto") houstonPorProy[g.proyecto_key] = (houstonPorProy[g.proyecto_key]||0) + g.importe_usd; });
+  var list = validProyectoOptions().filter(function(p){
+    if(f.proyEstado && estadoHouston(p.key)!==f.proyEstado) return false;
+    if(q && p.nombre.toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+  var canEdit = can("manageHouston");
+  var cards = list.map(function(p){
+    var i = proyectoUsdInfo(p.key), rows = "";
+    rows += '<div class="prov-contact-row"><span class="lbl">México</span><span>'+(estadoDeProyecto(p.key)==="terminado"?"Terminado":"Activo")+'</span></div>';
+    if(i.fecha_exportacion) rows += '<div class="prov-contact-row"><span class="lbl">Exportó</span><span>'+esc(fmtDate(i.fecha_exportacion))+(i.pedimento?' · Ped. '+esc(i.pedimento):'')+'</span></div>';
+    if(i.fecha_venta) rows += '<div class="prov-contact-row"><span class="lbl">Vendió</span><span>'+esc(fmtDate(i.fecha_venta))+(i.cliente?' · '+esc(i.cliente):'')+'</span></div>';
+    if(i.precio_venta_usd) rows += '<div class="prov-contact-row"><span class="lbl">Precio</span><span class="num">'+fmtUsd(Number(i.precio_venta_usd))+'</span></div>';
+    return '<div class="prov-card">'+
+      '<div class="prov-card-head"><div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtUsdInt(houstonPorProy[p.key]||0)+' en Houston</div></div>'+estadoHoustonBadge(p.key)+'</div>'+
+      '<div class="prov-contact">'+rows+'</div>'+
+      (canEdit ? '<div class="prov-actions"><button class="btn" data-action="edit-proyecto-usd" data-key="'+esc(p.key)+'">'+(i.fecha_exportacion?"Editar exportación / venta":"Registrar exportación")+'</button></div>' : '')+
+    '</div>';
+  }).join("");
+  return '<div class="card">'+
+    '<p class="hint" style="margin-top:0">La <strong>fecha de exportación</strong> marca cuándo el remolque llega a Houston y empieza a absorber gasto general; la <strong>fecha de venta</strong> y el <strong>precio en USD</strong> cierran su costeo y calculan el margen.</p>'+
+    '<div class="filters"><input type="text" class="q" placeholder="Buscar proyecto…" data-usdfilter="proyQ" value="'+esc(f.proyQ)+'">'+
+      '<select data-usdfilter="proyEstado"><option value="">Todos</option>'+["mexico","exportado","vendido"].map(function(e){return '<option value="'+e+'"'+(f.proyEstado===e?' selected':'')+'>'+ESTADO_HOUSTON_LABEL[e]+'</option>';}).join("")+'</select>'+
+    '</div>'+
+    (cards ? '<div class="prov-grid">'+cards+'</div>' : '<div class="empty">Sin proyectos con estos filtros.</div>')+
+  '</div>';
+}
+function openProyectoUsdModal(key){
+  var i = proyectoUsdInfo(key);
+  openModal('<h3>'+esc(proyectoNombre(key))+' · exportación y venta</h3>'+
+    '<form id="proyectoUsdForm"><input type="hidden" name="key" value="'+esc(key)+'">'+
+      '<div class="field"><label>Fecha de exportación</label><input type="date" name="fecha_exportacion" value="'+esc(i.fecha_exportacion||"")+'"></div>'+
+      '<div class="field"><label>Pedimento</label><input name="pedimento" value="'+esc(i.pedimento||"")+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Fecha de venta</label><input type="date" name="fecha_venta" value="'+esc(i.fecha_venta||"")+'"></div>'+
+      '<div class="field"><label>Precio de venta (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" min="0" name="precio_venta_usd" value="'+esc(i.precio_venta_usd||"")+'" placeholder="0.00"></div></div>'+
+      '<div class="field"><label>Cliente</label><input name="cliente" value="'+esc(i.cliente||"")+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Notas</label><input name="notas" value="'+esc(i.notas||"")+'" placeholder="Opcional"></div>'+
+      '<p class="hint">Deja las fechas vacías si todavía no ocurre. La venta requiere fecha de exportación.</p>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>');
+}
+function handleProyectoUsdSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form), key = fd.get("key");
+  var exp = fd.get("fecha_exportacion")||"", venta = fd.get("fecha_venta")||"";
+  var precio = parseFloat(fd.get("precio_venta_usd"));
+  if(venta && !exp){ toast("Captura primero la fecha de exportación.","err"); return; }
+  if(venta && exp && venta<exp){ toast("La fecha de venta no puede ser anterior a la de exportación.","err"); return; }
+  var data = { key:key, fecha_exportacion:exp||null, pedimento:(fd.get("pedimento")||"").trim(), fecha_venta:venta||null,
+    precio_venta_usd: isFinite(precio)&&precio>0 ? precio : null, cliente:(fd.get("cliente")||"").trim(), notas:(fd.get("notas")||"").trim(),
+    actualizadoPor:quienSoy(), updatedAt:new Date().toISOString() };
+  var slug = slugify(key);
+  STATE.db.doc("proyectos_usd/"+slug).set(data).then(function(){
+    STATE.proyectosUsd[slug] = data; toast("Proyecto actualizado ✓"); closeModal(); renderContent();
+  }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Houston." : "No se pudo guardar.","err"); });
+}
+
+/* ---------- Categorías USD ---------- */
+function renderHoustonCategoriasTab(){
+  var totals = {};
+  allGastosUsd().forEach(function(g){ totals[g.categoria] = (totals[g.categoria]||0) + g.importe_usd; });
+  var all = allCategoriasUsd(true);
+  var activas = all.filter(function(c){return !c.eliminado;}), eliminadas = all.filter(function(c){return c.eliminado;});
+  var canEdit = can("manageHouston"), master = isMasterUser();
+  function rowHTML(c){
+    return '<div class="list-row">'+
+      '<span class="name">'+esc(catShortCode(c.codigo))+' · '+esc(c.nombre)+'</span>'+
+      '<span class="meta">'+fmtUsdInt(totals[c.codigo]||0)+'</span>'+
+      '<span class="badge '+(c.origen==="portal"?"badge-accent":"badge-muted")+'">'+(c.origen==="portal"?"Agregada":"Predeterminada")+'</span>'+
+      (c.eliminado
+        ? (master ? '<button class="btn" style="padding:5px 10px; font-size:12px" data-action="restore-categoria-usd" data-codigo="'+esc(c.codigo)+'">Restaurar</button>' : '')
+        : (canEdit ? '<button class="icon-btn" data-action="edit-categoria-usd" data-codigo="'+esc(c.codigo)+'" title="Editar">✎</button>' : '')+
+          (master ? '<button class="icon-btn" data-action="delete-categoria-usd" data-codigo="'+esc(c.codigo)+'" data-nombre="'+esc(c.nombre)+'" title="Eliminar">✕</button>' : ''))+
+    '</div>';
+  }
+  return '<div class="card">'+
+    (canEdit ? '<form class="inline-form" id="addCategoriaUsdForm"><div class="field"><label>Nueva categoría USD</label><input name="nombre" placeholder="Ej. Renta de yarda" required></div><button class="btn btn-primary" type="submit">Agregar</button></form>' : '')+
+    activas.map(rowHTML).join("")+
+    (eliminadas.length ? '<h3 class="card-title" style="margin:20px 0 6px">Eliminadas</h3><p class="hint" style="margin-top:0">Ya no aparecen al capturar; los gastos que las usan conservan su etiqueta.</p>'+eliminadas.map(rowHTML).join("") : '')+
+  '</div>';
+}
+function openCategoriaUsdModal(codigo){
+  var c = allCategoriasUsd(true).filter(function(x){return x.codigo===codigo;})[0];
+  if(!c) return;
+  openModal('<h3>Editar categoría USD</h3><form id="categoriaUsdForm"><input type="hidden" name="codigo" value="'+esc(codigo)+'">'+
+    '<div class="field"><label>Nombre</label><input name="nombre" value="'+esc(c.nombre)+'" required autofocus></div>'+
+    '<p class="hint">El código ('+esc(catShortCode(codigo))+') no cambia, así que los gastos ya capturados toman el nombre nuevo.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+  '</form>');
+}
+function handleCategoriaUsdSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var nombre = (form.nombre.value||"").trim(); if(!nombre) return;
+  var codigo = form.codigo ? form.codigo.value : "";
+  var existing = allCategoriasUsd(true);
+  if(existing.some(function(c){ return c.codigo!==codigo && normKey(c.nombre)===normKey(nombre) && !c.eliminado; })){ toast("Ya existe una categoría con ese nombre.","err"); return; }
+  var data;
+  if(codigo){
+    data = Object.assign({}, STATE.categoriasUsd[codigo]||{}, { codigo:codigo, nombre:nombre, updatedAt:new Date().toISOString() });
+  } else {
+    var base = "USX-"+slugify(nombre).slice(0,16), n = 2;
+    codigo = base;
+    while(existing.some(function(c){return c.codigo===codigo;})) codigo = base+"-"+(n++);
+    data = { codigo:codigo, nombre:nombre, orden:100+existing.length, creadoEn:new Date().toISOString() };
+  }
+  STATE.db.doc("categorias_usd/"+codigo).set(data).then(function(){
+    STATE.categoriasUsd[codigo] = data; toast(form.id==="categoriaUsdForm" ? "Categoría actualizada ✓" : "Categoría agregada ✓"); closeModal(); renderContent();
+  }).catch(function(){ toast("No se pudo guardar.","err"); });
+}
+function setCategoriaUsdEliminada(codigo, eliminado){
+  if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar o restaurar categorías.","err"); return; }
+  var c = allCategoriasUsd(true).filter(function(x){return x.codigo===codigo;})[0];
+  if(!c) return;
+  var data = Object.assign({}, STATE.categoriasUsd[codigo]||{}, { codigo:codigo, nombre:c.nombre, eliminado:eliminado, updatedAt:new Date().toISOString() });
+  STATE.db.doc("categorias_usd/"+codigo).set(data).then(function(){
+    STATE.categoriasUsd[codigo] = data; toast(eliminado ? "Categoría eliminada" : "Categoría restaurada ✓"); closeModal(); renderContent();
+  }).catch(function(){ toast("No se pudo actualizar.","err"); });
+}
+
+/* ---------- Tipo de cambio ---------- */
+function renderHoustonTcTab(){
+  var list = tcSorted();
+  var last = list[list.length-1];
+  var canWrite = isMasterUser() || can("manageHouston") || (STATE.profile && STATE.profile.permisos && STATE.profile.permisos.contabilidad);
+  var recent = list.slice(-30).reverse();
+  return '<div class="grid" style="grid-template-columns:repeat(3,1fr)">'+
+      '<div class="card"><div class="kpi-label">Último FIX</div><div class="kpi-value">'+(last?fmtTc(last.fix):"—")+'</div><div class="kpi-delta">'+(last?fmtDate(last.fecha):"Sin datos todavía")+'</div></div>'+
+      '<div class="card"><div class="kpi-label">Días cargados</div><div class="kpi-value">'+list.length+'</div><div class="kpi-delta">'+(list.length?fmtDate(list[0].fecha)+" – "+fmtDate(last.fecha):"")+'</div></div>'+
+      '<div class="card"><div class="kpi-label">Fuente</div><div class="kpi-value" style="font-size:18px; font-family:var(--font-display)">Banxico FIX</div><div class="kpi-delta">Serie SF43718 · se actualiza sola en días hábiles</div></div>'+
+    '</div>'+
+    '<div class="grid two-col" style="margin-top:14px">'+
+      '<div class="card"><div class="card-head"><h3 class="card-title">Cómo se usa</h3></div>'+
+        '<p class="hint" style="margin-top:0">Cada gasto en pesos se convierte a dólares con el FIX de su <strong>fecha de factura</strong> (o de registro, si no tiene). Si esa fecha fue fin de semana o festivo, se usa el último FIX publicado antes.</p>'+
+        (canWrite ? '<button class="btn btn-primary" data-action="sync-tc"'+(STATE.tcSyncing?' disabled':'')+'>'+(STATE.tcSyncing?"Actualizando…":"Actualizar desde Banxico")+'</button>' : '')+
+      '</div>'+
+      (canWrite ? '<div class="card"><div class="card-head"><h3 class="card-title">Capturar / corregir a mano</h3></div>'+
+        '<form id="tcManualForm" class="inline-form" style="margin:0"><div class="field"><label>Fecha</label><input type="date" name="fecha" required value="'+todayISO()+'"></div>'+
+        '<div class="field"><label>Pesos por dólar</label><input type="number" name="fix" step="0.0001" min="1" required placeholder="18.0000"></div>'+
+        '<button class="btn" type="submit">Guardar</button></form>'+
+        '<p class="hint">Un valor manual nunca se sobrescribe con la actualización automática.</p></div>' : '<div></div>')+
+    '</div>'+
+    '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos 30 días publicados</h3></div>'+
+      '<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Fecha</th><th class="num">FIX (MXN por USD)</th><th>Fuente</th></tr></thead><tbody>'+
+      (recent.length ? recent.map(function(t){ return '<tr><td>'+fmtDate(t.fecha)+'</td><td class="num">'+fmtTc(t.fix)+'</td><td><span class="badge '+(t.fuente==="manual"?"badge-warn":"badge-steel")+'">'+esc(t.fuente==="manual"?"Manual":t.fuente==="banxico"?"Banxico":t.fuente)+'</span></td></tr>'; }).join("")
+        : '<tr><td colspan="3" class="empty">Todavía no hay tipos de cambio. Da clic en "Actualizar desde Banxico".</td></tr>')+
+      '</tbody></table></div></div>';
+}
+function syncTiposCambio(){
+  STATE.tcSyncing = true; renderContent();
+  fetch("/api/tipos-cambio/sync", { method:"POST", credentials:"same-origin", headers:{"Content-Type":"application/json"}, body:"{}" })
+    .then(function(r){ return r.json().catch(function(){return {};}).then(function(d){ return {ok:r.ok, d:d}; }); })
+    .then(function(res){
+      STATE.tcSyncing = false;
+      if(!res.ok){ toast(res.d.error || "No se pudo actualizar.","err"); renderContent(); return; }
+      toast("Tipo de cambio actualizado ✓ ("+res.d.guardados+" días)");
+      pollState();
+    }).catch(function(){ STATE.tcSyncing = false; toast("No se pudo conectar con el servidor.","err"); renderContent(); });
+}
+function handleTcManualSubmit(form){
+  var fecha = form.fecha.value, fix = parseFloat(form.fix.value);
+  if(!fecha || !(fix>0)){ toast("Captura fecha y tipo de cambio.","err"); return; }
+  var data = { fecha:fecha, fix:fix, fuente:"manual", capturadoPor:quienSoy(), actualizadoEn:new Date().toISOString() };
+  STATE.db.doc("tipos_cambio/"+fecha).set(data).then(function(){
+    STATE.tiposCambio[fecha] = data; _tcCache = null; toast("Tipo de cambio guardado ✓"); renderContent();
+  }).catch(function(){ toast("No se pudo guardar.","err"); });
+}
+
+/* ================= VISTA: COSTO TOTAL (USD) ================= */
+function filteredCostoRows(){
+  var f = STATE.costoFilters, q = f.q.trim().toLowerCase();
+  var ct = computeCostoTotal();
+  var rows = ct.rows.filter(function(r){
+    if(f.estado && r.estado!==f.estado) return false;
+    if(q && r.nombre.toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+  var sorters = {
+    total: function(a,b){ return b.total-a.total; },
+    nombre: function(a,b){ return a.nombre.localeCompare(b.nombre); },
+    margen: function(a,b){ return (a.margenPct===null?1e9:a.margenPct)-(b.margenPct===null?1e9:b.margenPct); }
+  };
+  rows.sort(sorters[f.orden]||sorters.total);
+  return { rows:rows, prorrateo:ct.prorrateo };
+}
+function renderCostoTotalView(){
+  var f = STATE.costoFilters;
+  var res = filteredCostoRows(), rows = res.rows, pr = res.prorrateo;
+  var tcList = tcSorted(), lastTc = tcList[tcList.length-1];
+  var sum = function(field){ return rows.reduce(function(s,r){ return s+(r[field]||0); },0); };
+  var vendidos = rows.filter(function(r){ return r.venta; });
+  var ventas = vendidos.reduce(function(s,r){return s+r.venta;},0);
+  var margen = vendidos.reduce(function(s,r){return s+r.margen;},0);
+  var sinTc = rows.reduce(function(s,r){return s+r.sinTc;},0), sinTcMxn = sum("sinTcMxn");
+
+  var avisos = [];
+  if(!tcList.length) avisos.push('Todavía no hay tipos de cambio cargados, así que los gastos en pesos no se pueden convertir. '+(firstAllowedNavHas("houston")?'<a href="#" data-action="goto-houston-tab" data-tab="tipo_cambio">Cargar FIX de Banxico →</a>':'Pide a quien tenga el módulo Houston que lo cargue.'));
+  else if(sinTc) avisos.push(sinTc+' gasto(s) en pesos ('+fmtMoneyInt(sinTcMxn)+' MXN) tienen fecha anterior al primer FIX cargado y no se incluyen en el total USD.');
+  if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no había ningún remolque registrado como exportado en Houston.');
+
+  var body = rows.map(function(r){
+    var margenCls = r.margen===null ? "" : (r.margen<0 ? ' style="color:var(--critical)"' : ' style="color:var(--good)"');
+    return '<tr>'+
+      '<td><a href="#" data-action="costo-detalle" data-key="'+esc(r.key)+'" style="font-weight:600">'+esc(r.nombre)+'</a></td>'+
+      '<td>'+estadoHoustonBadge(r.key)+'</td>'+
+      '<td class="num" style="white-space:nowrap">'+fmtMoneyInt(r.mxn)+(r.sinTc?' <span class="badge badge-warn" title="'+r.sinTc+' gasto(s) sin tipo de cambio">!</span>':'')+'</td>'+
+      '<td class="num">'+fmtTc(r.tcProm)+'</td>'+
+      '<td class="num">'+fmtUsdInt(r.usdMx)+'</td>'+
+      '<td class="num">'+fmtUsdInt(r.houston)+'</td>'+
+      '<td class="num">'+fmtUsdInt(r.overhead)+'</td>'+
+      '<td class="num" style="font-weight:700">'+fmtUsdInt(r.total)+'</td>'+
+      '<td class="num">'+(r.venta?fmtUsdInt(r.venta):'—')+'</td>'+
+      '<td class="num"'+margenCls+'>'+(r.margen===null?'—':fmtUsdInt(r.margen))+'</td>'+
+      '<td class="num"'+margenCls+'>'+(r.margenPct===null?'—':r.margenPct.toFixed(1)+'%')+'</td>'+
+    '</tr>';
+  }).join("");
+
+  return '<div class="card" style="margin-bottom:14px"><div class="filters" style="margin:0">'+
+      '<select data-costofilter="estado"><option value="">Todos los proyectos</option>'+["mexico","exportado","vendido"].map(function(e){return '<option value="'+e+'"'+(f.estado===e?' selected':'')+'>'+ESTADO_HOUSTON_LABEL[e]+'</option>';}).join("")+'</select>'+
+      '<select data-costofilter="orden"><option value="total"'+(f.orden==="total"?' selected':'')+'>Ordenar: mayor costo</option><option value="nombre"'+(f.orden==="nombre"?' selected':'')+'>Ordenar: nombre</option><option value="margen"'+(f.orden==="margen"?' selected':'')+'>Ordenar: menor margen</option></select>'+
+      '<input type="text" class="q" placeholder="Buscar proyecto…" data-costofilter="q" value="'+esc(f.q)+'">'+
+    '</div></div>'+
+    '<div class="grid kpis">'+
+      '<div class="card"><div class="kpi-label">Costo total</div><div class="kpi-value">'+fmtUsdInt(sum("total"))+'</div><div class="kpi-delta">'+rows.length+' proyectos · México '+fmtUsdInt(sum("usdMx"))+' + Houston '+fmtUsdInt(sum("houston")+sum("overhead"))+'</div></div>'+
+      '<div class="card"><div class="kpi-label">Ventas</div><div class="kpi-value">'+fmtUsdInt(ventas)+'</div><div class="kpi-delta">'+vendidos.length+' remolques con precio de venta</div></div>'+
+      '<div class="card"><div class="kpi-label">Margen de lo vendido</div><div class="kpi-value" style="color:'+(margen<0?"var(--critical)":"var(--good)")+'">'+(vendidos.length?fmtUsdInt(margen):"—")+'</div><div class="kpi-delta">'+(ventas?(margen/ventas*100).toFixed(1)+'% sobre venta':'')+'</div></div>'+
+      '<div class="card"><div class="kpi-label">FIX más reciente</div><div class="kpi-value">'+(lastTc?fmtTc(lastTc.fix):"—")+'</div><div class="kpi-delta">'+(lastTc?fmtDate(lastTc.fecha)+' · Banxico':'Sin tipo de cambio cargado')+'</div></div>'+
+    '</div>'+
+    (avisos.length ? '<div class="card" style="margin-top:14px; border-color:var(--warn)"><div class="flag-list">'+avisos.map(function(a){return '<div class="flag-item" style="background:color-mix(in srgb, var(--warn) 14%, transparent)">'+a+'</div>';}).join("")+'</div></div>' : '')+
+    '<div class="card" style="margin-top:14px">'+
+      '<div class="card-head"><h3 class="card-title">Costo por proyecto</h3><span class="card-note">Da clic en un proyecto para ver el desglose</span></div>'+
+      '<div class="table-wrap"><table>'+
+        '<thead><tr><th>Proyecto</th><th>Estado</th><th class="num">México (MXN)</th><th class="num">TC prom.</th><th class="num">México (USD)</th><th class="num">Houston directo</th><th class="num">Overhead prorrateado</th><th class="num">Costo total (USD)</th><th class="num">Precio venta</th><th class="num">Margen</th><th class="num">Margen %</th></tr></thead>'+
+        '<tbody>'+(body||'<tr><td colspan="11" class="empty">Sin proyectos con estos filtros.</td></tr>')+'</tbody>'+
+        '<tfoot><tr><td colspan="2">Total ('+rows.length+')</td><td class="num">'+fmtMoneyInt(sum("mxn"))+'</td><td></td><td class="num">'+fmtUsdInt(sum("usdMx"))+'</td><td class="num">'+fmtUsdInt(sum("houston"))+'</td><td class="num">'+fmtUsdInt(sum("overhead"))+'</td><td class="num">'+fmtUsdInt(sum("total"))+'</td><td class="num">'+fmtUsdInt(ventas)+'</td><td class="num">'+(vendidos.length?fmtUsdInt(margen):'—')+'</td><td></td></tr></tfoot>'+
+      '</table></div>'+
+      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. El overhead de Houston se reparte cada mes entre los remolques en Houston según sus días ahí.</p>'+
+    '</div>';
+}
+function openCostoDetalleModal(key){
+  var r = computeCostoTotal().rows.filter(function(x){return x.key===key;})[0];
+  if(!r) return;
+  var catMx = catNameMap(), catUs = catUsdNameMap();
+  var mxRows = Object.keys(r.mxByCat).map(function(c){ return { c:c, mxn:r.mxByCat[c].mxn, usd:r.mxByCat[c].usd }; }).sort(function(a,b){return b.usd-a.usd;});
+  var usRows = Object.keys(r.houstonByCat).map(function(c){ return { c:c, usd:r.houstonByCat[c] }; }).sort(function(a,b){return b.usd-a.usd;});
+  var i = proyectoUsdInfo(key);
+  function tbl(head, rowsHTML, foot){ return '<div class="table-wrap" style="margin-bottom:14px"><table style="min-width:0"><thead><tr>'+head+'</tr></thead><tbody>'+rowsHTML+'</tbody>'+(foot?'<tfoot><tr>'+foot+'</tr></tfoot>':'')+'</table></div>'; }
+  openModal(
+    '<h3>'+esc(r.nombre)+' '+estadoHoustonBadge(key)+'</h3>'+
+    '<p class="hint" style="margin-top:0">'+(i.fecha_exportacion?'Exportado '+fmtDate(i.fecha_exportacion):'Sin exportar')+(i.fecha_venta?' · vendido '+fmtDate(i.fecha_venta)+(i.cliente?' a '+esc(i.cliente):''):'')+'</p>'+
+    '<h3 class="card-title" style="margin:14px 0 6px">México · '+r.gastosMx+' gastos</h3>'+
+    tbl('<th>Subsistema</th><th class="num">MXN</th><th class="num">USD</th>',
+      mxRows.map(function(x){ return '<tr><td>'+esc(catMx[x.c]||x.c)+'</td><td class="num">'+fmtMoneyInt(x.mxn)+'</td><td class="num">'+fmtUsdInt(x.usd)+'</td></tr>'; }).join("") || '<tr><td colspan="3" class="empty">Sin gastos en México.</td></tr>',
+      '<td>Total (TC prom. '+fmtTc(r.tcProm)+')</td><td class="num">'+fmtMoneyInt(r.mxnConTc)+'</td><td class="num">'+fmtUsdInt(r.usdMx)+'</td>')+
+    (r.sinTc ? '<p class="hint" style="color:var(--warn)">'+r.sinTc+' gasto(s) por '+fmtMoneyInt(r.sinTcMxn)+' MXN sin tipo de cambio disponible; no están en el total USD.</p>' : '')+
+    '<h3 class="card-title" style="margin:14px 0 6px">Houston directo · '+r.gastosUsd+' gastos</h3>'+
+    tbl('<th>Categoría</th><th class="num">USD</th>',
+      usRows.map(function(x){ return '<tr><td>'+esc(catUs[x.c]||x.c)+'</td><td class="num">'+fmtUsdInt(x.usd)+'</td></tr>'; }).join("") || '<tr><td colspan="2" class="empty">Sin gastos directos en Houston.</td></tr>',
+      '<td>Total</td><td class="num">'+fmtUsdInt(r.houston)+'</td>')+
+    '<h3 class="card-title" style="margin:14px 0 6px">Overhead prorrateado</h3>'+
+    tbl('<th>Mes</th><th class="num">Overhead del mes</th><th class="num">Días en Houston</th><th class="num">Asignado</th>',
+      r.overheadDetalle.map(function(o){ return '<tr><td>'+esc(monthLabel(o.ym))+'</td><td class="num">'+fmtUsdInt(o.overheadMes)+'</td><td class="num">'+o.dias+' de '+o.totalDias+' ('+(o.share*100).toFixed(1)+'%)</td><td class="num">'+fmtUsdInt(o.monto)+'</td></tr>'; }).join("") || '<tr><td colspan="4" class="empty">Sin overhead asignado.</td></tr>',
+      '<td colspan="3">Total</td><td class="num">'+fmtUsdInt(r.overhead)+'</td>')+
+    '<div class="flag-list">'+
+      '<div class="flag-item"><strong>Costo total</strong><span class="num" style="font-weight:700">'+fmtUsd(r.total)+'</span></div>'+
+      '<div class="flag-item"><span>Precio de venta</span><span class="num">'+(r.venta?fmtUsd(r.venta):'—')+'</span></div>'+
+      '<div class="flag-item"><span>Margen</span><span class="num" style="color:'+(r.margen<0?"var(--critical)":"var(--good)")+'">'+(r.margen===null?'—':fmtUsd(r.margen)+' ('+r.margenPct.toFixed(1)+'%)')+'</span></div>'+
+    '</div>'+
+    '<div style="display:flex; gap:8px; margin-top:14px">'+(can("manageHouston")?'<button class="btn" data-action="edit-proyecto-usd" data-key="'+esc(key)+'">Editar exportación / venta</button>':'')+'<button class="btn" data-action="modal-close">Cerrar</button></div>'
+  );
+  var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "680px";
+}
+function exportGastosUsdCSV(){
+  var catMap = catUsdNameMap();
+  var lines = [["Fecha","FechaFactura","Tipo","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","ImporteUSD","Capturo"].join(",")];
+  filteredGastosUsd().forEach(function(g){
+    lines.push([g.fecha||"", g.fecha_factura||"", g.tipo==="overhead"?"General":"Proyecto", g.tipo==="overhead"?"":proyectoNombre(g.proyecto_key), g.proveedor||"", g.descripcion||"", g.factura||"", catMap[g.categoria]||g.categoria||"", formaPagoUsdLabel(g.forma_pago), g.importe_usd, g.capturadoPor||""].map(csvEsc).join(","));
+  });
+  downloadCSV("gastos_usd_houston_rancho_trailers.csv", lines.join("\n"));
+}
+function exportCostoTotalCSV(){
+  var r2 = function(n){ return n===null||n===undefined ? "" : Math.round(n*100)/100; };
+  var lines = [["Proyecto","Estado","MexicoMXN","TCPromedio","MexicoUSD","HoustonDirectoUSD","OverheadUSD","CostoTotalUSD","PrecioVentaUSD","MargenUSD","MargenPct","GastosSinTC"].join(",")];
+  filteredCostoRows().rows.forEach(function(r){
+    lines.push([r.nombre, ESTADO_HOUSTON_LABEL[r.estado], r2(r.mxn), r.tcProm?r.tcProm.toFixed(4):"", r2(r.usdMx), r2(r.houston), r2(r.overhead), r2(r.total), r.venta||"", r2(r.margen), r.margenPct===null?"":r.margenPct.toFixed(2), r.sinTc].map(csvEsc).join(","));
+  });
+  downloadCSV("costo_total_usd_rancho_trailers.csv", lines.join("\n"));
+}
+
 /* ================= MODAL / TOAST ================= */
 function openModal(html){
   var root = document.getElementById("modalRoot");
@@ -2585,6 +3265,7 @@ function exportCSV(){
 document.addEventListener("click", function(e){
   var el = e.target.closest("[data-action]");
   if(!el) return;
+  if(el.tagName==="A" && el.getAttribute("href")==="#") e.preventDefault();
   var action = el.dataset.action;
   if(action==="nav") setView(el.dataset.view);
   else if(action==="logout") logout();
@@ -2718,6 +3399,23 @@ document.addEventListener("click", function(e){
     }).catch(function(){ toast("No se pudo eliminar.","err"); });
   }
   else if(action==="modal-close") closeModal();
+  else if(action==="houston-tab"){ STATE.houstonTab = el.dataset.tab; renderContent(); }
+  else if(action==="usd-page-prev"){ if(STATE.usdFilters.page>1){ STATE.usdFilters.page--; renderContent(); } }
+  else if(action==="usd-page-next"){ STATE.usdFilters.page++; renderContent(); }
+  else if(action==="clear-usd-filters"){ STATE.usdFilters = { proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:STATE.usdFilters.proyQ, proyEstado:STATE.usdFilters.proyEstado, page:1, pageSize:50 }; renderContent(); }
+  else if(action==="export-usd-csv") exportGastosUsdCSV();
+  else if(action==="export-costo-csv") exportCostoTotalCSV();
+  else if(action==="edit-gasto-usd") openEditGastoUsdModal(el.dataset.id);
+  else if(action==="delete-gasto-usd") openModal('<h3>Eliminar gasto USD</h3><p class="hint">Esta acción no se puede deshacer. El registro se borrará para todos.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-gasto-usd" data-id="'+esc(el.dataset.id)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
+  else if(action==="confirm-delete-gasto-usd") deleteGastoUsd(el.dataset.id);
+  else if(action==="edit-proyecto-usd") openProyectoUsdModal(el.dataset.key);
+  else if(action==="edit-categoria-usd") openCategoriaUsdModal(el.dataset.codigo);
+  else if(action==="delete-categoria-usd") openModal('<h3>Eliminar categoría USD</h3><p class="hint">"'+esc(el.dataset.nombre)+'" dejará de aparecer para registrar gastos nuevos. Los gastos ya capturados con esta categoría no se modifican, y la puedes restaurar después.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-categoria-usd" data-codigo="'+esc(el.dataset.codigo)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
+  else if(action==="confirm-delete-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, true);
+  else if(action==="restore-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, false);
+  else if(action==="sync-tc") syncTiposCambio();
+  else if(action==="costo-detalle") openCostoDetalleModal(el.dataset.key);
+  else if(action==="goto-houston-tab"){ STATE.houstonTab = el.dataset.tab; if(firstAllowedNavHas("houston")) setView("houston"); }
 });
 function renderAcList(input){
   var ac = input.dataset && input.dataset.ac;
@@ -2761,6 +3459,10 @@ document.addEventListener("input", debounce(function(e){
     STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; STATE.reportGenerated=false; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.contfilter){
     STATE.contFilters[e.target.dataset.contfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.usdfilter){
+    STATE.usdFilters[e.target.dataset.usdfilter] = e.target.value; STATE.usdFilters.page = 1; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.costofilter){
+    STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
@@ -2784,6 +3486,13 @@ document.addEventListener("change", function(e){
     STATE.contFilters[e.target.dataset.contfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.proyestadofilter){
     STATE.proyEstadoFilter = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.usdfilter && e.target.tagName==="SELECT"){
+    STATE.usdFilters[e.target.dataset.usdfilter] = e.target.value; STATE.usdFilters.page = 1; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.costofilter && e.target.tagName==="SELECT"){
+    STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.name==="tipo_usd"){
+    var pf = e.target.form && e.target.form.querySelector("[data-usd-proyecto-field]");
+    if(pf) pf.style.display = e.target.value==="overhead" ? "none" : "";
   }
 });
 document.addEventListener("DOMContentLoaded", boot);

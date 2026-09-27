@@ -18,8 +18,14 @@
 const SESSION_COOKIE = "rt_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-const LIST_COLLECTIONS = ["gastos_nuevos", "proyectos_nuevos", "proveedores_nuevos", "categorias_nuevas", "perfiles"];
-const MAP_COLLECTIONS = ["proyecto_estado", "proveedores_info", "proyectos_info", "gastos_edits", "gastos_contabilidad"];
+const LIST_COLLECTIONS = ["gastos_nuevos", "proyectos_nuevos", "proveedores_nuevos", "categorias_nuevas", "perfiles", "gastos_usd"];
+const MAP_COLLECTIONS = [
+  "proyecto_estado", "proveedores_info", "proyectos_info", "gastos_edits", "gastos_contabilidad",
+  // Módulo Houston (USD): categorías USD (id = código), ciclo de vida
+  // exportación/venta por proyecto (id = slug del proyecto) y tipo de cambio
+  // FIX de Banxico (id = fecha YYYY-MM-DD).
+  "categorias_usd", "proyectos_usd", "tipos_cambio",
+];
 const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS]);
 
 const ACCEPTED_FILE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]);
@@ -124,10 +130,32 @@ const COLLECTION_LABELS = {
   proveedores_nuevos: "Proveedor",
   categorias_nuevas: "Categoría",
   perfiles: "Usuario",
+  gastos_usd: "Gasto USD (Houston)",
+  categorias_usd: "Categoría USD",
+  proyectos_usd: "Exportación/venta",
+  tipos_cambio: "Tipo de cambio",
 };
 
 function summarizeForLog(collection, data) {
   if (!data) return "";
+  if (collection === "gastos_usd") {
+    const parts = [];
+    if (data.descripcion) parts.push(data.descripcion);
+    if (data.proveedor) parts.push(data.proveedor);
+    if (data.importe_usd !== undefined && data.importe_usd !== null) {
+      parts.push("US$" + Number(data.importe_usd).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+    }
+    return parts.join(" · ");
+  }
+  if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : data.nombre || "";
+  if (collection === "proyectos_usd") {
+    const parts = [data.key || ""];
+    if (data.fecha_exportacion) parts.push("exportado " + data.fecha_exportacion);
+    if (data.fecha_venta) parts.push("vendido " + data.fecha_venta);
+    if (data.precio_venta_usd) parts.push("US$" + Number(data.precio_venta_usd).toLocaleString("en-US"));
+    return parts.join(" · ");
+  }
+  if (collection === "tipos_cambio") return (data.fecha || "") + " → " + data.fix + " (" + (data.fuente || "") + ")";
   if (collection === "gastos_nuevos" || collection === "gastos_edits") {
     if (data.eliminado) return "Marcado como eliminado" + (data.descripcion ? ": " + data.descripcion : "");
     const parts = [];
@@ -253,6 +281,9 @@ const COLLECTION_MODULE = {
   categorias_nuevas: "catalogos",
   proyectos_nuevos: ["catalogos", "registrar"],
   proveedores_nuevos: ["catalogos", "registrar"],
+  gastos_usd: "houston",
+  proyectos_usd: "houston",
+  tipos_cambio: ["houston", "contabilidad"],
 };
 
 function authorizeWrite(profile, collection, method, payload) {
@@ -279,6 +310,16 @@ function authorizeWrite(profile, collection, method, payload) {
     return hasModule(profile, moduleKey) ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para esta acción." };
   }
 
+  if (collection === "categorias_usd") {
+    // Igual que proyectos_info/proveedores_info: "eliminar" una categoría USD
+    // es un {eliminado:true} (soft delete, para que los gastos ya capturados
+    // conserven su etiqueta), y eliminar siempre es solo del master.
+    if (payload && payload.eliminado === true) {
+      return profile.isMaster ? { ok: true } : { ok: false, status: 403, error: "Solo el Master Administrator puede eliminar." };
+    }
+    return hasModule(profile, "houston") ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso del módulo Houston." };
+  }
+
   if (collection === "proyectos_info" || collection === "proveedores_info") {
     // The UI's "soft delete" of Excel-origin proyectos/proveedores is a
     // write to this exact collection with {eliminado:true} — not a separate
@@ -299,6 +340,88 @@ function authorizeWrite(profile, collection, method, payload) {
     return hasModule(profile, rule) ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para esta acción." };
   }
   return { ok: false, status: 400, error: "Colección desconocida." };
+}
+
+// ------------------------------------------------- tipo de cambio FIX --
+
+// Serie SF43718 = "Tipo de cambio pesos por dólar E.U.A. — Para solventar
+// obligaciones denominadas en moneda extranjera — Fecha de determinación
+// (FIX)". Se publica en días hábiles bancarios alrededor de las 12:00 (CDMX).
+const BANXICO_FIX_SERIE = "SF43718";
+const TC_HISTORY_START = "2025-01-01"; // antes del primer gasto importado del Excel
+
+function isoDate(d) {
+  return d.toISOString().slice(0, 10);
+}
+
+async function fetchBanxicoFix(env, desde, hasta) {
+  if (!env.BANXICO_TOKEN) throw new Error("Falta el secreto BANXICO_TOKEN (wrangler secret put BANXICO_TOKEN).");
+  const url = "https://www.banxico.org.mx/SieAPIRest/service/v1/series/" + BANXICO_FIX_SERIE + "/datos/" + desde + "/" + hasta;
+  const r = await fetch(url, { headers: { "Bmx-Token": env.BANXICO_TOKEN, Accept: "application/json" } });
+  if (!r.ok) throw new Error("Banxico respondió HTTP " + r.status);
+  const body = await r.json();
+  const serie = body && body.bmx && body.bmx.series && body.bmx.series[0];
+  const datos = (serie && serie.datos) || [];
+  const out = [];
+  for (const d of datos) {
+    // fecha viene como "dd/mm/yyyy"; dato como "18.1234" o "N/E" (no publicado).
+    const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec(d.fecha || "");
+    const fix = parseFloat(String(d.dato || "").replace(/,/g, ""));
+    if (!m || !isFinite(fix) || fix <= 0) continue;
+    out.push({ fecha: m[3] + "-" + m[2] + "-" + m[1], fix });
+  }
+  return out;
+}
+
+/**
+ * Descarga el FIX de Banxico desde `desde` hasta hoy y lo guarda en
+ * tipos_cambio. Un tipo de cambio capturado a mano (fuente "manual") nunca se
+ * sobrescribe: es una corrección deliberada de Contabilidad/Houston.
+ */
+async function syncTiposCambio(env, desde) {
+  const hasta = isoDate(new Date());
+  if (!desde) {
+    const row = await env.DB.prepare("SELECT MAX(id) AS last FROM documents WHERE collection = 'tipos_cambio'").first();
+    if (row && row.last) {
+      const d = new Date(row.last + "T00:00:00Z");
+      d.setUTCDate(d.getUTCDate() - 7); // re-lee la última semana por si Banxico corrigió un dato
+      desde = isoDate(d);
+    } else {
+      desde = TC_HISTORY_START;
+    }
+  }
+  const rates = await fetchBanxicoFix(env, desde, hasta);
+  const existing = await listDocs(env, "tipos_cambio");
+  const manual = new Set(existing.filter((r) => r.data && r.data.fuente === "manual").map((r) => r.id));
+  const now = new Date().toISOString();
+  const stmts = rates
+    .filter((r) => !manual.has(r.fecha))
+    .map((r) =>
+      env.DB.prepare(
+        "INSERT INTO documents (collection, id, data, updated_at) VALUES ('tipos_cambio',?,?,?) " +
+          "ON CONFLICT(collection,id) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at"
+      ).bind(r.fecha, JSON.stringify({ fecha: r.fecha, fix: r.fix, fuente: "banxico", actualizadoEn: now }), now)
+    );
+  for (let i = 0; i < stmts.length; i += 100) await env.DB.batch(stmts.slice(i, i + 100));
+  return { desde, hasta, recibidos: rates.length, guardados: stmts.length };
+}
+
+async function handleTiposCambioSync(request, env) {
+  const profile = await getProfileFromRequest(request, env);
+  if (!profile) return errorResponse(401, "No autenticado.");
+  if (!hasModule(profile, "houston") && !hasModule(profile, "contabilidad") && !hasModule(profile, "costo_total")) {
+    return errorResponse(403, "No tienes permiso para actualizar el tipo de cambio.");
+  }
+  let body = {};
+  try { body = await request.json(); } catch (e) { /* cuerpo opcional */ }
+  const desde = body && /^\d{4}-\d{2}-\d{2}$/.test(body.desde || "") ? body.desde : null;
+  try {
+    const res = await syncTiposCambio(env, desde);
+    await logActivity(env, profile, "PUT", "tipos_cambio", "sync", { fecha: res.desde + " a " + res.hasta, fix: res.guardados + " días", fuente: "banxico" });
+    return jsonResponse(res);
+  } catch (err) {
+    return errorResponse(502, String((err && err.message) || err));
+  }
 }
 
 // -------------------------------------------------------------- routes --
@@ -458,6 +581,9 @@ export default {
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "activity-log" && method === "GET") {
         return handleActivityLog(request, env);
       }
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "tipos-cambio" && segments[2] === "sync" && method === "POST") {
+        return handleTiposCambioSync(request, env);
+      }
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "files" && method === "POST") {
         return handleFileUpload(request, env);
       }
@@ -480,5 +606,15 @@ export default {
       console.error(err);
       return errorResponse(500, "Error interno.");
     }
+  },
+
+  // Cron (ver [triggers] en wrangler.toml): trae el FIX del día de Banxico.
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      syncTiposCambio(env, null).then(
+        (res) => console.log("tipos_cambio sync", JSON.stringify(res)),
+        (err) => console.error("tipos_cambio sync failed", err)
+      )
+    );
   },
 };
