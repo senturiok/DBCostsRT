@@ -848,15 +848,23 @@ function setView(v){
 function rerenderView(){
   if(!STATE.profile || !STATE.view) return;
   var c = document.getElementById("content");
+  if(!c) return;
+  // A routine poll (every ~7s) must never blow away an open data-entry form
+  // (Registrar gasto, Registrar gasto USD, Agregar categoría...) — even a
+  // brief, incidental loss of focus (clicking a native date-picker, the file
+  // upload dialog, alt-tabbing for a second) must not wipe it while it's
+  // still on screen; checking only "is an input focused right now" missed
+  // that window. Whatever's rendered behind/below the form can wait to
+  // refresh until it's submitted or the user navigates away — the
+  // underlying STATE is still kept current by the poll either way.
+  if(c.querySelector("form")) return;
   var ae = document.activeElement;
-  // A routine poll (every ~7s) must never blow away an in-progress form
-  // (Registrar gasto, Agregar categoría) or an open filter — replacing the
-  // DOM node under an open <select>/<datalist> closes it, and typing into a
-  // filter loses focus — so skip the destructive re-render while focus is
-  // inside a form OR on any input/select/textarea being used to filter.
-  if(ae && c && c.contains(ae)){
+  // Filter/search inputs live outside a <form>; skip the destructive
+  // re-render while focus is on one too, so typing or an open <select>
+  // isn't interrupted.
+  if(ae && c.contains(ae)){
     var tag = ae.tagName;
-    if(ae.closest("form") || tag==="INPUT" || tag==="SELECT" || tag==="TEXTAREA") return;
+    if(tag==="INPUT" || tag==="SELECT" || tag==="TEXTAREA") return;
   }
   renderContent();
 }
