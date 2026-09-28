@@ -19,8 +19,7 @@ const PAGE = `<!DOCTYPE html>
   .wrap{width:100%; max-width:1320px; text-align:center;}
   .logo{ width:100%; max-width:420px; height:auto; margin:0 auto 20px; display:block; }
   p.sub{color:var(--ink-2); font-size:14px; margin:0 0 36px; letter-spacing:.01em;}
-  .cards{display:grid; grid-template-columns:repeat(5, 1fr); gap:20px;}
-  @media (max-width:1240px){ .cards{grid-template-columns:repeat(3, 1fr);} }
+  .cards{display:grid; grid-template-columns:repeat(4, 1fr); gap:20px;}
   @media (max-width:1040px){ .cards{grid-template-columns:1fr 1fr;} }
   @media (max-width:560px){ .cards{grid-template-columns:1fr;} }
   a.card{
@@ -65,14 +64,6 @@ const PAGE = `<!DOCTYPE html>
       </div>
       <div class="card-title">Portal Compras</div>
       <p class="card-desc">Facturas, gastos y costeo por remolque.</p>
-      <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
-    </a>
-    <a class="card" href="https://dbcosteo.serviceranchotrailers.org/#houston">
-      <div class="card-icon">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="7" width="14" height="10" rx="1"/><path d="M15 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>
-      </div>
-      <div class="card-title">Portal Houston (USD)</div>
-      <p class="card-desc">Gastos en dólares, exportación, venta y costo total por remolque.</p>
       <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
     </a>
     <a class="card" href="https://pcot.serviceranchotrailers.org">
