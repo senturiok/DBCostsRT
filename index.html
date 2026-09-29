@@ -2064,6 +2064,7 @@ function renderRegistrarView(){
   var proyOptions = Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido && estadoDeProyecto(p.key)!=="terminado";}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
   var cats = allCategorias().filter(function(c){return c.codigo!=="SIN-CAT";}).sort(function(a,b){return a.orden-b.orden;});
   var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,8);
+  STATE._acSources["reg-proveedor"] = allProveedores();
   return '' +
   '<div class="card form-card">'+
     '<form id="registrarForm">'+
@@ -2073,7 +2074,7 @@ function renderRegistrarView(){
         '<div class="field"><label for="f_proyecto">'+reqLabel("Proyecto")+'</label><select id="f_proyecto" name="proyecto_key" required>'+
           '<option value="">Selecciona…</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'">'+esc(p.nombre)+'</option>';}).join("")+
         '</select></div>'+
-        '<div class="field"><label for="f_proveedor">'+reqLabel("Proveedor")+'</label><input id="f_proveedor" name="proveedor" list="provDatalistReg" required placeholder="Nombre del proveedor"><datalist id="provDatalistReg">'+allProveedores().map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist></div>'+
+        '<div class="field"><label for="f_proveedor">'+reqLabel("Proveedor")+'</label><div class="ac-wrap"><input id="f_proveedor" name="proveedor" autocomplete="off" data-ac="reg-proveedor" required placeholder="Escribe para buscar…"><div class="ac-list" id="ac-reg-proveedor"></div></div></div>'+
         '<div class="field"><label for="f_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="f_fecha_factura" name="fecha_factura" required></div>'+
         '<div class="field span2"><label for="f_desc">'+reqLabel("Descripción")+'</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
         '<div class="field"><label for="f_factura">'+reqLabel("N° de factura")+'</label><input id="f_factura" name="factura" required placeholder="Número de factura"></div>'+
@@ -2101,6 +2102,9 @@ function submitGasto(form){
     var opt = form.querySelector('#f_proyecto option[value="'+CSS.escape(proyKey)+'"]');
     proyNombre = opt ? opt.dataset.nombre : proyKey;
   }
+  var proveedorInput = (fd.get("proveedor")||"").trim();
+  var proveedorMatch = proveedorInput ? allProveedores().filter(function(n){ return normKey(n)===normKey(proveedorInput); })[0] : null;
+  if(!proveedorMatch){ toast("Escribe y selecciona un proveedor válido de la lista. Para dar de alta uno nuevo, ve a Catálogos > Proveedores.","err"); return; }
   var importe = parseFloat(fd.get("importe"));
   if(!importe || importe<=0){ toast("Escribe un importe válido.","err"); return; }
   var capturador = (fd.get("capturadoPor")||"").trim();
@@ -2113,7 +2117,7 @@ function submitGasto(form){
   (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
     var gasto = {
       proyecto: proyNombre, proyecto_key: proyKey||"", fecha: fd.get("fecha")||todayISO(),
-      fecha_factura: fd.get("fecha_factura")||null, proveedor: (fd.get("proveedor")||"").trim(),
+      fecha_factura: fd.get("fecha_factura")||null, proveedor: proveedorMatch,
       descripcion: (fd.get("descripcion")||"").trim(), factura: (fd.get("factura")||"").trim()||null,
       importe: importe, cantidad: parseInt(fd.get("cantidad"),10)||1, categoria: fd.get("categoria")||null,
       forma_pago: fd.get("forma_pago")||"efectivo",
@@ -2121,20 +2125,8 @@ function submitGasto(form){
     };
     if(uploaded){ gasto.comprobanteId = uploaded.id; gasto.comprobanteUrl = uploaded.url; gasto.comprobanteTipo = uploaded.contentType; }
 
-    var ops = [ STATE.db.collection("gastos_nuevos").add(gasto) ];
-    var provNombre = gasto.proveedor;
-    var addingProveedor = false, provKey = null, provData = null;
-    if(provNombre){
-      var known = allProveedores().some(function(n){ return normKey(n)===normKey(provNombre); });
-      if(!known){
-        addingProveedor = true; provKey = slugify(provNombre);
-        provData = { nombre:provNombre, creadoPor:capturador, creadoEn:new Date().toISOString() };
-        ops.push(STATE.db.doc("proveedores_nuevos/"+provKey).set(provData));
-      }
-    }
-    return Promise.all(ops).then(function(){
+    return STATE.db.collection("gastos_nuevos").add(gasto).then(function(){
       STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
-      if(addingProveedor) STATE.proveedoresNuevos.push(Object.assign({ id:provKey }, provData));
       toast("Gasto guardado ✓");
       form.reset();
       document.getElementById("f_fecha").value = todayISO();
