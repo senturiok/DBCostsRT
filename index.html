@@ -642,7 +642,7 @@ function applyStateSnapshot(state){
     var real = (state[col]||[]).slice();
     var realCids = {}; real.forEach(function(d){ if(d._cid) realCids[d._cid] = true; });
     var pending = (STATE[key]||[]).filter(function(d){
-      return d.id && String(d.id).indexOf("_local_")===0 && !(d._cid && realCids[d._cid]);
+      return d.id && (d._pending || String(d.id).indexOf("_local_")===0) && !(d._cid && realCids[d._cid]);
     });
     STATE[key] = real.concat(pending);
   }
@@ -2142,8 +2142,8 @@ function submitGasto(form){
     };
     if(uploaded){ gasto.comprobanteId = uploaded.id; gasto.comprobanteUrl = uploaded.url; gasto.comprobanteTipo = uploaded.contentType; }
 
-    return STATE.db.collection("gastos_nuevos").add(gasto).then(function(){
-      STATE.gastosNuevos.push(Object.assign({ id:"_local_"+uid() }, gasto));
+    return STATE.db.collection("gastos_nuevos").add(gasto).then(function(res){
+      STATE.gastosNuevos.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, gasto));
       toast("Gasto guardado ✓");
       form.reset();
       document.getElementById("f_fecha").value = todayISO();
@@ -3069,8 +3069,8 @@ function submitGastoUsd(form, isEdit){
       });
     }
     data.creadoEn = new Date().toISOString(); data._cid = uid();
-    return STATE.db.collection("gastos_usd").add(data).then(function(){
-      STATE.gastosUsd.push(Object.assign({ id:"_local_"+uid() }, data));
+    return STATE.db.collection("gastos_usd").add(data).then(function(res){
+      STATE.gastosUsd.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, data));
       toast("Gasto USD guardado ✓");
       renderContent();
     });
