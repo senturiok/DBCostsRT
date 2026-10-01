@@ -74,6 +74,9 @@
   .check-list .check-row{display:flex; align-items:center; gap:9px; padding:7px 2px; font-size:13px; text-transform:none; letter-spacing:normal; font-weight:400; color:var(--ink); cursor:pointer; border-bottom:1px solid var(--line);}
   .check-row:last-child{border-bottom:0;}
   .check-row input{width:auto; flex:none;}
+  .estadopago-group{display:inline-flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--line); border-radius:4px; background:var(--surface-2); font-size:12.5px;}
+  .estadopago-group label{display:flex; align-items:center; gap:4px; cursor:pointer; font-weight:400; white-space:nowrap; color:var(--ink);}
+  .estadopago-group input[type=checkbox]{width:auto; min-width:0; flex:none; margin:0; padding:0;}
   .field label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-2); font-weight:600;}
   .req-mark{color:var(--critical); margin-left:2px;}
   input,select,textarea{
@@ -408,11 +411,11 @@ var STATE = {
   db:null, assets:null, _acSources:{},
   filters:{ proyecto:"", categoria:"", proveedor:"", formaPago:"", desde:"", hasta:"", mes:"", anio:"", flag:"", q:"", page:1, pageSize:50 },
   dashFilters:{ proyecto:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
-  reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
+  reportFilters:{ proyecto:"", proveedor:"", categoria:"", formaPago:"", estado:"", estadoPago:[], desde:"", hasta:"", mes:"", anio:"" },
   reportGenerated:false,
   reportTemplate:"completo",
   gastosContabilidad:{},
-  contFilters:{ proveedor:"", proyecto:"", estado:"", desde:"", hasta:"", mes:"", anio:"" },
+  contFilters:{ proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   provSearch:"",
   proySearch:"",
   proyEstadoFilter:"activo",
@@ -1289,6 +1292,7 @@ function filteredReportGastos(dateField){
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
     if(f.estado && estadoDeProyecto(r.proyecto_key||"SIN_PROYECTO")!==f.estado) return false;
+    if(f.estadoPago.length && (r.forma_pago!=="credito" || f.estadoPago.indexOf(creditoEstado(r))===-1)) return false;
     var d = r[dateField];
     if(f.desde && d && d<f.desde) return false;
     if(f.hasta && d && d>f.hasta) return false;
@@ -1517,7 +1521,7 @@ function renderReportesView(){
   var allCats = allCategorias().slice().sort(function(a,b){return a.orden-b.orden;});
   var f = STATE.reportFilters;
   var provOptions = allProveedores();
-  var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.desde||f.hasta||f.mes||f.anio);
+  var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.estadoPago.length||f.desde||f.hasta||f.mes||f.anio);
   var reportDateField = (STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado") ? "fecha_factura" : "fecha";
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
@@ -1529,6 +1533,7 @@ function renderReportesView(){
       '<select data-reportfilter="estado"><option value="">Activos y terminados</option><option value="activo"'+(f.estado==="activo"?' selected':'')+'>Solo activos</option><option value="terminado"'+(f.estado==="terminado"?' selected':'')+'>Solo terminados</option></select>'+
       '<select data-reportfilter="categoria"><option value="">Todas las categorías</option>'+allCats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select>'+
       '<select data-reportfilter="formaPago"><option value="">Todas las formas de pago</option><option value="efectivo"'+(f.formaPago==="efectivo"?' selected':'')+'>Efectivo</option><option value="credito"'+(f.formaPago==="credito"?' selected':'')+'>Crédito</option></select>'+
+      estadoPagoCheckboxesHTML("report", f.estadoPago)+
       mesAnioOptionsHTML("reportfilter", f.mes, f.anio, allGastos(), reportDateField)+
       '<input type="date" data-reportfilter="desde" value="'+esc(f.desde)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura desde":"Fecha de registro desde")+'">'+
       '<input type="date" data-reportfilter="hasta" value="'+esc(f.hasta)+'" title="'+((STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado")?"Fecha de factura hasta":"Fecha de registro hasta")+'">'+
@@ -1660,6 +1665,18 @@ function renderReportesView(){
 function contKey(id){ return String(id).replace(/[^A-Za-z0-9_.-]/g,"_"); }
 function creditoInfo(g){ return STATE.gastosContabilidad[contKey(g.id)] || {}; }
 function creditoEstado(g){ return creditoInfo(g).estado || "pendiente"; }
+/* Checkboxes de estado de pago a crédito (Pendiente/Verificado/Pagado),
+   compartidas entre Contabilidad y Reportes. `target` identifica a cuál
+   STATE.*Filters array se escribe (ver el listener de "change" al final). */
+var ESTADO_PAGO_OPTS = [["pendiente","Pendiente"],["verificado","Verificado"],["pagado","Pagado"]];
+function estadoPagoCheckboxesHTML(target, selected){
+  return '<div class="estadopago-group" title="Estado de pago a crédito">'+
+    ESTADO_PAGO_OPTS.map(function(o){
+      var checked = selected.indexOf(o[0])>-1;
+      return '<label><input type="checkbox" data-estadopago="'+target+'" data-estadopago-value="'+o[0]+'"'+(checked?' checked':'')+'> '+o[1]+'</label>';
+    }).join("")+
+  '</div>';
+}
 // Same per-item bookkeeping as creditoInfo/creditoEstado, but by bare id
 // (used once multiple gastos are grouped into one invoice row and only ids
 // are on hand) and normalized into a saldo so bulk verify/pay/revert can
@@ -1694,7 +1711,7 @@ function renderContabilidadProveedoresTab(){
   var filtered = creditos.filter(function(r){
     if(f.proveedor && normKey(r.proveedor)!==normKey(f.proveedor)) return false;
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
-    if(f.estado && creditoEstado(r)!==f.estado) return false;
+    if(f.estados.length && f.estados.indexOf(creditoEstado(r))===-1) return false;
     if(f.desde && r.fecha_factura && r.fecha_factura<f.desde) return false;
     if(f.hasta && r.fecha_factura && r.fecha_factura>f.hasta) return false;
     if(f.anio && (!r.fecha_factura || r.fecha_factura.slice(0,4)!==f.anio)) return false;
@@ -1715,7 +1732,7 @@ function renderContabilidadProveedoresTab(){
   var totalPagado = filtered.filter(function(r){return creditoEstado(r)==="pagado";}).reduce(function(s,r){return s+r.importe;},0);
 
   var canVerify = can("verifyPago");
-  var filterActive = !!(f.proveedor||f.proyecto||f.estado||f.desde||f.hasta||f.mes||f.anio);
+  var filterActive = !!(f.proveedor||f.proyecto||f.estados.length||f.desde||f.hasta||f.mes||f.anio);
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros</h3><span class="card-note">'+(filterActive?"Filtrado":"Todos los créditos")+'</span></div>'+
@@ -1723,7 +1740,7 @@ function renderContabilidadProveedoresTab(){
       '<input type="text" list="provDatalistCont" placeholder="Proveedor" data-contfilter="proveedor" value="'+esc(f.proveedor)+'">'+
       '<datalist id="provDatalistCont">'+provNames.map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
       '<select data-contfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
-      '<select data-contfilter="estado"><option value="">Todos los estados</option><option value="pendiente"'+(f.estado==="pendiente"?' selected':'')+'>Pendiente</option><option value="verificado"'+(f.estado==="verificado"?' selected':'')+'>Verificado</option><option value="pagado"'+(f.estado==="pagado"?' selected':'')+'>Pagado</option></select>'+
+      estadoPagoCheckboxesHTML("cont", f.estados)+
       mesAnioOptionsHTML("contfilter", f.mes, f.anio, creditos, "fecha_factura")+
       '<input type="date" data-contfilter="desde" value="'+esc(f.desde)+'" title="Fecha de factura desde">'+
       '<input type="date" data-contfilter="hasta" value="'+esc(f.hasta)+'" title="Fecha de factura hasta">'+
@@ -3676,7 +3693,7 @@ document.addEventListener("click", function(e){
   else if(action==="usuarios-tab"){ STATE.usuariosTab = el.dataset.tab; renderContent(); }
   else if(action==="refresh-activity-log"){ STATE.activityLog = null; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
-  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; STATE.reportGenerated=false; renderContent(); }
+  else if(action==="clear-report-filters"){ STATE.reportFilters = {proyecto:"",proveedor:"",categoria:"",formaPago:"",estado:"",estadoPago:[],desde:"",hasta:"",mes:"",anio:""}; STATE.reportGenerated=false; renderContent(); }
   else if(action==="generate-report"){ STATE.reportGenerated = true; renderContent(); }
   else if(action==="print-report") printReport();
   else if(action==="export-report-csv") exportReportCSV();
@@ -3714,7 +3731,7 @@ document.addEventListener("click", function(e){
       toast("Estado actualizado"); closeModal(); renderContent();
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
-  else if(action==="clear-cont-filters"){ STATE.contFilters = {proveedor:"",proyecto:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
+  else if(action==="clear-cont-filters"){ STATE.contFilters = {proveedor:"",proyecto:"",estados:[],desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
   else if(action==="new-proveedor") openProveedorModal(null);
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
@@ -3832,7 +3849,17 @@ document.addEventListener("change", function(e){
   }
 });
 document.addEventListener("change", function(e){
-  if(e.target && e.target.dataset && e.target.dataset.filter && e.target.tagName==="SELECT"){
+  if(e.target && e.target.dataset && e.target.dataset.estadopago){
+    var pfx = e.target.dataset.estadopago;
+    var val = e.target.dataset.estadopagoValue;
+    var arrKey = pfx==="report" ? "reportFilters" : "contFilters";
+    var fieldKey = pfx==="report" ? "estadoPago" : "estados";
+    var arr = STATE[arrKey][fieldKey];
+    var idx = arr.indexOf(val);
+    if(e.target.checked){ if(idx<0) arr.push(val); } else { if(idx>-1) arr.splice(idx,1); }
+    if(pfx==="report") STATE.reportGenerated=false;
+    renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.filter && e.target.tagName==="SELECT"){
     STATE.filters[e.target.dataset.filter] = e.target.value; STATE.filters.page = 1; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.dashfilter && e.target.tagName==="SELECT"){
     STATE.dashFilters[e.target.dataset.dashfilter] = e.target.value; renderContent();
