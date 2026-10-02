@@ -74,9 +74,9 @@
   .check-list .check-row{display:flex; align-items:center; gap:9px; padding:7px 2px; font-size:13px; text-transform:none; letter-spacing:normal; font-weight:400; color:var(--ink); cursor:pointer; border-bottom:1px solid var(--line);}
   .check-row:last-child{border-bottom:0;}
   .check-row input{width:auto; flex:none;}
-  .estadopago-group{display:inline-flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--line); border-radius:4px; background:var(--surface-2); font-size:12.5px;}
-  .estadopago-group label{display:flex; align-items:center; gap:4px; cursor:pointer; font-weight:400; white-space:nowrap; color:var(--ink);}
-  .estadopago-group input[type=checkbox]{width:auto; min-width:0; flex:none; margin:0; padding:0;}
+  .chk-group{display:inline-flex; align-items:center; gap:10px; padding:7px 10px; border:1px solid var(--line); border-radius:4px; background:var(--surface-2); font-size:12.5px;}
+  .chk-group label{display:flex; align-items:center; gap:4px; cursor:pointer; font-weight:400; white-space:nowrap; color:var(--ink);}
+  .chk-group input[type=checkbox]{width:auto; min-width:0; flex:none; margin:0; padding:0;}
   .field label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-2); font-weight:600;}
   .req-mark{color:var(--critical); margin-left:2px;}
   input,select,textarea{
@@ -429,7 +429,7 @@ var STATE = {
   provUsdSearch:"",
   houstonTab:"gastos",
   usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", page:1, pageSize:50 },
-  costoFilters:{ estado:"", q:"", orden:"total", mes:"", anio:"" },
+  costoFilters:{ estados:[], q:"", orden:"total", mes:"", anio:"" },
   tcSyncing:false,
   loaded:false
 };
@@ -1665,17 +1665,25 @@ function renderReportesView(){
 function contKey(id){ return String(id).replace(/[^A-Za-z0-9_.-]/g,"_"); }
 function creditoInfo(g){ return STATE.gastosContabilidad[contKey(g.id)] || {}; }
 function creditoEstado(g){ return creditoInfo(g).estado || "pendiente"; }
-/* Checkboxes de estado de pago a crédito (Pendiente/Verificado/Pagado),
-   compartidas entre Contabilidad y Reportes. `target` identifica a cuál
-   STATE.*Filters array se escribe (ver el listener de "change" al final). */
+/* Grupo de casillas de selección múltiple para filtros. `target` es una
+   llave de CHECK_GROUP_TARGETS: indica qué arreglo de STATE escribe el
+   listener de "change" al final del script. */
+var CHECK_GROUP_TARGETS = {
+  report: ["reportFilters","estadoPago"],
+  cont:   ["contFilters","estados"],
+  costo:  ["costoFilters","estados"]
+};
 var ESTADO_PAGO_OPTS = [["pendiente","Pendiente"],["verificado","Verificado"],["pagado","Pagado"]];
-function estadoPagoCheckboxesHTML(target, selected){
-  return '<div class="estadopago-group" title="Estado de pago a crédito">'+
-    ESTADO_PAGO_OPTS.map(function(o){
+function checkGroupHTML(target, opts, selected, title){
+  return '<div class="chk-group" title="'+esc(title)+'">'+
+    opts.map(function(o){
       var checked = selected.indexOf(o[0])>-1;
-      return '<label><input type="checkbox" data-estadopago="'+target+'" data-estadopago-value="'+o[0]+'"'+(checked?' checked':'')+'> '+o[1]+'</label>';
+      return '<label><input type="checkbox" data-chkgroup="'+target+'" data-chkgroup-value="'+o[0]+'"'+(checked?' checked':'')+'> '+o[1]+'</label>';
     }).join("")+
   '</div>';
+}
+function estadoPagoCheckboxesHTML(target, selected){
+  return checkGroupHTML(target, ESTADO_PAGO_OPTS, selected, "Estado de pago a crédito");
 }
 // Same per-item bookkeeping as creditoInfo/creditoEstado, but by bare id
 // (used once multiple gastos are grouped into one invoice row and only ids
@@ -3412,7 +3420,7 @@ function filteredCostoRows(){
   var f = STATE.costoFilters, q = f.q.trim().toLowerCase();
   var ct = computeCostoTotal();
   var rows = ct.rows.filter(function(r){
-    if(f.estado && r.estado!==f.estado) return false;
+    if(f.estados.length && f.estados.indexOf(r.estado)===-1) return false;
     if(f.anio && (!r.fecha_exportacion || r.fecha_exportacion.slice(0,4)!==f.anio)) return false;
     if(f.mes && (!r.fecha_exportacion || r.fecha_exportacion.slice(5,7)!==f.mes)) return false;
     if(q && r.nombre.toLowerCase().indexOf(q)===-1) return false;
@@ -3463,7 +3471,7 @@ function renderCostoTotalView(){
 
   var allCostoRows = computeCostoTotal().rows;
   return '<div class="card" style="margin-bottom:14px"><div class="filters" style="margin:0">'+
-      '<select data-costofilter="estado"><option value="">Todos los proyectos</option>'+["mexico","exportado","vendido"].map(function(e){return '<option value="'+e+'"'+(f.estado===e?' selected':'')+'>'+ESTADO_HOUSTON_LABEL[e]+'</option>';}).join("")+'</select>'+
+      checkGroupHTML("costo", ["mexico","exportado","vendido"].map(function(e){ return [e, ESTADO_HOUSTON_LABEL[e]]; }), f.estados, "Sin marcar = todos los proyectos")+
       mesAnioOptionsHTML("costofilter", f.mes, f.anio, allCostoRows, "fecha_exportacion")+
       '<select data-costofilter="orden"><option value="total"'+(f.orden==="total"?' selected':'')+'>Ordenar: mayor costo</option><option value="nombre"'+(f.orden==="nombre"?' selected':'')+'>Ordenar: nombre</option><option value="margen"'+(f.orden==="margen"?' selected':'')+'>Ordenar: menor margen</option></select>'+
       '<input type="text" class="q" placeholder="Buscar proyecto…" data-costofilter="q" value="'+esc(f.q)+'">'+
@@ -3849,12 +3857,11 @@ document.addEventListener("change", function(e){
   }
 });
 document.addEventListener("change", function(e){
-  if(e.target && e.target.dataset && e.target.dataset.estadopago){
-    var pfx = e.target.dataset.estadopago;
-    var val = e.target.dataset.estadopagoValue;
-    var arrKey = pfx==="report" ? "reportFilters" : "contFilters";
-    var fieldKey = pfx==="report" ? "estadoPago" : "estados";
-    var arr = STATE[arrKey][fieldKey];
+  if(e.target && e.target.dataset && CHECK_GROUP_TARGETS[e.target.dataset.chkgroup]){
+    var pfx = e.target.dataset.chkgroup;
+    var val = e.target.dataset.chkgroupValue;
+    var tgt = CHECK_GROUP_TARGETS[pfx];
+    var arr = STATE[tgt[0]][tgt[1]];
     var idx = arr.indexOf(val);
     if(e.target.checked){ if(idx<0) arr.push(val); } else { if(idx>-1) arr.splice(idx,1); }
     if(pfx==="report") STATE.reportGenerated=false;
