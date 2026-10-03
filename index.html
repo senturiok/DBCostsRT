@@ -250,7 +250,7 @@
 
   @page{ size:letter; margin:10mm 9mm; }
   @media print{
-    .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action], .col-comp{display:none !important;}
+    .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action], .col-comp, .no-print{display:none !important;}
     html, body, .content{padding:0 !important; margin:0 !important; background:#fff !important;}
     body{font-size:10px;}
     .report-header{padding-bottom:6px !important;}
@@ -1542,7 +1542,7 @@ function renderReportesView(){
   var reportActive = !!(f.proyecto||f.proveedor||f.categoria||f.formaPago||f.estado||f.estadoPago.length||f.desde||f.hasta||f.mes||f.anio);
   var reportDateField = (STATE.reportTemplate==="proveedores"||STATE.reportTemplate==="consolidado") ? "fecha_factura" : "fecha";
 
-  var filterBar = '<div class="card" style="margin-bottom:14px">'+
+  var filterBar = '<div class="card no-print" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros del reporte</h3><span class="card-note">'+(reportActive?"Filtrado":"Todo lo histórico")+'</span></div>'+
     '<div class="filters">'+
       '<select data-reporttemplate="1"><option value="completo"'+(STATE.reportTemplate==="completo"?' selected':'')+'>Reporte completo</option><option value="proveedores"'+(STATE.reportTemplate==="proveedores"?' selected':'')+'>Template proveedores</option><option value="sgx"'+(STATE.reportTemplate==="sgx"?' selected':'')+'>Template SGX</option><option value="consolidado"'+(STATE.reportTemplate==="consolidado"?' selected':'')+'>Template Consolidado Proveedores</option></select>'+
