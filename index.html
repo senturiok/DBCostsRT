@@ -434,6 +434,7 @@ var STATE = {
   reportTemplate:"completo",
   gastosContabilidad:{},
   contFilters:{ proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
+  propViernes:"",
   provSearch:"",
   proySearch:"",
   proyEstadoFilter:"activo",
@@ -579,6 +580,7 @@ function allProveedoresFull(){
       nombre: info.nombre || original, original: original, key: key,
       origen: portalIds[k] ? "portal" : "excel", _docId: portalIds[k] || null,
       direccion: info.direccion||"", telefono: info.telefono||"", email: info.email||"",
+      dias_credito: (info.dias_credito===null||info.dias_credito===undefined||info.dias_credito==="") ? null : Number(info.dias_credito),
       eliminado: !!info.eliminado
     };
   }).filter(function(p){ return !p.eliminado; }).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
@@ -1709,6 +1711,9 @@ function estadoPagoCheckboxesHTML(target, selected){
 // walk a group of ids the same way the single-item flow walks one.
 function saldoInfoFor(id){
   var g = allGastos().find(function(r){ return String(r.id)===String(id); });
+  return saldoDeGasto(id, g);
+}
+function saldoDeGasto(id, g){
   var info = STATE.gastosContabilidad[contKey(id)] || {};
   var importe = g ? g.importe : 0;
   var estado = info.estado || "pendiente";
@@ -1717,12 +1722,14 @@ function saldoInfoFor(id){
   return { id:id, importe:importe, estado:estado, montoPagado:montoPagado, saldo:saldo };
 }
 function quienSoy(){ return STATE.profile ? (STATE.profile.isMaster ? "Master Administrator" : STATE.profile.nombre) : "—"; }
-var CONT_TABS = ["proveedores"];
-var CONT_TAB_LABELS = { proveedores:"Proveedores" };
+var CONT_TABS = ["proveedores","propuesta"];
+var CONT_TAB_LABELS = { proveedores:"Proveedores", propuesta:"Propuesta de pago" };
 function renderContabilidadView(){
   var body = "";
   if(STATE.contTab==="proveedores"){
     body = renderContabilidadProveedoresTab();
+  } else if(STATE.contTab==="propuesta"){
+    body = renderPropuestaPagoTab();
   }
   return '<div class="tabs">'+CONT_TABS.map(function(t){return '<button class="tab" data-action="cont-tab" data-tab="'+t+'" aria-selected="'+(STATE.contTab===t)+'">'+CONT_TAB_LABELS[t]+'</button>';}).join("")+'</div>'+
     '<div style="margin-top:14px">'+body+'</div>';
@@ -1860,6 +1867,137 @@ function renderContabilidadProveedoresTab(){
         '<tfoot><tr><td colspan="4">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>';
+}
+/* ================= PROPUESTA DE PAGO ================= */
+var DIAS_CREDITO_DEFAULT = 30;
+function isoAddDays(iso, n){ var d = new Date(iso+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+n); return d.toISOString().slice(0,10); }
+// Los pagos salen los viernes: una factura se paga el viernes que cae en su
+// fecha de vencimiento o el primero después.
+function viernesEnOPosterior(iso){ var dow = new Date(iso+"T00:00:00Z").getUTCDay(); return isoAddDays(iso, (5-dow+7)%7); }
+function diasCreditoMap(){
+  var m = {};
+  allProveedoresFull().forEach(function(p){
+    if(p.dias_credito===null || isNaN(p.dias_credito)) return;
+    m[normKey(p.original)] = p.dias_credito; m[normKey(p.nombre)] = p.dias_credito;
+  });
+  return m;
+}
+function vencimientoCredito(r, diasMap){
+  var dias = diasMap[normKey(r.proveedor||"")];
+  if(dias===undefined) dias = DIAS_CREDITO_DEFAULT;
+  if(!r.fecha_factura || isImplausibleYear(r.fecha_factura)) return { dias:dias, vence:null, viernes:null };
+  var vence = isoAddDays(r.fecha_factura, dias);
+  return { dias:dias, vence:vence, viernes:viernesEnOPosterior(vence) };
+}
+function propuestaViernes(){ return STATE.propViernes || viernesEnOPosterior(todayISO()); }
+function computePropuestaPago(viernes){
+  var diasMap = diasCreditoMap();
+  var incluidas = [], pendientes = [], sinFecha = [];
+  allGastos().forEach(function(r){
+    if(r.forma_pago!=="credito") return;
+    var si = saldoDeGasto(r.id, r);
+    if(si.estado==="pagado" || si.saldo<=0.004) return;
+    var v = vencimientoCredito(r, diasMap);
+    if(!v.viernes){ if(si.estado==="verificado") sinFecha.push(r); return; }
+    if(v.viernes>viernes) return;
+    var item = { r:r, saldo:si.saldo, dias:v.dias, vence:v.vence, viernesPago:v.viernes, atrasada:v.viernes<viernes };
+    if(si.estado==="verificado") incluidas.push(item); else pendientes.push(item);
+  });
+  // Una factura con varias líneas (varios proyectos) se muestra en un renglón.
+  var facturas = {}, orden = [];
+  incluidas.forEach(function(it){
+    var r = it.r, facturaTrim = (r.factura||"").trim();
+    var k = normKey(r.proveedor||"")+"||"+(facturaTrim ? facturaTrim.toUpperCase() : "SIN-FACTURA-"+r.id);
+    var f = facturas[k];
+    if(!f){ f = facturas[k] = { proveedor:r.proveedor||"—", factura:r.factura, fecha_factura:r.fecha_factura, dias:it.dias, vence:it.vence, viernesPago:it.viernesPago, atrasada:false, saldo:0, ids:[], proyectos:[] }; orden.push(k); }
+    f.saldo += it.saldo; f.ids.push(r.id);
+    if(it.vence<f.vence){ f.vence = it.vence; f.viernesPago = it.viernesPago; f.fecha_factura = r.fecha_factura; }
+    f.atrasada = f.atrasada || it.atrasada;
+    var pn = proyectoNombre(r.proyecto_key); if(f.proyectos.indexOf(pn)<0) f.proyectos.push(pn);
+  });
+  var lista = orden.map(function(k){ return facturas[k]; }).sort(function(a,b){
+    var pa = a.proveedor.toUpperCase(), pb = b.proveedor.toUpperCase();
+    if(pa!==pb) return pa<pb?-1:1;
+    return a.vence.localeCompare(b.vence);
+  });
+  return { facturas:lista, pendientes:pendientes, sinFecha:sinFecha };
+}
+function renderPropuestaPagoTab(){
+  var viernes = propuestaViernes();
+  var res = computePropuestaPago(viernes), lista = res.facturas;
+  var canPay = can("verifyPago");
+  var total = lista.reduce(function(s,f){return s+f.saldo;},0);
+  var atrasado = lista.filter(function(f){return f.atrasada;}).reduce(function(s,f){return s+f.saldo;},0);
+  var proveedores = {}; lista.forEach(function(f){ proveedores[normKey(f.proveedor)] = true; });
+  var nProv = Object.keys(proveedores).length;
+
+  var hoyViernes = viernesEnOPosterior(todayISO()), opts = [], seen = {};
+  for(var i=0;i<10;i++){ var fv = isoAddDays(hoyViernes, i*7); opts.push(fv); seen[fv]=true; }
+  if(!seen[viernes]) opts.unshift(viernes);
+  var selector = '<div class="card" style="margin-bottom:14px"><div class="filters" style="margin:0; align-items:center">'+
+      '<label style="font-weight:600; font-size:12.5px">Viernes de pago</label>'+
+      '<select data-propviernes="1">'+opts.map(function(fv){ return '<option value="'+fv+'"'+(fv===viernes?' selected':'')+'>'+fmtDate(fv)+(fv===hoyViernes?' (este viernes)':'')+'</option>'; }).join("")+'</select>'+
+      '<button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>'+
+      '<button class="btn" data-action="export-propuesta-csv">Exportar CSV</button>'+
+    '</div><p class="hint" style="margin:8px 0 0">Incluye las facturas a crédito <strong>verificadas</strong> cuyo viernes de pago es este o uno anterior (atrasadas). Vencimiento = fecha de factura + días de crédito del proveedor ('+DIAS_CREDITO_DEFAULT+' si no tiene capturados); se paga el viernes del vencimiento o el siguiente.</p></div>';
+
+  var avisos = [];
+  if(res.pendientes.length){
+    var montoPend = res.pendientes.reduce(function(s,it){return s+it.saldo;},0);
+    avisos.push(res.pendientes.length+' línea'+(res.pendientes.length===1?'':'s')+' a crédito ('+fmtMoneyInt(montoPend)+') ya toca'+(res.pendientes.length===1?'':'n')+' pagar pero sigue'+(res.pendientes.length===1?'':'n')+' <strong>pendiente'+(res.pendientes.length===1?'':'s')+' de verificar</strong>, así que no entra'+(res.pendientes.length===1?'':'n')+'. <a href="#" data-action="cont-tab" data-tab="proveedores">Ir a verificar →</a>');
+  }
+  if(res.sinFecha.length) avisos.push(res.sinFecha.length+' factura'+(res.sinFecha.length===1?'':'s')+' verificada'+(res.sinFecha.length===1?'':'s')+' no tiene'+(res.sinFecha.length===1?'':'n')+' fecha de factura válida y no se puede calcular su vencimiento: '+res.sinFecha.slice(0,6).map(function(r){return esc((r.proveedor||"—")+(r.factura?" "+r.factura:""));}).join(", ")+(res.sinFecha.length>6?"…":"")+'.');
+  var avisosHTML = avisos.length ? '<div class="card no-print" style="margin-bottom:14px; border-color:var(--warn)">'+avisos.map(function(a){ return '<div class="hint" style="margin:2px 0">⚠ '+a+'</div>'; }).join("")+'</div>' : "";
+
+  var rows = [], curProv = null, sub = 0;
+  function flush(){ if(curProv!==null) rows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="7">Subtotal '+esc(curProv)+'</td><td class="num">'+fmtMoney(sub)+'</td><td class="col-comp"></td></tr>'); }
+  lista.forEach(function(f){
+    if(f.proveedor!==curProv){ flush(); curProv = f.proveedor; sub = 0; }
+    sub += f.saldo;
+    rows.push('<tr>'+
+      '<td>'+esc(f.proveedor)+'</td>'+
+      '<td>'+esc(f.factura||"—")+'</td>'+
+      '<td>'+esc(f.proyectos.join(", ")||"—")+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(f.fecha_factura)+'</td>'+
+      '<td class="num">'+f.dias+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(f.vence)+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(f.viernesPago)+(f.atrasada?' <span class="badge badge-critical">Atrasada</span>':'')+'</td>'+
+      '<td class="num">'+fmtMoney(f.saldo)+'</td>'+
+      '<td class="col-comp">'+(canPay?'<button class="btn btn-primary" style="white-space:nowrap" data-action="pay-gasto" data-ids="'+esc(f.ids.join(","))+'">Marcar pagado</button>':'')+'</td>'+
+    '</tr>');
+  });
+  flush();
+
+  var generadoPor = quienSoy();
+  return selector + avisosHTML +
+    '<div id="reportPrintArea">'+
+      '<div class="report-header">'+
+        '<h2 style="margin:0">Propuesta de pago — viernes '+fmtDate(viernes)+'</h2>'+
+        '<p class="hint" style="margin:4px 0 0">Rancho Trailers · Generado: '+fmtDate(todayISO())+' · Por: '+esc(generadoPor)+'</p>'+
+      '</div>'+
+      '<div class="grid kpis" style="margin-top:14px">'+
+        '<div class="card"><div class="kpi-label">Total a pagar</div><div class="kpi-value">'+fmtMoneyInt(total)+'</div><div class="kpi-delta">'+lista.length+' factura'+(lista.length===1?'':'s')+'</div></div>'+
+        '<div class="card"><div class="kpi-label">Proveedores</div><div class="kpi-value">'+nProv+'</div><div class="kpi-delta">en esta propuesta</div></div>'+
+        '<div class="card"><div class="kpi-label">De este viernes</div><div class="kpi-value">'+fmtMoneyInt(total-atrasado)+'</div><div class="kpi-delta">vencen esta semana</div></div>'+
+        '<div class="card"><div class="kpi-label">Atrasado</div><div class="kpi-value" style="color:'+(atrasado>0.004?'var(--critical)':'inherit')+'">'+fmtMoneyInt(atrasado)+'</div><div class="kpi-delta">debió pagarse un viernes anterior</div></div>'+
+      '</div>'+
+      '<div class="card card-breakable" style="margin-top:14px">'+
+        '<div class="card-head"><h3 class="card-title">Facturas a pagar</h3><span class="card-note">'+lista.length+' factura'+(lista.length===1?'':'s')+'</span></div>'+
+        '<div class="table-wrap"><table>'+
+          '<thead><tr><th>Proveedor</th><th>Factura</th><th>Proyecto</th><th>Fecha de factura</th><th class="num">Días</th><th>Vence</th><th>Pagar el</th><th class="num">Saldo</th><th class="col-comp"></th></tr></thead>'+
+          '<tbody>'+(rows.length ? rows.join("") : '<tr><td colspan="9" class="empty">No hay facturas verificadas por pagar para este viernes.</td></tr>')+'</tbody>'+
+          '<tfoot><tr><td colspan="7">Total a pagar ('+lista.length+' factura'+(lista.length===1?'':'s')+')</td><td class="num">'+fmtMoney(total)+'</td><td class="col-comp"></td></tr></tfoot>'+
+        '</table></div>'+
+      '</div>'+
+    '</div>';
+}
+function exportPropuestaCSV(){
+  var viernes = propuestaViernes(), lista = computePropuestaPago(viernes).facturas;
+  var lines = [["Proveedor","Factura","Proyecto","Fecha de factura","Dias de credito","Vence","Pagar el","Atrasada","Saldo"].join(",")];
+  lista.forEach(function(f){
+    lines.push([f.proveedor, f.factura||"", f.proyectos.join(" / "), f.fecha_factura||"", f.dias, f.vence, f.viernesPago, f.atrasada?"Si":"No", f.saldo.toFixed(2)].map(csvEsc).join(","));
+  });
+  downloadCSV("propuesta_pago_"+viernes+".csv", "﻿"+lines.join("\n"));
 }
 function verifyGastoModal(ids){
   var plural = ids.length>1;
@@ -2286,12 +2424,13 @@ function renderCatalogosView(){
         if(p.telefono) rows += '<div class="prov-contact-row"><span class="lbl">Tel</span><span>'+esc(p.telefono)+'</span></div>';
         if(p.email) rows += '<div class="prov-contact-row"><span class="lbl">Correo</span><span>'+esc(p.email)+'</span></div>';
         if(p.direccion) rows += '<div class="prov-contact-row"><span class="lbl">Dirección</span><span>'+esc(p.direccion)+'</span></div>';
+        var creditoRow = '<div class="prov-contact-row"><span class="lbl">Crédito</span><span>'+(p.dias_credito===null ? DIAS_CREDITO_DEFAULT+' días <span class="hint">(por omisión)</span>' : p.dias_credito+' día'+(p.dias_credito===1?'':'s'))+'</span></div>';
         return '<div class="prov-card">'+
           '<div class="prov-card-head">'+
             '<div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtMoneyInt(agg.byProveedor[p.original]||0)+' invertido</div></div>'+
             '<span class="badge '+(p.origen==="portal"?"badge-accent":"badge-muted")+'">'+(p.origen==="portal"?"Portal":"Excel")+'</span>'+
           '</div>'+
-          (rows ? '<div class="prov-contact">'+rows+'</div>' : '<p class="hint" style="margin:0">Sin datos de contacto todavía.</p>')+
+          '<div class="prov-contact">'+rows+creditoRow+'</div>'+
           '<div class="prov-actions">'+
             (can("manageCatalogos") ? '<button class="btn" data-action="edit-proveedor" data-key="'+esc(p.key)+'">Editar</button>' : '')+
             (isMasterUser() ? '<button class="btn btn-danger" data-action="delete-proveedor" data-key="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'" data-origen="'+esc(p.origen)+'" data-id="'+esc(p._docId||"")+'">Eliminar</button>' : '')+
@@ -2414,6 +2553,7 @@ function openProveedorModal(key){
       '<div class="field"><label>Teléfono</label><input name="telefono" value="'+esc(p.telefono)+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Correo electrónico</label><input type="email" name="email" value="'+esc(p.email)+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Dirección</label><input name="direccion" value="'+esc(p.direccion)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Días de crédito</label><input type="number" name="dias_credito" min="0" max="365" step="1" value="'+(p.dias_credito===null||p.dias_credito===undefined?"":esc(p.dias_credito))+'" placeholder="'+DIAS_CREDITO_DEFAULT+' (por omisión)"></div>'+
       (isEdit ? '<p class="hint">Los gastos ya capturados conservan el nombre del proveedor tal como se registraron; este cambio solo actualiza el directorio.</p>' : "")+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
@@ -2428,9 +2568,12 @@ function handleProveedorFormSubmit(form){
   var telefono = (fd.get("telefono")||"").trim();
   var email = (fd.get("email")||"").trim();
   var direccion = (fd.get("direccion")||"").trim();
+  var diasRaw = (fd.get("dias_credito")||"").trim();
+  var dias_credito = diasRaw==="" ? null : parseInt(diasRaw,10);
+  if(dias_credito!==null && (isNaN(dias_credito) || dias_credito<0 || dias_credito>365)){ toast("Los días de crédito deben ser un número entre 0 y 365.","err"); return; }
 
   if(key){
-    var data = { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() };
+    var data = { nombre:nombre, telefono:telefono, email:email, direccion:direccion, dias_credito:dias_credito, updatedAt:new Date().toISOString() };
     STATE.db.doc("proveedores_info/"+key).set(data).then(function(){
       STATE.proveedoresInfo[key] = data;
       toast("Proveedor actualizado ✓"); closeModal(); renderContent();
@@ -2439,7 +2582,7 @@ function handleProveedorFormSubmit(form){
     var exists = allProveedores().some(function(n){return normKey(n)===normKey(nombre);});
     if(exists){ toast("Ese proveedor ya existe.","err"); return; }
     var newKey = slugify(nombre);
-    var infoData = (telefono||email||direccion) ? { nombre:nombre, telefono:telefono, email:email, direccion:direccion, updatedAt:new Date().toISOString() } : null;
+    var infoData = (telefono||email||direccion||dias_credito!==null) ? { nombre:nombre, telefono:telefono, email:email, direccion:direccion, dias_credito:dias_credito, updatedAt:new Date().toISOString() } : null;
     var provData = { nombre:nombre, creadoEn:new Date().toISOString() };
     var submitBtn2 = form.querySelector('button[type=submit]'); if(submitBtn2) submitBtn2.disabled = true;
     var ops = [ STATE.db.doc("proveedores_nuevos/"+newKey).set(provData) ];
@@ -3716,6 +3859,7 @@ document.addEventListener("click", function(e){
   }
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
+  else if(action==="export-propuesta-csv") exportPropuestaCSV();
   else if(action==="usuarios-tab"){ STATE.usuariosTab = el.dataset.tab; renderContent(); }
   else if(action==="refresh-activity-log"){ STATE.activityLog = null; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
@@ -3892,6 +4036,8 @@ document.addEventListener("change", function(e){
     STATE.reportFilters[e.target.dataset.reportfilter] = e.target.value; STATE.reportGenerated=false; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.reporttemplate){
     STATE.reportTemplate = e.target.value; STATE.reportGenerated=false; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.propviernes){
+    STATE.propViernes = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.contfilter && e.target.tagName==="SELECT"){
     STATE.contFilters[e.target.dataset.contfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.proyestadofilter){
