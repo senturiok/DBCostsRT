@@ -248,37 +248,55 @@
   /* ---------- Reportes ---------- */
   .report-header{padding-bottom:12px; border-bottom:2px solid var(--line-strong);}
 
+  @page{ size:letter; margin:10mm 9mm; }
   @media print{
-    .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action]{display:none !important;}
-    body, .content{padding:0 !important; background:#fff !important;}
-    .card{box-shadow:none !important; border:1px solid #ccc !important; break-inside:avoid; background:#fff !important; padding:10px 12px !important; margin-top:8px !important;}
-    .card-breakable{break-inside:auto !important;}
-    .card-breakable .card-head{break-after:avoid;}
-    .card-head{margin-bottom:6px !important;}
-    .kpis{grid-template-columns:repeat(4,1fr) !important; gap:8px !important;}
-    .kpi-value{font-size:19px !important;}
-    .charts-row,.two-col{grid-template-columns:1fr !important; gap:8px !important;}
-    .table-wrap{overflow-x:visible !important;}
-    table{width:100% !important; min-width:0 !important; table-layout:auto;}
-    table{font-size:10.5px;}
-    thead th{padding:5px 6px !important;}
-    tbody td, tfoot td{padding:3px 6px !important;}
+    .sidebar, .topbar, .filters, .pagination, #toastRoot, #modalRoot, [data-action], .col-comp{display:none !important;}
+    html, body, .content{padding:0 !important; margin:0 !important; background:#fff !important;}
+    body{font-size:10px;}
+    .report-header{padding-bottom:6px !important;}
+    .report-header h2{font-size:15px !important;}
+    .report-header .hint{font-size:9px !important;}
+    .card{box-shadow:none !important; border:none !important; border-radius:0 !important; background:#fff !important; padding:0 !important; margin-top:12px !important; break-inside:auto;}
+    .card-head{margin-bottom:4px !important; break-after:avoid;}
+    .card-title{font-size:10.5px !important;}
+    .card-note{font-size:8.5px !important;}
+    .grid{gap:8px !important; margin-top:10px !important;}
+    .grid > .card{border:1px solid #ccc !important; border-radius:4px !important; padding:6px 8px !important; margin-top:0 !important; break-inside:avoid;}
+    .kpis{grid-template-columns:repeat(4,1fr) !important;}
+    .kpi-label{font-size:8px !important;}
+    .kpi-value{font-size:15px !important;}
+    .kpi-delta{font-size:8px !important;}
+    .charts-row,.two-col{grid-template-columns:1fr 1fr !important;}
+    .barlist{gap:3px !important;}
+    .bar-row{grid-template-columns:96px 1fr 70px !important; gap:6px !important;}
+    .bar-row .lbl, .bar-val{font-size:8.5px !important;}
+    .bar-track{height:8px !important;}
+    .bar-track, .bar-fill, thead th, tfoot td{-webkit-print-color-adjust:exact; print-color-adjust:exact;}
+    .table-wrap{overflow:visible !important; border:none !important; border-radius:0 !important;}
+    table{width:100% !important; min-width:0 !important; table-layout:auto; font-size:8.5px !important;}
+    thead th{padding:3px 4px !important; font-size:7.5px !important; background:#eee !important; border-bottom:1px solid #999 !important;}
+    tbody td{padding:2px 4px !important; line-height:1.25; border-bottom:1px solid #e2e2e2 !important;}
+    tfoot td{padding:3px 4px !important; background:#eee !important;}
     thead{display:table-header-group;}
     tfoot{display:table-row-group;}
     tr{break-inside:avoid;}
-    .badge{white-space:nowrap;}
+    td.num, th.num{white-space:nowrap;}
+    .badge{padding:0 !important; background:none !important; border:none !important; font-size:inherit !important; letter-spacing:0 !important; font-weight:600 !important;}
     table.tbl-detalle{table-layout:fixed;}
-    table.tbl-detalle td, table.tbl-detalle th{overflow-wrap:break-word; word-break:break-word;}
-    table.tbl-detalle th:nth-child(1), table.tbl-detalle td:nth-child(1){width:9%;}
-    table.tbl-detalle th:nth-child(2), table.tbl-detalle td:nth-child(2){width:13%;}
-    table.tbl-detalle th:nth-child(3), table.tbl-detalle td:nth-child(3){width:15%;}
-    table.tbl-detalle th:nth-child(4), table.tbl-detalle td:nth-child(4){width:27%;}
-    table.tbl-detalle th:nth-child(5), table.tbl-detalle td:nth-child(5){width:12%;}
-    table.tbl-detalle th:nth-child(6), table.tbl-detalle td:nth-child(6){width:10%;}
-    table.tbl-detalle th:nth-child(7), table.tbl-detalle td:nth-child(7){width:14%;}
+    table.tbl-detalle td, table.tbl-detalle th{overflow-wrap:break-word;}
+    table.tbl-detalle th{white-space:normal !important; vertical-align:bottom;}
+    table.tbl-detalle td:nth-child(1), table.tbl-detalle td:nth-child(2){white-space:nowrap;}
+    table.tbl-detalle th:nth-child(1){width:9.5%;}
+    table.tbl-detalle th:nth-child(2){width:9.5%;}
+    table.tbl-detalle th:nth-child(3){width:12%;}
+    table.tbl-detalle th:nth-child(4){width:16%;}
+    table.tbl-detalle th:nth-child(5){width:26%;}
+    table.tbl-detalle th:nth-child(6){width:6%;}
+    table.tbl-detalle th:nth-child(7){width:9%;}
+    table.tbl-detalle th:nth-child(8){width:12%;}
     table.tbl-detalle .desc-cell{white-space:normal !important; max-width:none !important; overflow:visible !important; text-overflow:clip !important;}
     table.tbl-detalle .cat-full{display:none !important;}
-    table.tbl-detalle .cat-short{display:inline-flex !important;}
+    table.tbl-detalle .cat-short{display:inline !important;}
   }
 
   @media (max-width: 880px){
@@ -1390,7 +1408,7 @@ function renderTemplateProveedores(gastos){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th>Tipo de pago</th><th class="num">Total</th><th>Comprobante</th></tr></thead>'+
+        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th>Tipo de pago</th><th class="num">Total</th><th class="col-comp">Comprobante</th></tr></thead>'+
         '<tbody>'+(rows.length? rows.map(function(r){
           return '<tr>'+
             '<td>'+esc(r.proveedor||"—")+'</td>'+
@@ -1399,11 +1417,11 @@ function renderTemplateProveedores(gastos){
             '<td>'+esc(r.factura||"—")+'</td>'+
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
-            '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
+            '<td class="col-comp">'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
           '</tr>';
         }).join("") : '<tr><td colspan="7" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="5">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td></td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="5">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td class="col-comp"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1430,7 +1448,7 @@ function renderTemplateConsolidado(gastos){
   var bodyRows = [];
   var curProv = null, subtotal = 0;
   function flushSubtotal(){
-    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="4">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="3"></td></tr>');
+    if(curProv!==null) bodyRows.push('<tr style="background:var(--surface-2); font-weight:700"><td colspan="4">Subtotal '+esc(curProv||"—")+'</td><td class="num">'+fmtMoney(subtotal)+'</td><td colspan="2"></td><td class="col-comp"></td></tr>');
   }
   rows.forEach(function(r){
     var prov = r.proveedor||"—";
@@ -1444,7 +1462,7 @@ function renderTemplateConsolidado(gastos){
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
       '<td><span class="badge '+estadoCreditoBadgeClass(r)+'">'+esc(estadoCreditoLabel(r))+'</span></td>'+
-      '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
+      '<td class="col-comp">'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
     '</tr>');
   });
   flushSubtotal();
@@ -1457,10 +1475,10 @@ function renderTemplateConsolidado(gastos){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Consolidado de facturas por proveedor</h3><span class="card-note">'+rows.length+' registros</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th><th>Comprobante</th></tr></thead>'+
+        '<thead><tr><th>Proveedor</th><th>Proyecto</th><th>Fecha de factura</th><th>Factura</th><th class="num">Monto</th><th>Tipo de pago</th><th>Estado</th><th class="col-comp">Comprobante</th></tr></thead>'+
         '<tbody>'+(bodyRows.length? bodyRows.join("") : '<tr><td colspan="8" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="4">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="3"></td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="4">Total ('+rows.length+' registros)</td><td class="num">'+fmtMoney(total)+'</td><td colspan="2"></td><td class="col-comp"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
@@ -1635,7 +1653,7 @@ function renderReportesView(){
     '<div class="card card-breakable" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Detalle completo de gastos</h3><span class="card-note">'+detalle.length+' registros</span></div>'+
       '<div class="table-wrap"><table class="tbl-detalle">'+
-        '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th>Categoría</th><th>Forma de pago</th><th class="num">Importe</th><th>Comprobante</th></tr></thead>'+
+        '<thead><tr><th>Fecha</th><th>Fecha de factura</th><th>Proyecto</th><th>Proveedor</th><th>Descripción</th><th><span class="cat-full">Categoría</span><span class="cat-short">Cat.</span></th><th>Forma de pago</th><th class="num">Importe</th><th class="col-comp">Comprobante</th></tr></thead>'+
         '<tbody>'+(detalle.length? detalle.map(function(r){
           return '<tr>'+
             '<td>'+fmtDate(r.fecha)+'</td>'+
@@ -1649,11 +1667,11 @@ function renderReportesView(){
             '</td>'+
             '<td>'+(r.forma_pago==="credito"?"Crédito":r.forma_pago==="efectivo"?"Efectivo":"—")+'</td>'+
             '<td class="num">'+fmtMoney(r.importe)+'</td>'+
-            '<td>'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
+            '<td class="col-comp">'+(r.comprobanteUrl?comprobanteIcon(r):'<span class="hint">—</span>')+'</td>'+
           '</tr>';
         }).join("") : '<tr><td colspan="9" class="empty">Sin registros con estos filtros.</td></tr>')+
         '</tbody>'+
-        '<tfoot><tr><td colspan="7">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td><td></td></tr></tfoot>'+
+        '<tfoot><tr><td colspan="7">Total ('+detalle.length+' registros)</td><td class="num">'+fmtMoney(agg.total)+'</td><td class="col-comp"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>'+
   '</div>';
