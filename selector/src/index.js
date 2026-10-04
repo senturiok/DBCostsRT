@@ -59,7 +59,8 @@ const PAGE = `<!DOCTYPE html>
   .dash-head{display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:8px; margin-bottom:16px;}
   .dash h2{font-family:var(--font-display); text-transform:uppercase; letter-spacing:.02em; font-size:20px; margin:0;}
   .dash-meta{color:var(--ink-2); font-size:12px;}
-  .kpis{display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-bottom:16px;}
+  .kpis{display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:16px;}
+  @media (max-width:820px){ .kpis{grid-template-columns:repeat(2, 1fr);} }
   @media (max-width:560px){ .kpis{grid-template-columns:1fr;} }
   .kpi{background:var(--surface); border:1px solid var(--line); border-radius:12px; padding:14px 16px;}
   .kpi-label{color:var(--ink-2); font-size:12px; margin:0 0 4px;}
@@ -87,6 +88,9 @@ const PAGE = `<!DOCTYPE html>
   .chip.late{background:rgba(229,72,77,.16); color:#ff8589;}
   .chip.soon{background:rgba(245,166,35,.16); color:#ffc56b;}
   .chip.paused{background:rgba(154,154,154,.16); color:var(--ink-2);}
+  .chip.done{background:rgba(48,164,108,.16); color:#5fd39a;}
+  tr.done .o-name, tr.done .due{color:var(--ink-2);}
+  tr.done .bar-fill{background:#30a46c;}
   .dash-msg{color:var(--ink-2); font-size:13px; padding:24px 16px; text-align:center;}
   /* En teléfono cada orden es una tarjeta: nombre, nivel, avance y entrega uno bajo otro. */
   @media (max-width:640px){
@@ -147,6 +151,7 @@ const PAGE = `<!DOCTYPE html>
       <div class="kpi"><p class="kpi-label">Órdenes en curso</p><p class="kpi-value" id="kpi-total">—</p></div>
       <div class="kpi"><p class="kpi-label">Entregas en los próximos 7 días</p><p class="kpi-value" id="kpi-soon">—</p></div>
       <div class="kpi"><p class="kpi-label">Con fecha de entrega vencida</p><p class="kpi-value" id="kpi-late">—</p></div>
+      <div class="kpi"><p class="kpi-label">Completadas este mes</p><p class="kpi-value" id="kpi-done">—</p></div>
     </div>
     <div class="table-wrap">
       <table>
@@ -186,6 +191,10 @@ const PAGE = `<!DOCTYPE html>
     rows.textContent = "";
     var levels = data.levels || [];
     var soon = 0, late = 0;
+    // Primero las que siguen en curso; las terminadas este mes, al final.
+    var active = data.orders.filter(function (o) { return !o.completed; });
+    var done = data.orders.filter(function (o) { return o.completed; });
+    done.sort(function (a, b) { return (b.completedOn || "").localeCompare(a.completedOn || ""); });
 
     if (!data.orders.length) {
       var empty = el("tr");
@@ -195,8 +204,8 @@ const PAGE = `<!DOCTYPE html>
       rows.appendChild(empty);
     }
 
-    data.orders.forEach(function (o) {
-      var tr = el("tr");
+    active.concat(done).forEach(function (o) {
+      var tr = el("tr", o.completed ? "done" : null);
 
       var c1 = el("td");
       c1.appendChild(el("div", "o-name", o.name));
@@ -234,7 +243,10 @@ const PAGE = `<!DOCTYPE html>
       tr.appendChild(c3);
 
       var c4 = el("td", "due");
-      if (o.dueDate) {
+      if (o.completed) {
+        if (o.dueDate) c4.appendChild(document.createTextNode(fmtDate(o.dueDate)));
+        c4.appendChild(el("span", "chip done", "✓ Completada" + (o.completedOn ? " el " + fmtDate(o.completedOn) : "")));
+      } else if (o.dueDate) {
         c4.appendChild(document.createTextNode(fmtDate(o.dueDate)));
         var left = daysLeft(o.dueDate);
         if (left < 0) {
@@ -253,7 +265,8 @@ const PAGE = `<!DOCTYPE html>
       rows.appendChild(tr);
     });
 
-    document.getElementById("kpi-total").textContent = data.orders.length;
+    document.getElementById("kpi-total").textContent = active.length;
+    document.getElementById("kpi-done").textContent = done.length;
     document.getElementById("kpi-soon").textContent = soon;
     document.getElementById("kpi-late").textContent = late;
     document.getElementById("dash-updated").textContent =
