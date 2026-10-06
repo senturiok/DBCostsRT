@@ -444,10 +444,10 @@ var STATE = {
   usuariosTab:"perfiles",
   activityLog:null,
   activityLogLoading:false,
-  gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{}, proveedoresUsd:{},
+  gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{}, proveedoresUsd:{}, proyectosHouston:{},
   provUsdSearch:"",
   houstonTab:"gastos",
-  usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", page:1, pageSize:50 },
+  usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", phQ:"", phEstado:"abierto", page:1, pageSize:50 },
   costoFilters:{ estados:[], q:"", orden:"total", mes:"", anio:"" },
   tcSyncing:false,
   loaded:false
@@ -681,6 +681,7 @@ function applyStateSnapshot(state){
   STATE.proyectosUsd = state.proyectos_usd || {};
   STATE.tiposCambio = state.tipos_cambio || {};
   STATE.proveedoresUsd = state.proveedores_usd || {};
+  STATE.proyectosHouston = state.proyectos_houston || {};
   _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
@@ -800,6 +801,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "addCategoriaUsdForm") handleCategoriaUsdSubmit(e.target);
   else if(formId === "proyectoUsdForm") handleProyectoUsdSubmit(e.target);
   else if(formId === "proveedorUsdForm") handleProveedorUsdFormSubmit(e.target);
+  else if(formId === "proyectoHoustonForm") handleProyectoHoustonSubmit(e.target);
   else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
@@ -2850,16 +2852,38 @@ function estadoHoustonBadge(key){ var e = estadoHouston(key); return '<span clas
 
 function allGastosUsd(){
   return STATE.gastosUsd.map(function(g){
-    var overhead = g.tipo==="overhead" || !g.proyecto_key;
-    return Object.assign({}, g, { _docId:g.id, tipo: overhead?"overhead":"proyecto", proyecto_key: overhead?"":g.proyecto_key, importe_usd:Number(g.importe_usd)||0 });
+    var tipo = (g.tipo==="houston" && g.proyecto_houston) ? "houston" : (g.tipo==="overhead" || !g.proyecto_key) ? "overhead" : "proyecto";
+    return Object.assign({}, g, { _docId:g.id, tipo:tipo, proyecto_key: tipo==="proyecto"?g.proyecto_key:"", proyecto_houston: tipo==="houston"?g.proyecto_houston:"", importe_usd:Number(g.importe_usd)||0 });
   });
 }
 
+/* ---------- Proyectos Houston ----------
+   Trabajos propios de Houston que no son un remolque de México
+   (reparaciones, mejoras, servicios…). Viven en proyectos_houston (id = slug
+   del nombre). Sus gastos USD llevan tipo "houston" + proyecto_houston, y
+   absorben gasto general por los días entre su inicio y su cierre. */
+var TIPOS_PROY_HOUSTON = [
+  { v:"reparacion", l:"Reparación" }, { v:"mejora", l:"Mejora" },
+  { v:"servicio", l:"Servicio" }, { v:"otro", l:"Otro" }
+];
+function tipoProyHoustonLabel(v){ for(var i=0;i<TIPOS_PROY_HOUSTON.length;i++){ if(TIPOS_PROY_HOUSTON[i].v===v) return TIPOS_PROY_HOUSTON[i].l; } return v||"—"; }
+function allProyectosHouston(includeDeleted){
+  return Object.keys(STATE.proyectosHouston).map(function(id){
+    var p = STATE.proyectosHouston[id] || {};
+    var ing = (p.ingreso_usd===null||p.ingreso_usd===undefined||p.ingreso_usd==="") ? null : Number(p.ingreso_usd);
+    return { id:id, nombre:p.nombre||id, tipo:p.tipo||"otro", cliente:p.cliente||"", descripcion:p.descripcion||"",
+      fecha_inicio:p.fecha_inicio||"", fecha_cierre:p.fecha_cierre||"", ingreso_usd:ing, eliminado:!!p.eliminado };
+  }).filter(function(p){ return includeDeleted || !p.eliminado; })
+    .sort(function(a,b){ return (b.fecha_inicio||"").localeCompare(a.fecha_inicio||"") || a.nombre.localeCompare(b.nombre); });
+}
+function proyectoHoustonNombre(id){ var p = STATE.proyectosHouston[id]; return p && p.nombre ? p.nombre : (id||"—"); }
+
 /* ---------- Prorrateo del overhead ----------
    El gasto general de Houston de cada mes se reparte entre los remolques que
-   estuvieron en Houston ese mes, en proporción a los días que estuvieron ahí
-   (desde la fecha de exportación hasta la de venta, ambas inclusive). Si en
-   un mes no hubo ningún remolque en Houston, ese overhead queda sin asignar. */
+   estuvieron en Houston ese mes (de la fecha de exportación a la de venta) y
+   los proyectos Houston abiertos (de su inicio a su cierre), en proporción a
+   sus días, ambas fechas inclusive. Si en un mes no hubo ninguno, ese
+   overhead queda sin asignar. */
 function dayNum(iso){ var p=iso.split("-"); return Date.UTC(+p[0], +p[1]-1, +p[2])/86400000; }
 function computeOverheadProrrateo(){
   var porMes = {};
@@ -2874,6 +2898,10 @@ function computeOverheadProrrateo(){
     var i = proyectoUsdInfo(k);
     return i.fecha_exportacion ? { key:k, desde:dayNum(i.fecha_exportacion), hasta:i.fecha_venta?dayNum(i.fecha_venta):Infinity } : null;
   }).filter(Boolean);
+  // Los proyectos Houston participan igual que un remolque, del inicio al cierre.
+  allProyectosHouston(false).forEach(function(ph){
+    if(ph.fecha_inicio) enHouston.push({ key:"H:"+ph.id, desde:dayNum(ph.fecha_inicio), hasta:ph.fecha_cierre?dayNum(ph.fecha_cierre):Infinity });
+  });
   var porProyecto = {}, detalle = {}, sinAsignar = 0, sinAsignarMeses = [];
   Object.keys(porMes).sort().forEach(function(ym){
     var y=+ym.slice(0,4), m=+ym.slice(5,7);
@@ -3062,12 +3090,13 @@ function computeCostoTotal(){
 }
 
 /* ================= VISTA: HOUSTON ================= */
-var HOUSTON_TABS = ["gastos","registrar","proyectos","proveedores","categorias","tipo_cambio"];
-var HOUSTON_TAB_LABELS = { gastos:"Gastos USD", registrar:"Registrar gasto USD", proyectos:"Exportación y venta", proveedores:"Proveedores", categorias:"Categorías USD", tipo_cambio:"Tipo de cambio" };
+var HOUSTON_TABS = ["gastos","registrar","proyectos","proyectos_houston","proveedores","categorias","tipo_cambio"];
+var HOUSTON_TAB_LABELS = { gastos:"Gastos USD", registrar:"Registrar gasto USD", proyectos:"Exportación y venta", proyectos_houston:"Proyectos Houston", proveedores:"Proveedores", categorias:"Categorías USD", tipo_cambio:"Tipo de cambio" };
 function renderHoustonView(){
   var t = STATE.houstonTab;
   var body = t==="registrar" ? renderHoustonRegistrarTab()
     : t==="proyectos" ? renderHoustonProyectosTab()
+    : t==="proyectos_houston" ? renderProyectosHoustonTab()
     : t==="proveedores" ? renderHoustonProveedoresTab()
     : t==="categorias" ? renderHoustonCategoriasTab()
     : t==="tipo_cambio" ? renderHoustonTcTab()
@@ -3078,18 +3107,25 @@ function validProyectoOptions(){
   var proyMap = allProyectos();
   return Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
 }
-function proyectoUsdLabel(g){ return g.tipo==="overhead" ? '<span class="badge badge-accent">Gasto general</span>' : esc(proyectoNombre(g.proyecto_key)); }
+function proyectoUsdLabel(g){
+  if(g.tipo==="overhead") return '<span class="badge badge-accent">Gasto general</span>';
+  if(g.tipo==="houston") return '<span class="badge badge-steel">Houston</span> '+esc(proyectoHoustonNombre(g.proyecto_houston));
+  return esc(proyectoNombre(g.proyecto_key));
+}
+function proyectoUsdTexto(g){ return g.tipo==="overhead" ? "" : g.tipo==="houston" ? proyectoHoustonNombre(g.proyecto_houston) : proyectoNombre(g.proyecto_key); }
 
 function filteredGastosUsd(){
   var f = STATE.usdFilters, q = f.q.trim().toLowerCase();
   return allGastosUsd().filter(function(g){
     if(f.proyecto==="__overhead" && g.tipo!=="overhead") return false;
-    if(f.proyecto && f.proyecto!=="__overhead" && g.proyecto_key!==f.proyecto) return false;
+    if(f.proyecto==="__houston" && g.tipo!=="houston") return false;
+    if(f.proyecto.indexOf("H:")===0 && g.proyecto_houston!==f.proyecto.slice(2)) return false;
+    if(f.proyecto && f.proyecto.charAt(0)!=="_" && f.proyecto.indexOf("H:")!==0 && g.proyecto_key!==f.proyecto) return false;
     if(f.categoria && g.categoria!==f.categoria) return false;
     if(f.anio && (!g.fecha || g.fecha.slice(0,4)!==f.anio)) return false;
     if(f.mes && (!g.fecha || g.fecha.slice(5,7)!==f.mes)) return false;
     if(q){
-      var hay = ((g.descripcion||"")+" "+(g.factura||"")+" "+(g.proveedor||"")+" "+proyectoNombre(g.proyecto_key)).toLowerCase();
+      var hay = ((g.descripcion||"")+" "+(g.factura||"")+" "+(g.proveedor||"")+" "+proyectoUsdTexto(g)).toLowerCase();
       if(hay.indexOf(q)===-1) return false;
     }
     return true;
@@ -3125,10 +3161,13 @@ function renderHoustonGastosTab(){
     '</tr>';
   }).join("");
   var proyOpts = validProyectoOptions();
+  var phOpts = allProyectosHouston(true).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
   var cats = allCategoriasUsd(true);
   return '<div class="card">'+
     '<div class="filters">'+
-      '<select data-usdfilter="proyecto"><option value="">Todos (proyectos y generales)</option><option value="__overhead"'+(f.proyecto==="__overhead"?' selected':'')+'>Solo gastos generales (overhead)</option>'+proyOpts.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
+      '<select data-usdfilter="proyecto"><option value="">Todos (proyectos y generales)</option><option value="__overhead"'+(f.proyecto==="__overhead"?' selected':'')+'>Solo gastos generales (overhead)</option><option value="__houston"'+(f.proyecto==="__houston"?' selected':'')+'>Solo proyectos Houston</option>'+
+        (phOpts.length ? '<optgroup label="Proyectos Houston">'+phOpts.map(function(p){return '<option value="H:'+esc(p.id)+'"'+(f.proyecto==="H:"+p.id?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</optgroup>' : '')+
+        '<optgroup label="Remolques">'+proyOpts.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</optgroup></select>'+
       '<select data-usdfilter="categoria"><option value="">Todas las categorías</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(f.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+(c.eliminado?' (eliminada)':'')+'</option>';}).join("")+'</select>'+
       mesAnioOptionsHTML("usdfilter", f.mes, f.anio, allGastosUsd(), "fecha")+
       '<input type="text" class="q" placeholder="Buscar descripción, factura, proveedor…" data-usdfilter="q" value="'+esc(f.q)+'">'+
@@ -3158,14 +3197,19 @@ function gastoUsdFormFields(g){
   allProveedoresUsdFull(false).forEach(function(p){ proveedoresUsd[normKey(p.nombre)] = p.nombre; });
   STATE.gastosUsd.forEach(function(x){ if(x.proveedor) proveedoresUsd[normKey(x.proveedor)] = x.proveedor; });
   STATE._acSources["usd-proyecto"] = proyOpts.map(function(p){ return p.nombre; });
+  var phList = allProyectosHouston(false);
+  if(g.proyecto_houston && !phList.some(function(p){ return p.id===g.proyecto_houston; })) phList = phList.concat(allProyectosHouston(true).filter(function(p){ return p.id===g.proyecto_houston; }));
+  STATE._acSources["usd-proyhou"] = phList.map(function(p){ return p.nombre; });
   return '<div class="form-grid">'+
     '<div class="field"><label for="u_capturador">'+reqLabel("Tu nombre")+'</label><input id="u_capturador" name="capturadoPor" required value="'+esc(g.capturadoPor||getRememberedName())+'"></div>'+
     '<div class="field"><label for="u_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="u_fecha" name="fecha" value="'+esc(g.fecha||todayISO())+'" required></div>'+
     '<div class="field"><label for="u_tipo">'+reqLabel("Tipo de gasto")+'</label><select id="u_tipo" name="tipo_usd">'+
       '<option value="proyecto"'+(tipo==="proyecto"?' selected':'')+'>De un proyecto (remolque)</option>'+
+      '<option value="houston"'+(tipo==="houston"?' selected':'')+'>De un proyecto Houston (reparación, mejora, servicio…)</option>'+
       '<option value="overhead"'+(tipo==="overhead"?' selected':'')+'>Gasto general Houston (se prorratea)</option>'+
     '</select></div>'+
-    '<div class="field" data-usd-proyecto-field="1"'+(tipo==="overhead"?' style="display:none"':'')+'><label for="u_proyecto">'+reqLabel("Proyecto")+'</label><div class="ac-wrap"><input id="u_proyecto" name="proyecto_nombre" autocomplete="off" data-ac="usd-proyecto" value="'+esc(g.proyecto_key?proyectoNombre(g.proyecto_key):(g.proyecto||""))+'" placeholder="Escribe para buscar…"><div class="ac-list" id="ac-usd-proyecto"></div></div></div>'+
+    '<div class="field" data-usd-proyhou-field="1"'+(tipo!=="houston"?' style="display:none"':'')+'><label for="u_proyhou">'+reqLabel("Proyecto Houston")+'</label><div class="ac-wrap"><input id="u_proyhou" name="proyecto_houston_nombre" autocomplete="off" data-ac="usd-proyhou" value="'+esc(g.proyecto_houston?proyectoHoustonNombre(g.proyecto_houston):"")+'" placeholder="Escribe para buscar…"><div class="ac-list" id="ac-usd-proyhou"></div></div></div>'+
+    '<div class="field" data-usd-proyecto-field="1"'+(tipo!=="proyecto"?' style="display:none"':'')+'><label for="u_proyecto">'+reqLabel("Proyecto")+'</label><div class="ac-wrap"><input id="u_proyecto" name="proyecto_nombre" autocomplete="off" data-ac="usd-proyecto" value="'+esc(g.proyecto_key?proyectoNombre(g.proyecto_key):(g.proyecto||""))+'" placeholder="Escribe para buscar…"><div class="ac-list" id="ac-usd-proyecto"></div></div></div>'+
     '<div class="field"><label for="u_proveedor">'+reqLabel("Proveedor")+'</label><input id="u_proveedor" name="proveedor" list="provUsdDatalist" required value="'+esc(g.proveedor||"")+'" placeholder="Nombre del proveedor"><datalist id="provUsdDatalist">'+Object.keys(proveedoresUsd).sort().map(function(k){return '<option value="'+esc(proveedoresUsd[k])+'">';}).join("")+'</datalist></div>'+
     '<div class="field"><label for="u_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="u_fecha_factura" name="fecha_factura" required value="'+esc(g.fecha_factura||"")+'"></div>'+
     '<div class="field span2"><label for="u_desc">'+reqLabel("Descripción")+'</label><input id="u_desc" name="descripcion" required value="'+esc(g.descripcion||"")+'" placeholder="¿Qué se pagó o compró?"></div>'+
@@ -3184,12 +3228,12 @@ function renderHoustonRegistrarTab(){
   return '<div class="card form-card"><form id="gastoUsdForm">'+
       gastoUsdFormFields(null)+
       '<p class="hint"><span class="req-mark">*</span> Campo obligatorio. Los importes de este módulo son en <strong>dólares (USD)</strong> y se guardan separados de los gastos en pesos. '+
-      'Un <strong>gasto general</strong> (renta, nómina, servicios de Houston…) no se asigna a un remolque: se reparte cada mes entre los remolques que estuvieron en Houston, según sus días ahí.</p>'+
+      'Un <strong>gasto general</strong> (renta, nómina, servicios de Houston…) no se asigna a un remolque: se reparte cada mes entre los remolques y proyectos Houston que estuvieron activos ese mes, según sus días.</p>'+
       '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto USD</button></div>'+
     '</form></div>'+
     '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos gastos USD capturados</h3></div>'+
       (recientes.length ? '<div class="barlist">'+recientes.map(function(r){
-        var lbl = (r.tipo==="overhead"||!r.proyecto_key) ? "Gasto general" : proyectoNombre(r.proyecto_key);
+        var lbl = (r.tipo==="houston" && r.proyecto_houston) ? "Houston · "+proyectoHoustonNombre(r.proyecto_houston) : (r.tipo==="overhead"||!r.proyecto_key) ? "Gasto general" : proyectoNombre(r.proyecto_key);
         return '<div class="flag-item"><span>'+esc(fmtDate(r.fecha))+' · '+esc(lbl)+' · '+esc(r.proveedor||"—")+' <span class="card-note">('+esc(r.capturadoPor||"—")+')</span>'+comprobanteIcon(r)+'</span><span class="num">'+fmtUsdInt(r.importe_usd)+'</span></div>';
       }).join("")+'</div>' : '<div class="empty">Nada capturado todavía.</div>')+
     '</div>';
@@ -3206,8 +3250,17 @@ function openEditGastoUsdModal(id){
 function submitGastoUsd(form, isEdit){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
   var fd = new FormData(form);
-  var tipo = fd.get("tipo_usd")==="overhead" ? "overhead" : "proyecto";
-  var proyKey = "";
+  var tipoSel = fd.get("tipo_usd");
+  var tipo = tipoSel==="overhead" ? "overhead" : tipoSel==="houston" ? "houston" : "proyecto";
+  var proyKey = "", phId = "";
+  if(tipo==="houston"){
+    var phInput = (fd.get("proyecto_houston_nombre")||"").trim();
+    var prevGasto = isEdit ? STATE.gastosUsd.filter(function(x){ return x.id===fd.get("gastoId"); })[0] : null;
+    var prevPh = prevGasto && prevGasto.proyecto_houston;
+    var phMatch = phInput ? allProyectosHouston(true).filter(function(p){ return normKey(p.nombre)===normKey(phInput) && (!p.eliminado || p.id===prevPh); })[0] : null;
+    phId = phMatch ? phMatch.id : "";
+    if(!phId){ toast("Escribe y selecciona un proyecto Houston de la lista. Si no existe, créalo en Houston → Proyectos Houston.","err"); return; }
+  }
   if(tipo==="proyecto"){
     var proyNombreInput = (fd.get("proyecto_nombre")||"").trim();
     var matchedProy = proyNombreInput ? validProyectoOptions().filter(function(p){ return normKey(p.nombre)===normKey(proyNombreInput); })[0] : null;
@@ -3222,7 +3275,7 @@ function submitGastoUsd(form, isEdit){
   var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
   (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
     var data = {
-      tipo: tipo, proyecto_key: proyKey, proyecto: proyKey ? proyectoNombre(proyKey) : "",
+      tipo: tipo, proyecto_key: proyKey, proyecto_houston: phId, proyecto: proyKey ? proyectoNombre(proyKey) : (phId ? proyectoHoustonNombre(phId) : ""),
       fecha: fd.get("fecha")||todayISO(), fecha_factura: fd.get("fecha_factura")||null,
       proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
       factura: (fd.get("factura")||"").trim()||null, categoria: fd.get("categoria")||null,
@@ -3256,6 +3309,127 @@ function deleteGastoUsd(id){
     STATE.gastosUsd = STATE.gastosUsd.filter(function(x){ return x.id!==id; });
     toast("Gasto USD eliminado"); closeModal(); renderContent();
     if(g && g.comprobanteId && STATE.assets){ STATE.assets.delete(g.comprobanteId).catch(function(){}); }
+  }).catch(function(){ toast("No se pudo eliminar.","err"); });
+}
+
+/* ---------- Proyectos Houston (vista) ---------- */
+function computeProyectosHoustonCostos(){
+  var directo = {}, nGastos = {};
+  allGastosUsd().forEach(function(g){ if(g.tipo==="houston"){ directo[g.proyecto_houston] = (directo[g.proyecto_houston]||0) + g.importe_usd; nGastos[g.proyecto_houston] = (nGastos[g.proyecto_houston]||0)+1; } });
+  var pr = computeOverheadProrrateo();
+  return allProyectosHouston(false).map(function(p){
+    var d = directo[p.id]||0, oh = pr.porProyecto["H:"+p.id]||0, costo = d+oh;
+    return Object.assign({}, p, { directo:d, overhead:oh, costo:costo, nGastos:nGastos[p.id]||0,
+      margen: p.ingreso_usd===null ? null : p.ingreso_usd-costo,
+      margenPct: (p.ingreso_usd===null || !p.ingreso_usd) ? null : (p.ingreso_usd-costo)/p.ingreso_usd*100 });
+  });
+}
+function renderProyectosHoustonTab(){
+  var f = STATE.usdFilters, q = f.phQ.trim().toLowerCase();
+  var canEdit = can("manageHouston"), master = isMasterUser();
+  var rows = computeProyectosHoustonCostos().filter(function(p){
+    if(f.phEstado==="abierto" && p.fecha_cierre) return false;
+    if(f.phEstado==="cerrado" && !p.fecha_cierre) return false;
+    if(q && (p.nombre+" "+p.cliente+" "+p.descripcion+" "+tipoProyHoustonLabel(p.tipo)).toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+  var sum = function(k){ return rows.reduce(function(s,r){ return s+(r[k]||0); },0); };
+  var conIngreso = rows.filter(function(r){ return r.ingreso_usd!==null; });
+  var ingresos = conIngreso.reduce(function(s,r){ return s+r.ingreso_usd; },0);
+  var margen = conIngreso.reduce(function(s,r){ return s+r.margen; },0);
+  var body = rows.map(function(r){
+    var mCls = r.margen===null ? '' : ' style="color:'+(r.margen<0?'var(--critical)':'var(--good)')+'"';
+    return '<tr>'+
+      '<td><a href="#" data-action="ver-gastos-proyecto-houston" data-id="'+esc(r.id)+'" style="font-weight:600" title="Ver sus gastos USD">'+esc(r.nombre)+'</a>'+(r.descripcion?'<div class="card-note">'+esc(r.descripcion)+'</div>':'')+'</td>'+
+      '<td><span class="badge badge-steel">'+esc(tipoProyHoustonLabel(r.tipo))+'</span></td>'+
+      '<td>'+esc(r.cliente||"—")+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(r.fecha_inicio)+'</td>'+
+      '<td style="white-space:nowrap">'+(r.fecha_cierre ? fmtDate(r.fecha_cierre) : '<span class="badge badge-good">Abierto</span>')+'</td>'+
+      '<td class="num">'+fmtUsdInt(r.directo)+'<div class="card-note">'+r.nGastos+' gasto'+(r.nGastos===1?'':'s')+'</div></td>'+
+      '<td class="num">'+fmtUsdInt(r.overhead)+'</td>'+
+      '<td class="num" style="font-weight:700">'+fmtUsdInt(r.costo)+'</td>'+
+      '<td class="num">'+(r.ingreso_usd===null?'—':fmtUsdInt(r.ingreso_usd))+'</td>'+
+      '<td class="num"'+mCls+'>'+(r.margen===null?'—':fmtUsdInt(r.margen)+(r.margenPct===null?'':'<div class="card-note">'+r.margenPct.toFixed(1)+'%</div>'))+'</td>'+
+      '<td><div class="row-actions">'+
+        (canEdit ? '<button class="icon-btn" title="Editar" data-action="edit-proyecto-houston" data-id="'+esc(r.id)+'"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></button>' : '')+
+        (master ? '<button class="icon-btn" title="Eliminar" data-action="delete-proyecto-houston" data-id="'+esc(r.id)+'"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg></button>' : '')+
+      '</div></td>'+
+    '</tr>';
+  }).join("");
+  return '<div class="card" style="margin-bottom:14px">'+
+      (canEdit ? '<button class="btn btn-primary" data-action="new-proyecto-houston" style="margin-bottom:14px">+ Nuevo proyecto Houston</button>' : '')+
+      '<div class="filters" style="margin:0">'+
+        '<select data-usdfilter="phEstado"><option value="abierto"'+(f.phEstado==="abierto"?' selected':'')+'>Abiertos</option><option value="cerrado"'+(f.phEstado==="cerrado"?' selected':'')+'>Cerrados</option><option value=""'+(f.phEstado===""?' selected':'')+'>Todos</option></select>'+
+        '<input type="text" class="q" placeholder="Buscar por nombre, cliente o descripción…" data-usdfilter="phQ" value="'+esc(f.phQ)+'">'+
+      '</div>'+
+      '<p class="hint" style="margin:8px 0 0">Reparaciones, mejoras, servicios y otros trabajos de Houston que no son un remolque de México. Sus gastos se capturan en "Registrar gasto USD" eligiendo <strong>De un proyecto Houston</strong>. Mientras están abiertos (de la fecha de inicio a la de cierre) absorben parte del gasto general de Houston, igual que un remolque.</p>'+
+    '</div>'+
+    '<div class="grid kpis">'+
+      '<div class="card"><div class="kpi-label">Proyectos</div><div class="kpi-value">'+rows.length+'</div><div class="kpi-delta">'+rows.filter(function(r){return !r.fecha_cierre;}).length+' abiertos</div></div>'+
+      '<div class="card"><div class="kpi-label">Costo total</div><div class="kpi-value">'+fmtUsdInt(sum("costo"))+'</div><div class="kpi-delta">directo '+fmtUsdInt(sum("directo"))+' + gasto general '+fmtUsdInt(sum("overhead"))+'</div></div>'+
+      '<div class="card"><div class="kpi-label">Ingresos</div><div class="kpi-value">'+fmtUsdInt(ingresos)+'</div><div class="kpi-delta">'+conIngreso.length+' proyecto'+(conIngreso.length===1?'':'s')+' con ingreso</div></div>'+
+      '<div class="card"><div class="kpi-label">Margen</div><div class="kpi-value" style="color:'+(margen<0?'var(--critical)':'var(--good)')+'">'+(conIngreso.length?fmtUsdInt(margen):'—')+'</div><div class="kpi-delta">de los que tienen ingreso</div></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px"><div class="table-wrap"><table>'+
+      '<thead><tr><th>Proyecto</th><th>Tipo</th><th>Cliente</th><th>Inicio</th><th>Cierre</th><th class="num">Gastos directos</th><th class="num">Gasto general</th><th class="num">Costo total</th><th class="num">Ingreso</th><th class="num">Margen</th><th></th></tr></thead>'+
+      '<tbody>'+(body || '<tr><td colspan="11" class="empty">'+(allProyectosHouston(false).length ? 'Sin proyectos con estos filtros.' : 'Todavía no hay proyectos Houston.'+(canEdit?' Crea el primero con "+ Nuevo proyecto Houston".':''))+'</td></tr>')+'</tbody>'+
+    '</table></div></div>';
+}
+function openProyectoHoustonModal(id){
+  var p = { id:"", nombre:"", tipo:"reparacion", cliente:"", descripcion:"", fecha_inicio:todayISO(), fecha_cierre:"", ingreso_usd:null };
+  if(id){ var found = allProyectosHouston(true).filter(function(x){ return x.id===id; })[0]; if(!found) return; p = found; }
+  openModal(
+    '<h3>'+(id?"Editar proyecto Houston":"Nuevo proyecto Houston")+'</h3>'+
+    '<form id="proyectoHoustonForm">'+
+      '<input type="hidden" name="id" value="'+esc(p.id)+'">'+
+      '<div class="field"><label>'+reqLabel("Nombre")+'</label><input name="nombre" value="'+esc(p.nombre)+'" required autofocus placeholder="Ej. Reparación techo cliente Pérez"></div>'+
+      '<div class="field"><label>'+reqLabel("Tipo")+'</label><select name="tipo">'+TIPOS_PROY_HOUSTON.map(function(t){ return '<option value="'+t.v+'"'+(p.tipo===t.v?' selected':'')+'>'+t.l+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Cliente</label><input name="cliente" value="'+esc(p.cliente)+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Descripción</label><input name="descripcion" value="'+esc(p.descripcion)+'" placeholder="Opcional"></div>'+
+      '<div class="form-grid">'+
+        '<div class="field"><label>'+reqLabel("Fecha de inicio")+'</label><input type="date" name="fecha_inicio" value="'+esc(p.fecha_inicio)+'" required></div>'+
+        '<div class="field"><label>Fecha de cierre</label><input type="date" name="fecha_cierre" value="'+esc(p.fecha_cierre)+'"></div>'+
+      '</div>'+
+      '<div class="field"><label>Ingreso (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" name="ingreso_usd" step="0.01" min="0" value="'+(p.ingreso_usd===null?"":esc(p.ingreso_usd))+'" placeholder="Opcional: lo que se cobró o se espera cobrar"></div></div>'+
+      '<p class="hint">Déjalo sin fecha de cierre mientras siga en proceso. Mientras esté abierto absorbe gasto general de Houston por sus días.</p>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>'
+  );
+}
+function handleProyectoHoustonSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form);
+  var id = fd.get("id")||"";
+  var nombre = (fd.get("nombre")||"").trim();
+  if(!nombre){ toast("Escribe un nombre.","err"); return; }
+  if(allProyectosHouston(false).some(function(p){ return p.id!==id && normKey(p.nombre)===normKey(nombre); })){ toast("Ya existe un proyecto Houston con ese nombre.","err"); return; }
+  var fecha_inicio = fd.get("fecha_inicio")||"", fecha_cierre = fd.get("fecha_cierre")||"";
+  if(!fecha_inicio){ toast("Escribe la fecha de inicio.","err"); return; }
+  if(fecha_cierre && fecha_cierre<fecha_inicio){ toast("La fecha de cierre no puede ser antes del inicio.","err"); return; }
+  var ingRaw = (fd.get("ingreso_usd")||"").trim();
+  var ingreso_usd = ingRaw==="" ? null : parseFloat(ingRaw);
+  if(ingreso_usd!==null && (isNaN(ingreso_usd) || ingreso_usd<0)){ toast("Escribe un ingreso válido.","err"); return; }
+  var finalId = id;
+  if(!finalId){ var base = slugify(nombre), n = 2; finalId = base; while(STATE.proyectosHouston[finalId]) finalId = base+"-"+(n++); }
+  var prev = STATE.proyectosHouston[finalId] || {};
+  var data = Object.assign({}, prev, { nombre:nombre, tipo:fd.get("tipo")||"otro", cliente:(fd.get("cliente")||"").trim(), descripcion:(fd.get("descripcion")||"").trim(),
+    fecha_inicio:fecha_inicio, fecha_cierre:fecha_cierre||null, ingreso_usd:ingreso_usd, updatedAt:new Date().toISOString() });
+  if(!id) data.creadoEn = data.updatedAt;
+  STATE.db.doc("proyectos_houston/"+finalId).set(data).then(function(){
+    STATE.proyectosHouston[finalId] = data; toast(id ? "Proyecto actualizado ✓" : "Proyecto Houston creado ✓"); closeModal(); renderContent();
+  }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Houston." : "No se pudo guardar.","err"); });
+}
+function deleteProyectoHoustonModal(id){
+  var n = allGastosUsd().filter(function(g){ return g.tipo==="houston" && g.proyecto_houston===id; }).length;
+  var nombre = proyectoHoustonNombre(id);
+  if(n){ openModal('<h3>No se puede eliminar</h3><p class="hint">"'+esc(nombre)+'" tiene '+n+' gasto'+(n===1?'':'s')+' USD. Reasígnalos a otro proyecto o elimínalos primero; si el trabajo ya terminó, mejor ponle fecha de cierre.</p><div style="margin-top:14px"><button class="btn" data-action="modal-close">Entendido</button></div>'); return; }
+  openModal('<h3>Eliminar proyecto Houston</h3><p class="hint">"'+esc(nombre)+'" dejará de aparecer y ya no absorberá gasto general.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proyecto-houston" data-id="'+esc(id)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
+}
+function setProyectoHoustonEliminado(id){
+  if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar.","err"); return; }
+  var data = Object.assign({}, STATE.proyectosHouston[id]||{}, { eliminado:true, updatedAt:new Date().toISOString() });
+  STATE.db.doc("proyectos_houston/"+id).set(data).then(function(){
+    STATE.proyectosHouston[id] = data; toast("Proyecto eliminado"); closeModal(); renderContent();
   }).catch(function(){ toast("No se pudo eliminar.","err"); });
 }
 
@@ -3610,7 +3784,9 @@ function renderCostoTotalView(){
   else if(sinTc) avisos.push(sinTc+' gasto(s) en pesos ('+fmtMoneyInt(sinTcMxn)+' MXN) tienen fecha anterior al primer FIX cargado y no se incluyen en el total USD.');
   if(ind.pendiente>0.004) avisos.push(fmtMoneyInt(ind.pendiente)+' MXN de indirectos de México esperan a que se termine el siguiente proyecto. <a href="#" data-action="nav" data-view="indirectos">Ver indirectos →</a>');
   if(ind.sinTc>0.004) avisos.push(fmtMoneyInt(ind.sinTc)+' MXN de indirectos no se incluyen en USD porque el proyecto se terminó antes del primer FIX cargado.');
-  if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no había ningún remolque registrado como exportado en Houston.');
+  if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no había ningún remolque ni proyecto Houston activo.');
+  var ohHouston = Object.keys(pr.porProyecto).filter(function(k){ return k.indexOf("H:")===0; }).reduce(function(s,k){ return s+pr.porProyecto[k]; },0);
+  if(ohHouston>0.004) avisos.push(fmtUsdInt(ohHouston)+' de gasto general de Houston se asignó a proyectos Houston (reparaciones, mejoras, servicios…), que no aparecen en esta tabla. '+(firstAllowedNavHas("houston")?'<a href="#" data-action="goto-houston-tab" data-tab="proyectos_houston">Ver proyectos Houston →</a>':''));
 
   var body = rows.map(function(r){
     var margenCls = r.margen===null ? "" : (r.margen<0 ? ' style="color:var(--critical)"' : ' style="color:var(--good)"');
@@ -3651,7 +3827,7 @@ function renderCostoTotalView(){
         '<tbody>'+(body||'<tr><td colspan="12" class="empty">Sin proyectos con estos filtros.</td></tr>')+'</tbody>'+
         '<tfoot><tr><td colspan="2">Total ('+rows.length+')</td><td class="num">'+fmtMoneyInt(sum("mxn"))+'</td><td></td><td class="num">'+fmtUsdInt(sum("usdMx"))+'</td><td class="num">'+fmtUsdInt(sum("indirectoUsd"))+'</td><td class="num">'+fmtUsdInt(sum("houston"))+'</td><td class="num">'+fmtUsdInt(sum("overhead"))+'</td><td class="num">'+fmtUsdInt(sum("total"))+'</td><td class="num">'+fmtUsdInt(ventas)+'</td><td class="num">'+(vendidos.length?fmtUsdInt(margen):'—')+'</td><td></td></tr></tfoot>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte de '+INDIRECTO_PROYECTOS_LABEL+' que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston se reparte cada mes entre los remolques en Houston según sus días ahí.</p>'+
+      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte de '+INDIRECTO_PROYECTOS_LABEL+' que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston se reparte cada mes entre los remolques en Houston y los proyectos Houston abiertos, según sus días.</p>'+
     '</div>';
 }
 function openCostoDetalleModal(key){
@@ -3694,7 +3870,7 @@ function exportGastosUsdCSV(){
   var catMap = catUsdNameMap();
   var lines = [["Fecha","FechaFactura","Tipo","Proyecto","Proveedor","Descripcion","Factura","Categoria","FormaPago","ImporteUSD","Capturo"].join(",")];
   filteredGastosUsd().forEach(function(g){
-    lines.push([g.fecha||"", g.fecha_factura||"", g.tipo==="overhead"?"General":"Proyecto", g.tipo==="overhead"?"":proyectoNombre(g.proyecto_key), g.proveedor||"", g.descripcion||"", g.factura||"", catMap[g.categoria]||g.categoria||"", formaPagoUsdLabel(g.forma_pago), g.importe_usd, g.capturadoPor||""].map(csvEsc).join(","));
+    lines.push([g.fecha||"", g.fecha_factura||"", g.tipo==="overhead"?"General":g.tipo==="houston"?"Proyecto Houston":"Proyecto", proyectoUsdTexto(g), g.proveedor||"", g.descripcion||"", g.factura||"", catMap[g.categoria]||g.categoria||"", formaPagoUsdLabel(g.forma_pago), g.importe_usd, g.capturadoPor||""].map(csvEsc).join(","));
   });
   downloadCSV("gastos_usd_houston_rancho_trailers.csv", lines.join("\n"));
 }
@@ -3951,6 +4127,11 @@ document.addEventListener("click", function(e){
   else if(action==="delete-categoria-usd") openModal('<h3>Eliminar categoría USD</h3><p class="hint">"'+esc(el.dataset.nombre)+'" dejará de aparecer para registrar gastos nuevos. Los gastos ya capturados con esta categoría no se modifican, y la puedes restaurar después.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-categoria-usd" data-codigo="'+esc(el.dataset.codigo)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
   else if(action==="confirm-delete-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, true);
   else if(action==="restore-categoria-usd") setCategoriaUsdEliminada(el.dataset.codigo, false);
+  else if(action==="new-proyecto-houston") openProyectoHoustonModal(null);
+  else if(action==="edit-proyecto-houston") openProyectoHoustonModal(el.dataset.id);
+  else if(action==="delete-proyecto-houston") deleteProyectoHoustonModal(el.dataset.id);
+  else if(action==="confirm-delete-proyecto-houston") setProyectoHoustonEliminado(el.dataset.id);
+  else if(action==="ver-gastos-proyecto-houston"){ STATE.usdFilters.proyecto = "H:"+el.dataset.id; STATE.usdFilters.page = 1; STATE.houstonTab = "gastos"; renderContent(); }
   else if(action==="new-proveedor-usd") openProveedorUsdModal(null);
   else if(action==="edit-proveedor-usd") openProveedorUsdModal(el.dataset.key);
   else if(action==="delete-proveedor-usd") openModal('<h3>Eliminar proveedor USD</h3><p class="hint">"'+esc(el.dataset.nombre)+'" dejará de aparecer para registrar gastos nuevos. Los gastos ya capturados con este proveedor no se modifican, y lo puedes restaurar después.</p><div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="confirm-delete-proveedor-usd" data-key="'+esc(el.dataset.key)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
@@ -4048,7 +4229,9 @@ document.addEventListener("change", function(e){
     STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
   } else if(e.target && e.target.name==="tipo_usd"){
     var pf = e.target.form && e.target.form.querySelector("[data-usd-proyecto-field]");
-    if(pf) pf.style.display = e.target.value==="overhead" ? "none" : "";
+    if(pf) pf.style.display = e.target.value==="proyecto" ? "" : "none";
+    var hf = e.target.form && e.target.form.querySelector("[data-usd-proyhou-field]");
+    if(hf) hf.style.display = e.target.value==="houston" ? "" : "none";
   }
 });
 document.addEventListener("DOMContentLoaded", boot);
