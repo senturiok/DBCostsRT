@@ -15,6 +15,23 @@
  * collections need special-casing beyond a flat "module required" table.
  */
 
+import { handleBot } from "./bot.js";
+// Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
+// (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
+import GASTOS_BASE from "../../gastos.json";
+import PROYECTOS_CAT from "../../proyectos_catalog.json";
+import PROVEEDORES_CAT from "../../proveedores_catalog.json";
+import CATEGORIAS_CAT from "../../categorias_catalog.json";
+import META from "../../meta.json";
+
+const BASE_FILES = {
+  "gastos.json": GASTOS_BASE,
+  "proyectos_catalog.json": PROYECTOS_CAT,
+  "proveedores_catalog.json": PROVEEDORES_CAT,
+  "categorias_catalog.json": CATEGORIAS_CAT,
+  "meta.json": META,
+};
+
 const SESSION_COOKIE = "rt_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
@@ -574,6 +591,21 @@ export default {
     const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
     try {
+      // Acceso de solo lectura del bot de WhatsApp (su propia clave BOT_TOKEN).
+      if (segments[0] === "bot") {
+        return handleBot(request, env, url, {
+          buildState,
+          base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
+        });
+      }
+      // Datos base de Excel: solo con sesión iniciada.
+      if (segments.length === 1 && Object.prototype.hasOwnProperty.call(BASE_FILES, segments[0]) && method === "GET") {
+        const profile = await getProfileFromRequest(request, env);
+        if (!profile) return errorResponse(401, "No autenticado.");
+        return new Response(JSON.stringify(BASE_FILES[segments[0]]), {
+          headers: { "content-type": "application/json; charset=utf-8", "cache-control": "private, max-age=300" },
+        });
+      }
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "login" && method === "POST") {
         return handleLogin(request, env);
       }

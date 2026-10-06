@@ -3,3 +3,8 @@ selector/
 .git/
 .github/
 README.md
+gastos.json
+proyectos_catalog.json
+proveedores_catalog.json
+categorias_catalog.json
+meta.json
