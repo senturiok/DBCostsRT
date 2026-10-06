@@ -625,32 +625,44 @@ function fetchLoginOptions(){
     renderGateUserOptions();
   }).catch(function(){});
 }
-function boot(){
-  renderGateUserOptions();
-  fetchLoginOptions();
-  Promise.all([
-    fetch("gastos.json").then(function(r){return r.json();}),
-    fetch("proyectos_catalog.json").then(function(r){return r.json();}),
-    fetch("proveedores_catalog.json").then(function(r){return r.json();}),
-    fetch("categorias_catalog.json").then(function(r){return r.json();}),
-    fetch("meta.json").then(function(r){return r.json();})
+/* Datos base de Excel (gastos.json y catálogos). Solo se sirven con sesión
+   iniciada (ver worker/src/index.js), así que se cargan después del login. */
+var _baseLoading = null;
+function loadBase(){
+  if(STATE.loaded) return Promise.resolve();
+  if(_baseLoading) return _baseLoading;
+  function get(name){
+    return fetch(name, {credentials:"same-origin"}).then(function(r){
+      if(!r.ok) throw new Error(name+" "+r.status);
+      return r.json();
+    });
+  }
+  _baseLoading = Promise.all([
+    get("gastos.json"), get("proyectos_catalog.json"), get("proveedores_catalog.json"),
+    get("categorias_catalog.json"), get("meta.json")
   ]).then(function(res){
     STATE.gastosBase = res[0]; STATE.proyectosCat = res[1]; STATE.proveedoresCat = res[2];
     STATE.categoriasCat = res[3]; STATE.meta = res[4]; STATE.loaded = true;
-    restoreSession();
-  }).catch(function(e){ console.error("Error cargando datos base",e); });
-
+  }).catch(function(e){ _baseLoading = null; console.error("Error cargando datos base",e); throw e; });
+  return _baseLoading;
+}
+function boot(){
+  renderGateUserOptions();
+  fetchLoginOptions();
   STATE.db = createCloudflareDb();
   STATE.assets = createCloudflareAssets();
+  restoreSession();
 }
 function restoreSession(){
   fetch("/api/me", {credentials:"same-origin"}).then(function(r){
     if(!r.ok) throw new Error("sin sesión");
     return r.json();
   }).then(function(data){
-    STATE.profile = data.profile;
-    enterShell();
-    startPolling();
+    return loadBase().then(function(){
+      STATE.profile = data.profile;
+      enterShell();
+      startPolling();
+    });
   }).catch(function(){ /* nadie ha iniciado sesión todavía: se queda en la puerta */ });
 }
 
@@ -778,10 +790,12 @@ document.addEventListener("submit", function(e){
     }).then(function(res){
       if(submitBtn) submitBtn.disabled = false;
       if(!res.ok){ errEl.textContent = (res.data && res.data.error) || "No se pudo iniciar sesión."; return; }
-      STATE.profile = res.data.profile;
-      errEl.textContent = "";
-      enterShell();
-      startPolling();
+      return loadBase().then(function(){
+        STATE.profile = res.data.profile;
+        errEl.textContent = "";
+        enterShell();
+        startPolling();
+      }, function(){ errEl.textContent = "No se pudieron cargar los datos base. Intenta de nuevo."; });
     }).catch(function(){
       if(submitBtn) submitBtn.disabled = false;
       errEl.textContent = "No se pudo conectar con el servidor.";
