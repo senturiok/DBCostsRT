@@ -26,6 +26,8 @@ const MAP_COLLECTIONS = [
   // FIX de Banxico (id = fecha YYYY-MM-DD) y directorio de proveedores USD
   // (id = slug del nombre, sin origen Excel).
   "categorias_usd", "proyectos_usd", "tipos_cambio", "proveedores_usd",
+  // Proyectos propios de Houston (reparaciones, mejoras, servicios…), id = slug.
+  "proyectos_houston",
 ];
 const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS]);
 
@@ -136,6 +138,7 @@ const COLLECTION_LABELS = {
   proyectos_usd: "Exportación/venta",
   tipos_cambio: "Tipo de cambio",
   proveedores_usd: "Proveedor USD",
+  proyectos_houston: "Proyecto Houston",
 };
 
 function summarizeForLog(collection, data) {
@@ -151,6 +154,13 @@ function summarizeForLog(collection, data) {
   }
   if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : (data.clave ? data.clave + " · " : "") + (data.nombre || "");
   if (collection === "proveedores_usd") return data.eliminado ? "Eliminado: " + (data.nombre || "") : data.nombre || "";
+  if (collection === "proyectos_houston") {
+    if (data.eliminado) return "Eliminado: " + (data.nombre || "");
+    const parts = [data.nombre || ""];
+    if (data.tipo) parts.push(data.tipo);
+    if (data.fecha_cierre) parts.push("cerrado " + data.fecha_cierre);
+    return parts.join(" · ");
+  }
   if (collection === "proyectos_usd") {
     const parts = [data.key || ""];
     if (data.fecha_exportacion) parts.push("exportado " + data.fecha_exportacion);
@@ -314,7 +324,7 @@ function authorizeWrite(profile, collection, method, payload) {
     return hasModule(profile, moduleKey) ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para esta acción." };
   }
 
-  if (collection === "categorias_usd" || collection === "proveedores_usd") {
+  if (collection === "categorias_usd" || collection === "proveedores_usd" || collection === "proyectos_houston") {
     // Igual que proyectos_info/proveedores_info: "eliminar" una categoría o
     // proveedor USD es un {eliminado:true} (soft delete, para que los gastos
     // ya capturados conserven su etiqueta), y eliminar siempre es solo del master.
