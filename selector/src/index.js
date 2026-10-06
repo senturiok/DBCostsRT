@@ -89,6 +89,9 @@ const PAGE = `<!DOCTYPE html>
   .chip.soon{background:rgba(245,166,35,.16); color:#ffc56b;}
   .chip.paused{background:rgba(154,154,154,.16); color:var(--ink-2);}
   .chip.done{background:rgba(48,164,108,.16); color:#5fd39a;}
+  .est .chip{margin:4px 0 0;}
+  .m-lbl{display:none; color:var(--ink-2);}
+  .chip.ok{background:rgba(48,164,108,.16); color:#5fd39a;}
   tr.done .o-name, tr.done .due{color:var(--ink-2);}
   tr.done .bar-fill{background:#30a46c;}
   .dash-msg{color:var(--ink-2); font-size:13px; padding:24px 16px; text-align:center;}
@@ -102,6 +105,7 @@ const PAGE = `<!DOCTYPE html>
     td{padding:4px 0; border-bottom:0;}
     tbody tr:hover td{background:transparent;}
     .due{white-space:normal;}
+    .m-lbl{display:inline;}
   }
 </style>
 <div class="wrap">
@@ -155,8 +159,8 @@ const PAGE = `<!DOCTYPE html>
     </div>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>Orden</th><th>Nivel</th><th>Avance</th><th>Fecha de entrega</th></tr></thead>
-        <tbody id="dash-rows"><tr><td colspan="4" class="dash-msg">Cargando órdenes…</td></tr></tbody>
+        <thead><tr><th>Orden</th><th>Nivel</th><th>Avance</th><th>Fecha de entrega</th><th>Entrega estimada</th></tr></thead>
+        <tbody id="dash-rows"><tr><td colspan="5" class="dash-msg">Cargando órdenes…</td></tr></tbody>
       </table>
     </div>
   </section>
@@ -181,6 +185,11 @@ const PAGE = `<!DOCTYPE html>
     var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
     return d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
   }
+  function fmtShort(ymd) {
+    var p = ymd.split("-");
+    var d = new Date(Date.UTC(+p[0], +p[1] - 1, +p[2]));
+    return d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  }
   function daysLeft(ymd) {
     var p = ymd.split("-");
     return Math.round((Date.UTC(+p[0], +p[1] - 1, +p[2]) - today()) / DAY);
@@ -199,7 +208,7 @@ const PAGE = `<!DOCTYPE html>
     if (!data.orders.length) {
       var empty = el("tr");
       var td = el("td", "dash-msg", "No hay órdenes en curso.");
-      td.colSpan = 4;
+      td.colSpan = 5;
       empty.appendChild(td);
       rows.appendChild(empty);
     }
@@ -261,6 +270,28 @@ const PAGE = `<!DOCTYPE html>
       }
       if (o.paused) c4.appendChild(el("span", "chip paused", "⏸ Pausada"));
       tr.appendChild(c4);
+
+      // Fecha estimada de terminación según el plan de producción.
+      var c5 = el("td", "due est");
+      if (o.completed) {
+        c5.appendChild(el("span", "o-model", ""));
+      } else if (o.estimatedDate) {
+        var est = el("div");
+        est.appendChild(el("span", "m-lbl", "Estimada: "));
+        est.appendChild(document.createTextNode(fmtShort(o.estimatedDate)));
+        c5.appendChild(est);
+        if (o.estimateStatus === "atrasada" && o.dueDate) {
+          var over = Math.round((daysLeft(o.estimatedDate) - daysLeft(o.dueDate)));
+          c5.appendChild(el("span", "chip late", "▲ " + over + (over === 1 ? " día" : " días") + " después"));
+        } else if (o.estimateStatus === "en_riesgo") {
+          c5.appendChild(el("span", "chip soon", "◷ Justo"));
+        } else if (o.estimateStatus === "a_tiempo") {
+          c5.appendChild(el("span", "chip ok", "✓ A tiempo"));
+        }
+      } else {
+        c5.appendChild(el("span", "o-model", o.paused ? "" : "Sin estimar"));
+      }
+      tr.appendChild(c5);
 
       rows.appendChild(tr);
     });
