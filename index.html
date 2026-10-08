@@ -143,6 +143,7 @@
   /* ---------- Cards / grid ---------- */
   .grid{display:grid; gap:14px;}
   .kpis{grid-template-columns:repeat(4,1fr);}
+  .kpis.kpis-5{grid-template-columns:repeat(5,1fr);}
   .charts-row{grid-template-columns:1.3fr 1fr; align-items:start;}
   .two-col{grid-template-columns:1fr 1fr;}
   .card{background:var(--surface); border:1px solid var(--line); border-radius:5px; padding:16px 18px; box-shadow:var(--shadow);}
@@ -263,6 +264,7 @@
     .grid{gap:8px !important; margin-top:10px !important;}
     .grid > .card{border:1px solid #ccc !important; border-radius:4px !important; padding:6px 8px !important; margin-top:0 !important; break-inside:avoid;}
     .kpis{grid-template-columns:repeat(4,1fr) !important;}
+    .kpis.kpis-5{grid-template-columns:repeat(5,1fr) !important;}
     .kpi-label{font-size:8px !important;}
     .kpi-value{font-size:15px !important;}
     .kpi-delta{font-size:8px !important;}
@@ -300,7 +302,7 @@
   }
 
   @media (max-width: 880px){
-    .kpis{grid-template-columns:1fr 1fr;}
+    .kpis, .kpis.kpis-5{grid-template-columns:1fr 1fr;}
     .charts-row,.two-col,.form-grid{grid-template-columns:1fr;}
     .sidebar{
       position:fixed; left:0; top:0; bottom:0; z-index:30; transform:translateX(-100%); transition:transform .18s ease;
@@ -1779,6 +1781,7 @@ function renderContabilidadProveedoresTab(){
     return s + (info.pagoParcial ? (info.saldoPendiente!=null ? info.saldoPendiente : r.importe) : r.importe);
   },0);
   var totalPagado = filtered.filter(function(r){return creditoEstado(r)==="pagado";}).reduce(function(s,r){return s+r.importe;},0);
+  var totalPorVerificar = filtered.filter(function(r){return creditoEstado(r)==="pendiente";}).reduce(function(s,r){return s+r.importe;},0);
 
   var canVerify = can("verifyPago");
   var filterActive = !!(f.proveedor||f.proyecto||f.estados.length||f.desde||f.hasta||f.mes||f.anio);
@@ -1826,8 +1829,10 @@ function renderContabilidadProveedoresTab(){
   });
   var groups = groupOrder.map(function(k){ return groupsMap[k]; });
 
-  var kpis = '<div class="grid kpis">'+
+  var facturasPorVerificar = groups.filter(function(g){ return g.items.some(function(r){ return creditoEstado(r)==="pendiente"; }); }).length;
+  var kpis = '<div class="grid kpis kpis-5">'+
     '<div class="card"><div class="kpi-label">Total a crédito</div><div class="kpi-value">'+fmtMoneyInt(totalCredito)+'</div><div class="kpi-delta">'+groups.length+' factura'+(groups.length===1?"":"s")+'</div></div>'+
+    '<div class="card"><div class="kpi-label">Pendiente por verificar</div><div class="kpi-value">'+fmtMoneyInt(totalPorVerificar)+'</div><div class="kpi-delta">'+facturasPorVerificar+' factura'+(facturasPorVerificar===1?"":"s")+' sin cotejar</div></div>'+
     '<div class="card"><div class="kpi-label">Verificado</div><div class="kpi-value">'+fmtMoneyInt(totalVerificado)+'</div><div class="kpi-delta">cotejado contra el proveedor</div></div>'+
     '<div class="card"><div class="kpi-label">Pendiente de pago</div><div class="kpi-value">'+fmtMoneyInt(totalPendientePago)+'</div><div class="kpi-delta">verificado, falta pagar</div></div>'+
     '<div class="card"><div class="kpi-label">Pagado</div><div class="kpi-value">'+fmtMoneyInt(totalPagado)+'</div><div class="kpi-delta">ciclo completo</div></div>'+
