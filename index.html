@@ -2948,14 +2948,14 @@ function computeOverheadProrrateo(){
 }
 
 /* ---------- Indirectos de México ----------
-   Todo lo registrado en alguno de estos proyectos es indirecto (GASTO GENERAL:
-   gastos generales/administrativos; CONSUMIBLES G: gastos variables de
-   producción). El de cada mes se reparte entre los proyectos que se marcaron
+   Todo lo registrado en alguno de estos proyectos es indirecto (GASTO GENERAL
+   y GASTOS INDIRECTOS: gastos generales/administrativos; CONSUMIBLES G:
+   gastos variables de producción). El de cada mes se reparte entre los proyectos que se marcaron
    como terminados en ese mes, en proporción a su costo directo en México. Si
    en un mes no se terminó ningún proyecto, el monto pasa al siguiente mes que
    sí tenga terminados. */
-var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G"];
-var INDIRECTO_PROYECTOS_LABEL = INDIRECTO_PROYECTO_KEYS.join(" y ");
+var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G", "GASTOS INDIRECTOS"];
+var INDIRECTO_PROYECTOS_LABEL = INDIRECTO_PROYECTO_KEYS.slice(0,-1).join(", ")+" y "+INDIRECTO_PROYECTO_KEYS[INDIRECTO_PROYECTO_KEYS.length-1];
 function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
 function computeIndirectosMx(){
   var porMes = {}, sinFecha = { n:0, mxn:0 }, directo = {}, nGastos = 0;
@@ -3129,10 +3129,9 @@ function renderHoustonView(){
     : renderHoustonGastosTab();
   return '<div class="tabs">'+HOUSTON_TABS.map(function(x){return '<button class="tab" data-action="houston-tab" data-tab="'+x+'" aria-selected="'+(t===x)+'">'+HOUSTON_TAB_LABELS[x]+'</button>';}).join("")+'</div>'+body;
 }
-// Proyectos de gastos indirectos: un gasto USD no se asigna a ellos, se
-// captura como "Gasto general Houston" para que se prorratee.
-var PROYECTOS_INDIRECTOS_USD = INDIRECTO_PROYECTO_KEYS.concat(["GASTOS INDIRECTOS"]);
-function esProyectoIndirectoUsd(key){ var k = normKey(key||""); return PROYECTOS_INDIRECTOS_USD.some(function(x){ return normKey(x)===k; }); }
+// Un gasto USD no se asigna a un proyecto de indirectos: se captura como
+// "Gasto general Houston" para que se prorratee.
+function esProyectoIndirectoUsd(key){ return esProyectoIndirecto(key); }
 function proyectoOptionsGastoUsd(){ return validProyectoOptions().filter(function(p){ return !esProyectoIndirectoUsd(p.key) && !esProyectoIndirectoUsd(p.nombre); }); }
 function validProyectoOptions(){
   var proyMap = allProyectos();
