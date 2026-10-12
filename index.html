@@ -2905,11 +2905,12 @@ function allProyectosHouston(includeDeleted){
 function proyectoHoustonNombre(id){ var p = STATE.proyectosHouston[id]; return p && p.nombre ? p.nombre : (id||"—"); }
 
 /* ---------- Prorrateo del overhead ----------
-   El gasto general de Houston de cada mes se reparte entre los remolques que
-   estuvieron en Houston ese mes (de la fecha de exportación a la de venta) y
-   los proyectos Houston abiertos (de su inicio a su cierre), en proporción a
-   sus días, ambas fechas inclusive. Si en un mes no hubo ninguno, ese
-   overhead queda sin asignar. */
+   El gasto general de Houston de cada mes se reparte solo entre los remolques
+   importados a Houston ese mes (fecha de exportación dentro del mes) y los
+   proyectos Houston iniciados ese mes, en proporción a sus días en Houston
+   dentro del mes (de la exportación/inicio a la venta/cierre o fin de mes,
+   ambas inclusive). Si en un mes no se importó ninguno, ese overhead queda
+   sin asignar. */
 function dayNum(iso){ var p=iso.split("-"); return Date.UTC(+p[0], +p[1]-1, +p[2])/86400000; }
 function computeOverheadProrrateo(){
   var porMes = {};
@@ -2933,9 +2934,11 @@ function computeOverheadProrrateo(){
     var y=+ym.slice(0,4), m=+ym.slice(5,7);
     var ini = Date.UTC(y,m-1,1)/86400000, fin = Date.UTC(y,m,0)/86400000;
     var dias = {}, totalDias = 0;
+    // Solo participan los que se importaron (o iniciaron) ese mes.
     enHouston.forEach(function(p){
-      var a = Math.max(ini, p.desde), b = Math.min(fin, p.hasta);
-      if(b>=a){ dias[p.key] = b-a+1; totalDias += b-a+1; }
+      if(p.desde<ini || p.desde>fin) return;
+      var b = Math.min(fin, p.hasta);
+      if(b>=p.desde){ dias[p.key] = b-p.desde+1; totalDias += b-p.desde+1; }
     });
     if(!totalDias){ sinAsignar += porMes[ym]; sinAsignarMeses.push(ym); return; }
     Object.keys(dias).forEach(function(k){
@@ -3258,7 +3261,7 @@ function renderHoustonRegistrarTab(){
   return '<div class="card form-card"><form id="gastoUsdForm">'+
       gastoUsdFormFields(null)+
       '<p class="hint"><span class="req-mark">*</span> Campo obligatorio. Los importes de este módulo son en <strong>dólares (USD)</strong> y se guardan separados de los gastos en pesos. '+
-      'Un <strong>gasto general</strong> (renta, nómina, servicios de Houston…) no se asigna a un remolque: se reparte cada mes entre los remolques y proyectos Houston que estuvieron activos ese mes, según sus días.</p>'+
+      'Un <strong>gasto general</strong> (renta, nómina, servicios de Houston…) no se asigna a un remolque: el de cada mes se reparte entre los remolques importados a Houston ese mes (y los proyectos Houston iniciados ese mes), según sus días en Houston dentro del mes.</p>'+
       '<div style="margin-top:16px"><button class="btn btn-primary" type="submit">Guardar gasto USD</button></div>'+
     '</form></div>'+
     '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos gastos USD capturados</h3></div>'+
@@ -3393,7 +3396,7 @@ function renderProyectosHoustonTab(){
         '<select data-usdfilter="phEstado"><option value="abierto"'+(f.phEstado==="abierto"?' selected':'')+'>Abiertos</option><option value="cerrado"'+(f.phEstado==="cerrado"?' selected':'')+'>Cerrados</option><option value=""'+(f.phEstado===""?' selected':'')+'>Todos</option></select>'+
         '<input type="text" class="q" placeholder="Buscar por nombre, cliente o descripción…" data-usdfilter="phQ" value="'+esc(f.phQ)+'">'+
       '</div>'+
-      '<p class="hint" style="margin:8px 0 0">Reparaciones, mejoras, servicios y otros trabajos de Houston que no son un remolque de México. Sus gastos se capturan en "Registrar gasto USD" eligiendo <strong>De un proyecto Houston</strong>. Mientras están abiertos (de la fecha de inicio a la de cierre) absorben parte del gasto general de Houston, igual que un remolque.</p>'+
+      '<p class="hint" style="margin:8px 0 0">Reparaciones, mejoras, servicios y otros trabajos de Houston que no son un remolque de México. Sus gastos se capturan en "Registrar gasto USD" eligiendo <strong>De un proyecto Houston</strong>. Igual que un remolque, absorben parte del gasto general de Houston del mes en que inician, por sus días abiertos dentro de ese mes.</p>'+
     '</div>'+
     '<div class="grid kpis">'+
       '<div class="card"><div class="kpi-label">Proyectos</div><div class="kpi-value">'+rows.length+'</div><div class="kpi-delta">'+rows.filter(function(r){return !r.fecha_cierre;}).length+' abiertos</div></div>'+
@@ -3422,7 +3425,7 @@ function openProyectoHoustonModal(id){
         '<div class="field"><label>Fecha de cierre</label><input type="date" name="fecha_cierre" value="'+esc(p.fecha_cierre)+'"></div>'+
       '</div>'+
       '<div class="field"><label>Ingreso (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" name="ingreso_usd" step="0.01" min="0" value="'+(p.ingreso_usd===null?"":esc(p.ingreso_usd))+'" placeholder="Opcional: lo que se cobró o se espera cobrar"></div></div>'+
-      '<p class="hint">Déjalo sin fecha de cierre mientras siga en proceso. Mientras esté abierto absorbe gasto general de Houston por sus días.</p>'+
+      '<p class="hint">Déjalo sin fecha de cierre mientras siga en proceso. Absorbe gasto general de Houston del mes en que inicia, por sus días abiertos dentro de ese mes.</p>'+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
@@ -3815,7 +3818,7 @@ function renderCostoTotalView(){
   else if(sinTc) avisos.push(sinTc+' gasto(s) en pesos ('+fmtMoneyInt(sinTcMxn)+' MXN) tienen fecha anterior al primer FIX cargado y no se incluyen en el total USD.');
   if(ind.pendiente>0.004) avisos.push(fmtMoneyInt(ind.pendiente)+' MXN de indirectos de México esperan a que se termine el siguiente proyecto. <a href="#" data-action="nav" data-view="indirectos">Ver indirectos →</a>');
   if(ind.sinTc>0.004) avisos.push(fmtMoneyInt(ind.sinTc)+' MXN de indirectos no se incluyen en USD porque el proyecto se terminó antes del primer FIX cargado.');
-  if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no había ningún remolque ni proyecto Houston activo.');
+  if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no se importó ningún remolque a Houston ni se inició ningún proyecto Houston.');
   var ohHouston = Object.keys(pr.porProyecto).filter(function(k){ return k.indexOf("H:")===0; }).reduce(function(s,k){ return s+pr.porProyecto[k]; },0);
   if(ohHouston>0.004) avisos.push(fmtUsdInt(ohHouston)+' de gasto general de Houston se asignó a proyectos Houston (reparaciones, mejoras, servicios…), que no aparecen en esta tabla. '+(firstAllowedNavHas("houston")?'<a href="#" data-action="goto-houston-tab" data-tab="proyectos_houston">Ver proyectos Houston →</a>':''));
 
@@ -3858,7 +3861,7 @@ function renderCostoTotalView(){
         '<tbody>'+(body||'<tr><td colspan="12" class="empty">Sin proyectos con estos filtros.</td></tr>')+'</tbody>'+
         '<tfoot><tr><td colspan="2">Total ('+rows.length+')</td><td class="num">'+fmtMoneyInt(sum("mxn"))+'</td><td></td><td class="num">'+fmtUsdInt(sum("usdMx"))+'</td><td class="num">'+fmtUsdInt(sum("indirectoUsd"))+'</td><td class="num">'+fmtUsdInt(sum("houston"))+'</td><td class="num">'+fmtUsdInt(sum("overhead"))+'</td><td class="num">'+fmtUsdInt(sum("total"))+'</td><td class="num">'+fmtUsdInt(ventas)+'</td><td class="num">'+(vendidos.length?fmtUsdInt(margen):'—')+'</td><td></td></tr></tfoot>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte de '+INDIRECTO_PROYECTOS_LABEL+' que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston se reparte cada mes entre los remolques en Houston y los proyectos Houston abiertos, según sus días.</p>'+
+      '<p class="hint" style="margin-top:12px">México (USD) = cada gasto en pesos ÷ FIX de Banxico de su fecha de factura. TC prom. = tipo de cambio promedio ponderado resultante. Indirecto MX = parte de '+INDIRECTO_PROYECTOS_LABEL+' que le tocó al proyecto al terminarse, al FIX de ese día. El overhead de Houston de cada mes se reparte solo entre los remolques importados ese mes (y proyectos Houston iniciados ese mes), según sus días en Houston dentro del mes.</p>'+
     '</div>';
 }
 function openCostoDetalleModal(key){
