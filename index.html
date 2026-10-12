@@ -1838,8 +1838,14 @@ function renderContabilidadProveedoresTab(){
     '<div class="card"><div class="kpi-label">Pagado</div><div class="kpi-value">'+fmtMoneyInt(totalPagado)+'</div><div class="kpi-delta">ciclo completo</div></div>'+
   '</div>';
 
+  var diasMap = diasCreditoMap();
   var rows = groups.map(function(grp){
     var ids = grp.items.map(function(r){ return r.id; });
+    var venc = null;
+    grp.items.forEach(function(r){ var v = vencimientoCredito(r, diasMap); if(v.viernes && (!venc || v.viernes<venc.viernes)) venc = v; });
+    var propuestaHtml = venc
+      ? '<span title="'+venc.dias+' días de crédito · vence '+esc(fmtDate(venc.vence))+'">'+fmtDate(venc.viernes)+'</span>'
+      : '<span class="hint" title="Sin fecha de factura válida">—</span>';
     var infos = ids.map(saldoInfoFor);
     var pendienteCount = infos.filter(function(it){return it.estado==="pendiente";}).length;
     var pagadoCount = infos.filter(function(it){return it.estado==="pagado";}).length;
@@ -1869,7 +1875,8 @@ function renderContabilidadProveedoresTab(){
     var parcialHtml = (estado!=="pagado" && montoPagadoTotal>0.004) ? '<div class="card-note" style="margin-top:4px">Pago parcial: '+fmtMoney(montoPagadoTotal)+' pagado · '+fmtMoney(saldoTotal)+' pendiente</div>' : "";
     return '<tr>'+
       '<td>'+esc(grp.proveedor||"—")+'</td>'+
-      '<td>'+fmtDate(grp.fecha_factura)+'</td>'+
+      '<td style="white-space:nowrap">'+fmtDate(grp.fecha_factura)+'</td>'+
+      '<td style="white-space:nowrap">'+propuestaHtml+'</td>'+
       '<td>'+esc(grp.factura||"—")+'</td>'+
       '<td>'+esc(grp.proyectos.join(", ")||"—")+'</td>'+
       '<td class="num">'+fmtMoney(grp.importe)+'</td>'+
@@ -1883,9 +1890,9 @@ function renderContabilidadProveedoresTab(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Gastos a crédito</h3><span class="card-note">'+groups.length+' factura'+(groups.length===1?"":"s")+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
-        '<tbody>'+(rows||'<tr><td colspan="8" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
-        '<tfoot><tr><td colspan="4">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor, al corte del viernes">Fecha propuesta de pago</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="9" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
+        '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>';
 }
