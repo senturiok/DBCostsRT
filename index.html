@@ -971,18 +971,19 @@ function fechaTerminado(key){
   return null;
 }
 function excelRecibeIndirectos(key){ var e = STATE.proyectoEstado[slugify(key)]; return !!(e && e.incluir_indirectos); }
-function openFechaTerminadoModal(key){
-  if(estadoDeProyecto(key)!=="terminado") return;
-  var fecha = fechaTerminado(key) || todayISO();
+function openFechaTerminadoModal(key, terminar){
+  if(!terminar && estadoDeProyecto(key)!=="terminado") return;
+  var fecha = (!terminar && fechaTerminado(key)) || todayISO();
   var p = allProyectos()[key], esExcel = p && p.origen==="excel";
   openModal(
-    '<h3>Fecha de terminado</h3>'+
-    '<p class="hint" style="margin-top:0">Esta fecha decide en qué mes se le reparten a "'+esc(proyectoNombre(key))+'" los indirectos de México.</p>'+
+    '<h3>'+(terminar ? 'Terminar "'+esc(proyectoNombre(key))+'"' : 'Fecha de terminado')+'</h3>'+
+    '<p class="hint" style="margin-top:0">'+(terminar ? 'Elige la fecha en que el remolque se terminó físicamente. Si ya cruzaste de mes y apenas estás cerrando la carga de notas, pon la fecha real de terminación: ' : 'Esta fecha ')+'decide en qué mes se le reparten a "'+esc(proyectoNombre(key))+'" los indirectos de México.</p>'+
     '<form id="fechaTerminadoForm">'+
       '<input type="hidden" name="key" value="'+esc(key)+'">'+
-      '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(fecha)+'" required></div>'+
+      '<input type="hidden" name="terminar" value="'+(terminar?'1':'')+'">'+
+      '<div class="field"><label>'+(terminar ? 'Fecha de terminación física' : 'Fecha')+'</label><input type="date" name="fecha" value="'+esc(fecha)+'" required></div>'+
       (esExcel ? '<label class="check-row" style="margin-top:6px; display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:normal; font-weight:400; font-size:13px; color:var(--ink); cursor:pointer"><input type="checkbox" name="incluir_indirectos"'+(excelRecibeIndirectos(key)?' checked':'')+'> Recibe indirectos de México <span class="hint">(los remolques del Excel no los reciben salvo que marques esta casilla)</span></label>' : '')+
-      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">'+(terminar ? 'Marcar como terminado' : 'Guardar')+'</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
 }
@@ -997,7 +998,7 @@ function handleFechaTerminadoSubmit(form){
   if(form.querySelector('input[name="incluir_indirectos"]')) data.incluir_indirectos = !!fd.get("incluir_indirectos");
   STATE.db.doc("proyecto_estado/"+slug).set(data).then(function(){
     STATE.proyectoEstado[slug] = data;
-    toast("Fecha de terminado actualizada ✓"); closeModal(); renderContent();
+    toast(fd.get("terminar") ? "Proyecto terminado el "+fmtDate(fecha)+" ✓" : "Fecha de terminado actualizada ✓"); closeModal(); renderContent();
   }).catch(function(){ toast("No se pudo actualizar.","err"); });
 }
 
@@ -4073,10 +4074,11 @@ document.addEventListener("click", function(e){
   }
   else if(action==="toggle-estado"){
     if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
-    var key = el.dataset.key; var cur = estadoDeProyecto(key); var next = cur==="terminado"?"activo":"terminado";
-    var estadoSlug = slugify(key);
-    var estadoData = {estado:next, key:key, updatedAt:new Date().toISOString()};
-    if(next==="terminado") estadoData.fecha_terminado = todayISO();
+    var key = el.dataset.key;
+    if(estadoDeProyecto(key)!=="terminado"){ openFechaTerminadoModal(key, true); return; }
+    var estadoSlug = slugify(key), prevEstado = STATE.proyectoEstado[estadoSlug] || {};
+    var estadoData = {estado:"activo", key:key, updatedAt:new Date().toISOString()};
+    if(prevEstado.incluir_indirectos) estadoData.incluir_indirectos = true;
     STATE.db.doc("proyecto_estado/"+estadoSlug).set(estadoData).then(function(){
       STATE.proyectoEstado[estadoSlug] = estadoData; renderContent();
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
