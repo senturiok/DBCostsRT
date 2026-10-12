@@ -437,6 +437,7 @@ var STATE = {
   gastosContabilidad:{},
   contFilters:{ proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
+  indFilters:{ q:"", reparto:"", origen:"", mes:"", anio:"" },
   provSearch:"",
   proySearch:"",
   proyEstadoFilter:"activo",
@@ -920,7 +921,7 @@ function renderContent(){
     : (STATE.view==="costo_total") ? '<button class="btn" data-action="export-costo-csv">Exportar CSV</button>' : "";
   var c = document.getElementById("content");
 
-  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter","usdfilter","costofilter"];
+  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter","usdfilter","costofilter","indfilter"];
   var ae = document.activeElement, activeSelector = null, selStart = null, selEnd = null;
   if(ae && ae.dataset && c.contains(ae)){
     for(var fi=0; fi<focusAttrs.length; fi++){
@@ -3039,7 +3040,37 @@ function renderIndirectosView(){
   if(ix.sinFecha.n) avisos.push(ix.sinFecha.n+' gasto(s) de '+INDIRECTO_PROYECTOS_LABEL+' por '+fmtMoney(ix.sinFecha.mxn)+' no tienen una fecha válida y no se prorratean.');
   if(ix.terminadosSinFecha.length) avisos.push('Sin fecha de terminado (no reciben indirectos): '+ix.terminadosSinFecha.map(function(k){ return esc(proyectoNombre(k)); }).join(", ")+'. Márcalos como activos y otra vez como terminados en Catálogos para registrar la fecha.');
 
-  var filasMes = ix.filas.slice().reverse().map(function(f){
+  var F = STATE.indFilters, q = F.q.trim().toLowerCase(), porPeriodo = !!(F.mes||F.anio);
+  var proyMap = allProyectos();
+  function enPeriodo(ym){ return (!F.anio || ym.slice(0,4)===F.anio) && (!F.mes || ym.slice(5,7)===F.mes); }
+  var filasF = ix.filas.filter(function(f){
+    if(!enPeriodo(f.ym)) return false;
+    if(F.reparto==="historico" && !f.historico) return false;
+    if(F.reparto==="mensual" && f.historico) return false;
+    return true;
+  });
+  var proyF = proyAsignados.filter(function(k){
+    var pp = ix.porProyecto[k], pr = proyMap[k];
+    if(F.reparto==="historico" && !pp.historico) return false;
+    if(F.reparto==="mensual" && pp.historico) return false;
+    if(porPeriodo && (pp.historico || !enPeriodo(pp.ym))) return false;
+    if(F.origen && (!pr || pr.origen!==F.origen)) return false;
+    if(q && proyectoNombre(k).toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  });
+  var kRegistrado = filasF.reduce(function(s,f){ return s+(f.indirecto||0); },0);
+  var kAsignado = filasF.reduce(function(s,f){ return s+(f.asignado||0); },0);
+  var kSinAsignar = filasF.reduce(function(s,f){ return s+(f.sinAsignar||0); },0);
+  var filtroActivo = !!(q||F.reparto||F.origen||F.mes||F.anio);
+  var filtrosHTML = '<div class="card" style="margin-bottom:14px"><div class="filters" style="margin:0">'+
+      '<input type="text" class="q" placeholder="Buscar proyecto…" data-indfilter="q" value="'+esc(F.q)+'">'+
+      '<select data-indfilter="reparto"><option value="">Todos los repartos</option><option value="mensual"'+(F.reparto==="mensual"?' selected':'')+'>Solo mensual</option><option value="historico"'+(F.reparto==="historico"?' selected':'')+'>Solo histórico</option></select>'+
+      '<select data-indfilter="origen"><option value="">Portal y Excel</option><option value="portal"'+(F.origen==="portal"?' selected':'')+'>Solo portal</option><option value="excel"'+(F.origen==="excel"?' selected':'')+'>Solo Excel</option></select>'+
+      mesAnioOptionsHTML("indfilter", F.mes, F.anio, ix.filas.map(function(f){ return { fecha:f.ym+"-01" }; }), "fecha")+
+      (filtroActivo ? '<button class="btn btn-ghost" data-action="clear-ind-filters">Limpiar</button>' : '')+
+    '</div><p class="hint" style="margin:8px 0 0">Mes y año filtran por el mes del indirecto (y el mes en que se terminó el proyecto que lo recibió). Buscar y origen filtran solo la tabla de proyectos.'+(porPeriodo && F.reparto!=="mensual" ? ' El reparto histórico abarca varios meses, así que sus proyectos no se muestran al filtrar por mes o año.' : '')+'</p></div>';
+
+  var filasMes = filasF.slice().reverse().map(function(f){
     var terms = f.historico ? '<span class="badge badge-steel">Reparto histórico</span> <span class="hint">remolques del Excel terminados</span>'
       : f.proyectos.length ? f.proyectos.map(function(p){ return esc(proyectoNombre(p.key)); }).join(", ") : '<span class="hint">Ninguno</span>';
     return '<tr>'+
@@ -3051,7 +3082,7 @@ function renderIndirectosView(){
     '</tr>';
   }).join("");
 
-  var filasProy = proyAsignados.sort(function(a,b){ return (ix.porProyecto[b].fecha||"").localeCompare(ix.porProyecto[a].fecha||"") || ix.porProyecto[b].monto-ix.porProyecto[a].monto; }).map(function(k){
+  var filasProy = proyF.sort(function(a,b){ return (ix.porProyecto[b].fecha||"").localeCompare(ix.porProyecto[a].fecha||"") || ix.porProyecto[b].monto-ix.porProyecto[a].monto; }).map(function(k){
     var p = ix.porProyecto[k];
     return '<tr>'+
       '<td><a href="#" data-action="view-proyecto-gastos" data-key="'+esc(k)+'" style="font-weight:600">'+esc(proyectoNombre(k))+'</a></td>'+
@@ -3063,28 +3094,30 @@ function renderIndirectosView(){
       '<td class="num">'+(p.directo>0?(p.monto/p.directo*100).toFixed(1)+'%':'—')+'</td>'+
     '</tr>';
   }).join("");
-  var totDirecto = proyAsignados.reduce(function(s,k){ return s+ix.porProyecto[k].directo; },0);
+  var totDirecto = proyF.reduce(function(s,k){ return s+ix.porProyecto[k].directo; },0);
+  var totIndProy = proyF.reduce(function(s,k){ return s+ix.porProyecto[k].monto; },0);
 
-  return '<div class="grid kpis">'+
-      '<div class="card"><div class="kpi-label">Indirectos registrados</div><div class="kpi-value">'+fmtMoneyInt(ix.total)+'</div><div class="kpi-delta">'+ix.nGastos+' gastos en '+INDIRECTO_PROYECTOS_LABEL+'</div></div>'+
-      '<div class="card"><div class="kpi-label">Asignado a proyectos</div><div class="kpi-value">'+fmtMoneyInt(ix.asignado)+'</div><div class="kpi-delta">'+proyAsignados.length+' proyectos terminados</div></div>'+
-      '<div class="card"><div class="kpi-label">Sin asignar</div><div class="kpi-value"'+(ix.sinAsignar>0.004?' style="color:var(--warn)"':'')+'>'+fmtMoneyInt(ix.sinAsignar)+'</div><div class="kpi-delta">meses sin remolques del portal terminados</div></div>'+
-      '<div class="card"><div class="kpi-label">Indirecto sobre directo</div><div class="kpi-value">'+(totDirecto>0?(ix.asignado/totDirecto*100).toFixed(1)+'%':'—')+'</div><div class="kpi-delta">de los proyectos que ya recibieron</div></div>'+
+  return filtrosHTML+'<div class="grid kpis">'+
+      '<div class="card"><div class="kpi-label">Indirectos registrados</div><div class="kpi-value">'+fmtMoneyInt(kRegistrado)+'</div><div class="kpi-delta">'+(filtroActivo ? filasF.length+' mes'+(filasF.length===1?'':'es')+' con estos filtros' : ix.nGastos+' gastos en '+INDIRECTO_PROYECTOS_LABEL)+'</div></div>'+
+      '<div class="card"><div class="kpi-label">Asignado a proyectos</div><div class="kpi-value">'+fmtMoneyInt(kAsignado)+'</div><div class="kpi-delta">'+proyF.length+' proyecto'+(proyF.length===1?'':'s')+' en la tabla</div></div>'+
+      '<div class="card"><div class="kpi-label">Sin asignar</div><div class="kpi-value"'+(kSinAsignar>0.004?' style="color:var(--warn)"':'')+'>'+fmtMoneyInt(kSinAsignar)+'</div><div class="kpi-delta">meses sin remolques terminados</div></div>'+
+      '<div class="card"><div class="kpi-label">Indirecto sobre directo</div><div class="kpi-value">'+(totDirecto>0?(totIndProy/totDirecto*100).toFixed(1)+'%':'—')+'</div><div class="kpi-delta">de los proyectos en la tabla</div></div>'+
     '</div>'+
     (avisos.length ? '<div class="card" style="margin-top:14px; border-color:var(--warn)"><div class="flag-list">'+avisos.map(function(a){return '<div class="flag-item" style="background:color-mix(in srgb, var(--warn) 14%, transparent)">'+a+'</div>';}).join("")+'</div></div>' : '')+
     '<div class="card" style="margin-top:14px">'+
-      '<div class="card-head"><h3 class="card-title">Por proyecto terminado</h3><span class="card-note">'+proyAsignados.length+' proyecto'+(proyAsignados.length===1?'':'s')+'</span></div>'+
+      '<div class="card-head"><h3 class="card-title">Por proyecto terminado</h3><span class="card-note">'+proyF.length+' proyecto'+(proyF.length===1?'':'s')+'</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Proyecto</th><th>Terminado</th><th class="num">Costo directo</th><th class="num">% del reparto</th><th class="num">Indirecto asignado</th><th class="num">Costo con indirecto</th><th class="num">Indirecto / directo</th></tr></thead>'+
-        '<tbody>'+(filasProy||'<tr><td colspan="7" class="empty">Todavía no hay proyectos terminados que hayan recibido indirectos.</td></tr>')+'</tbody>'+
-        (filasProy?'<tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(totDirecto)+'</td><td></td><td class="num">'+fmtMoney(ix.asignado)+'</td><td class="num">'+fmtMoney(totDirecto+ix.asignado)+'</td><td></td></tr></tfoot>':'')+
+        '<tbody>'+(filasProy||'<tr><td colspan="7" class="empty">'+(filtroActivo?'Sin proyectos con estos filtros.':'Todavía no hay proyectos terminados que hayan recibido indirectos.')+'</td></tr>')+'</tbody>'+
+        (filasProy?'<tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(totDirecto)+'</td><td></td><td class="num">'+fmtMoney(totIndProy)+'</td><td class="num">'+fmtMoney(totDirecto+totIndProy)+'</td><td class="num">'+(totDirecto>0?(totIndProy/totDirecto*100).toFixed(1)+'%':'')+'</td></tr></tfoot>':'')+
       '</table></div>'+
     '</div>'+
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Por mes</h3><span class="card-note">Más reciente primero</span></div>'+
       '<div class="table-wrap"><table>'+
         '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th>Proyectos terminados (portal)</th><th class="num">Asignado</th><th class="num">Sin asignar</th></tr></thead>'+
-        '<tbody>'+(filasMes||'<tr><td colspan="5" class="empty">Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.</td></tr>')+'</tbody>'+
+        '<tbody>'+(filasMes||'<tr><td colspan="5" class="empty">'+(filtroActivo?'Sin meses con estos filtros.':'Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.')+'</td></tr>')+'</tbody>'+
+        (filasMes?'<tfoot><tr><td>Total</td><td class="num">'+fmtMoney(kRegistrado)+'</td><td></td><td class="num">'+fmtMoney(kAsignado)+'</td><td class="num">'+fmtMoney(kSinAsignar)+'</td></tr></tfoot>':'')+
       '</table></div>'+
       '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Lo que quedó sin asignar antes de '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+' se repartió una sola vez entre los remolques del Excel terminados (reparto histórico). Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
     '</div>';
@@ -4097,6 +4130,7 @@ document.addEventListener("click", function(e){
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
   else if(action==="export-propuesta-csv") exportPropuestaCSV();
+  else if(action==="clear-ind-filters"){ STATE.indFilters = { q:"", reparto:"", origen:"", mes:"", anio:"" }; renderContent(); }
   else if(action==="usuarios-tab"){ STATE.usuariosTab = el.dataset.tab; renderContent(); }
   else if(action==="refresh-activity-log"){ STATE.activityLog = null; renderContent(); }
   else if(action==="clear-dash-filters"){ STATE.dashFilters = {proyecto:"",categoria:"",formaPago:"",estado:"",desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
@@ -4250,6 +4284,8 @@ document.addEventListener("input", debounce(function(e){
     STATE.usdFilters[e.target.dataset.usdfilter] = e.target.value; STATE.usdFilters.page = 1; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.costofilter){
     STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.indfilter){
+    STATE.indFilters[e.target.dataset.indfilter] = e.target.value; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
@@ -4288,6 +4324,8 @@ document.addEventListener("change", function(e){
     STATE.usdFilters[e.target.dataset.usdfilter] = e.target.value; STATE.usdFilters.page = 1; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.costofilter && e.target.tagName==="SELECT"){
     STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.indfilter && e.target.tagName==="SELECT"){
+    STATE.indFilters[e.target.dataset.indfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.name==="tipo_usd"){
     var pf = e.target.form && e.target.form.querySelector("[data-usd-proyecto-field]");
     if(pf) pf.style.display = e.target.value==="proyecto" ? "" : "none";
