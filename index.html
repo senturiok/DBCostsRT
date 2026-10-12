@@ -3129,6 +3129,11 @@ function renderHoustonView(){
     : renderHoustonGastosTab();
   return '<div class="tabs">'+HOUSTON_TABS.map(function(x){return '<button class="tab" data-action="houston-tab" data-tab="'+x+'" aria-selected="'+(t===x)+'">'+HOUSTON_TAB_LABELS[x]+'</button>';}).join("")+'</div>'+body;
 }
+// Proyectos de gastos indirectos: un gasto USD no se asigna a ellos, se
+// captura como "Gasto general Houston" para que se prorratee.
+var PROYECTOS_INDIRECTOS_USD = INDIRECTO_PROYECTO_KEYS.concat(["GASTOS INDIRECTOS"]);
+function esProyectoIndirectoUsd(key){ var k = normKey(key||""); return PROYECTOS_INDIRECTOS_USD.some(function(x){ return normKey(x)===k; }); }
+function proyectoOptionsGastoUsd(){ return validProyectoOptions().filter(function(p){ return !esProyectoIndirectoUsd(p.key) && !esProyectoIndirectoUsd(p.nombre); }); }
 function validProyectoOptions(){
   var proyMap = allProyectos();
   return Object.keys(proyMap).map(function(k){return proyMap[k];}).filter(function(p){return p.es_valido;}).sort(function(a,b){return a.nombre.localeCompare(b.nombre);});
@@ -3213,7 +3218,7 @@ function renderHoustonGastosTab(){
 function gastoUsdFormFields(g){
   g = g || {};
   var tipo = g.tipo || "proyecto";
-  var proyOpts = validProyectoOptions();
+  var proyOpts = proyectoOptionsGastoUsd();
   var cats = allCategoriasUsd(false);
   if(g.categoria && !cats.some(function(c){return c.codigo===g.categoria;})){
     var old = allCategoriasUsd(true).filter(function(c){return c.codigo===g.categoria;})[0];
@@ -3289,7 +3294,8 @@ function submitGastoUsd(form, isEdit){
   }
   if(tipo==="proyecto"){
     var proyNombreInput = (fd.get("proyecto_nombre")||"").trim();
-    var matchedProy = proyNombreInput ? validProyectoOptions().filter(function(p){ return normKey(p.nombre)===normKey(proyNombreInput); })[0] : null;
+    if(esProyectoIndirectoUsd(proyNombreInput)){ toast('"'+proyNombreInput+'" es de gastos indirectos: cambia el tipo de gasto a "Gasto general Houston" para que se prorratee entre los remolques.',"err"); return; }
+    var matchedProy = proyNombreInput ? proyectoOptionsGastoUsd().filter(function(p){ return normKey(p.nombre)===normKey(proyNombreInput); })[0] : null;
     proyKey = matchedProy ? matchedProy.key : "";
     if(!proyKey){ toast("Escribe y selecciona un proyecto válido de la lista, o marca el gasto como gasto general.","err"); return; }
   }
