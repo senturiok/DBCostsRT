@@ -970,15 +970,18 @@ function fechaTerminado(key){
   if(e.updatedAt){ var d = new Date(e.updatedAt); if(!isNaN(d)) return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
   return null;
 }
+function excelRecibeIndirectos(key){ var e = STATE.proyectoEstado[slugify(key)]; return !!(e && e.incluir_indirectos); }
 function openFechaTerminadoModal(key){
   if(estadoDeProyecto(key)!=="terminado") return;
   var fecha = fechaTerminado(key) || todayISO();
+  var p = allProyectos()[key], esExcel = p && p.origen==="excel";
   openModal(
     '<h3>Fecha de terminado</h3>'+
     '<p class="hint" style="margin-top:0">Esta fecha decide en qué mes se le reparten a "'+esc(proyectoNombre(key))+'" los indirectos de México.</p>'+
     '<form id="fechaTerminadoForm">'+
       '<input type="hidden" name="key" value="'+esc(key)+'">'+
       '<div class="field"><label>Fecha</label><input type="date" name="fecha" value="'+esc(fecha)+'" required></div>'+
+      (esExcel ? '<label class="check-row" style="margin-top:6px; display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:normal; font-weight:400; font-size:13px; color:var(--ink); cursor:pointer"><input type="checkbox" name="incluir_indirectos"'+(excelRecibeIndirectos(key)?' checked':'')+'> Recibe indirectos de México <span class="hint">(los remolques del Excel no los reciben salvo que marques esta casilla)</span></label>' : '')+
       '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
     '</form>'
   );
@@ -991,6 +994,7 @@ function handleFechaTerminadoSubmit(form){
   var slug = slugify(key);
   var prev = STATE.proyectoEstado[slug] || {};
   var data = Object.assign({}, prev, { estado:"terminado", key:key, fecha_terminado:fecha, updatedAt:new Date().toISOString() });
+  if(form.querySelector('input[name="incluir_indirectos"]')) data.incluir_indirectos = !!fd.get("incluir_indirectos");
   STATE.db.doc("proyecto_estado/"+slug).set(data).then(function(){
     STATE.proyectoEstado[slug] = data;
     toast("Fecha de terminado actualizada ✓"); closeModal(); renderContent();
@@ -2952,13 +2956,13 @@ function computeOverheadProrrateo(){
 
 /* ---------- Indirectos de México ----------
    Todo lo registrado en alguno de estos proyectos es indirecto (GASTO GENERAL
-   y GASTOS INDIRECTOS: gastos generales/administrativos; CONSUMIBLES G:
-   gastos variables de producción). El de cada mes se reparte solo entre los
+   y GASTOS INDIRECTOS: gastos generales/administrativos; CONSUMIBLES G y
+   CONSUMIBLES: gastos variables de producción). El de cada mes se reparte solo entre los
    proyectos del portal que se marcaron como terminados en ese mes, en
    proporción a su costo directo en México. Los remolques que vienen del Excel
-   no participan. Si en un mes no se terminó ninguno, el indirecto de ese mes
+   no participan, salvo los marcados con incluir_indirectos en proyecto_estado. Si en un mes no se terminó ninguno, el indirecto de ese mes
    queda sin asignar (no pasa a otro mes). */
-var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G", "GASTOS INDIRECTOS"];
+var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G", "GASTOS INDIRECTOS", "CONSUMIBLES"];
 var INDIRECTO_PROYECTOS_LABEL = INDIRECTO_PROYECTO_KEYS.slice(0,-1).join(", ")+" y "+INDIRECTO_PROYECTO_KEYS[INDIRECTO_PROYECTO_KEYS.length-1];
 function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
 function computeIndirectosMx(){
@@ -2977,7 +2981,7 @@ function computeIndirectosMx(){
   var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelExcluidos = 0;
   Object.keys(proyMap).forEach(function(k){
     if(!proyMap[k].es_valido || esProyectoIndirecto(k) || estadoDeProyecto(k)!=="terminado") return;
-    if(proyMap[k].origen==="excel"){ excelExcluidos++; return; }
+    if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelExcluidos++; return; }
     var f = fechaTerminado(k);
     if(!f){ terminadosSinFecha.push(k); return; }
     (terminadosPorMes[f.slice(0,7)] = terminadosPorMes[f.slice(0,7)]||[]).push({ key:k, fecha:f });
@@ -3012,7 +3016,7 @@ function renderIndirectosView(){
   var proyAsignados = Object.keys(ix.porProyecto).filter(function(k){ return ix.porProyecto[k].monto>0.004; });
   var avisos = [];
   if(ix.sinAsignar>0.004) avisos.push(fmtMoney(ix.sinAsignar)+' de indirectos quedan sin asignar: son de meses en los que no se terminó ningún remolque del portal (ver la columna "Sin asignar" en la tabla por mes).');
-  if(ix.excelExcluidos) avisos.push(ix.excelExcluidos+' remolque'+(ix.excelExcluidos===1?'':'s')+' terminado'+(ix.excelExcluidos===1?'':'s')+' que vienen del Excel no reciben indirectos.');
+  if(ix.excelExcluidos) avisos.push(ix.excelExcluidos+' remolque'+(ix.excelExcluidos===1?'':'s')+' terminado'+(ix.excelExcluidos===1?'':'s')+' que vienen del Excel no reciben indirectos. Para incluir uno, en Catálogos → Proyectos da clic en su fecha de terminado (✎) y marca "Recibe indirectos de México".');
   if(ix.sinFecha.n) avisos.push(ix.sinFecha.n+' gasto(s) de '+INDIRECTO_PROYECTOS_LABEL+' por '+fmtMoney(ix.sinFecha.mxn)+' no tienen una fecha válida y no se prorratean.');
   if(ix.terminadosSinFecha.length) avisos.push('Sin fecha de terminado (no reciben indirectos): '+ix.terminadosSinFecha.map(function(k){ return esc(proyectoNombre(k)); }).join(", ")+'. Márcalos como activos y otra vez como terminados en Catálogos para registrar la fecha.');
 
@@ -3062,7 +3066,7 @@ function renderIndirectosView(){
         '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th>Proyectos terminados (portal)</th><th class="num">Asignado</th><th class="num">Sin asignar</th></tr></thead>'+
         '<tbody>'+(filasMes||'<tr><td colspan="5" class="empty">Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.</td></tr>')+'</tbody>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan. Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
+      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
     '</div>';
 }
 
