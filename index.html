@@ -2960,11 +2960,17 @@ function computeOverheadProrrateo(){
    CONSUMIBLES: gastos variables de producción). El de cada mes se reparte solo entre los
    proyectos del portal que se marcaron como terminados en ese mes, en
    proporción a su costo directo en México. Los remolques que vienen del Excel
-   no participan, salvo los marcados con incluir_indirectos en proyecto_estado. Si en un mes no se terminó ninguno, el indirecto de ese mes
+   no participan, salvo los marcados con incluir_indirectos en proyecto_estado.
+   Excepción histórica: lo que quedó sin asignar en meses anteriores a
+   INDIRECTO_CORTE_DESDE se reparte entre los remolques del Excel terminados
+   (los no marcados), en proporción a su costo directo. Si en un mes no se terminó ninguno, el indirecto de ese mes
    queda sin asignar (no pasa a otro mes). */
 var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G", "GASTOS INDIRECTOS", "CONSUMIBLES"];
 var INDIRECTO_PROYECTOS_LABEL = INDIRECTO_PROYECTO_KEYS.slice(0,-1).join(", ")+" y "+INDIRECTO_PROYECTO_KEYS[INDIRECTO_PROYECTO_KEYS.length-1];
 function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
+// Los cortes mensuales empiezan aquí. Lo que quedó sin asignar en meses
+// anteriores se reparte una sola vez entre los remolques del Excel terminados.
+var INDIRECTO_CORTE_DESDE = "2026-08";
 function computeIndirectosMx(){
   var porMes = {}, sinFecha = { n:0, mxn:0 }, directo = {}, nGastos = 0;
   allGastos().forEach(function(r){
@@ -2978,10 +2984,10 @@ function computeIndirectosMx(){
       directo[r.proyecto_key] = (directo[r.proyecto_key]||0) + v;
     }
   });
-  var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelExcluidos = 0;
+  var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelHistorico = [];
   Object.keys(proyMap).forEach(function(k){
     if(!proyMap[k].es_valido || esProyectoIndirecto(k) || estadoDeProyecto(k)!=="terminado") return;
-    if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelExcluidos++; return; }
+    if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
     var f = fechaTerminado(k);
     if(!f){ terminadosSinFecha.push(k); return; }
     (terminadosPorMes[f.slice(0,7)] = terminadosPorMes[f.slice(0,7)]||[]).push({ key:k, fecha:f });
@@ -3007,8 +3013,20 @@ function computeIndirectosMx(){
     }
     filas.push(fila);
   });
+  // Reparto histórico: lo sin asignar antes del corte va a los remolques del Excel.
+  var histFilas = filas.filter(function(f){ return f.ym<INDIRECTO_CORTE_DESDE && f.sinAsignar>0.004; });
+  var historico = histFilas.reduce(function(s,f){ return s+f.sinAsignar; },0);
+  if(historico>0.004 && excelHistorico.length){
+    var pesoHist = excelHistorico.reduce(function(s,t){ return s+Math.max(0, directo[t.key]||0); },0);
+    excelHistorico.forEach(function(t){
+      var share = pesoHist>0 ? Math.max(0, directo[t.key]||0)/pesoHist : 1/excelHistorico.length;
+      porProyecto[t.key] = { ym:"historico", historico:true, fecha:t.fecha, directo:directo[t.key]||0, share:share, monto:historico*share, indirectoMes:historico };
+    });
+    histFilas.forEach(function(f){ f.historico = true; f.asignado = f.sinAsignar; f.sinAsignar = 0; });
+    sinAsignar -= historico;
+  } else { historico = 0; }
   var total = Object.keys(porMes).reduce(function(s,k){ return s+porMes[k]; },0);
-  return { filas:filas, porProyecto:porProyecto, total:total, asignado:Math.max(0, total-sinAsignar), sinAsignar:sinAsignar, excelExcluidos:excelExcluidos,
+  return { filas:filas, porProyecto:porProyecto, total:total, asignado:Math.max(0, total-sinAsignar), sinAsignar:Math.max(0, sinAsignar), historico:historico, excelHistorico:excelHistorico.length,
     sinFecha:sinFecha, terminadosSinFecha:terminadosSinFecha, directo:directo, nGastos:nGastos };
 }
 function renderIndirectosView(){
@@ -3016,12 +3034,13 @@ function renderIndirectosView(){
   var proyAsignados = Object.keys(ix.porProyecto).filter(function(k){ return ix.porProyecto[k].monto>0.004; });
   var avisos = [];
   if(ix.sinAsignar>0.004) avisos.push(fmtMoney(ix.sinAsignar)+' de indirectos quedan sin asignar: son de meses en los que no se terminó ningún remolque del portal (ver la columna "Sin asignar" en la tabla por mes).');
-  if(ix.excelExcluidos) avisos.push(ix.excelExcluidos+' remolque'+(ix.excelExcluidos===1?'':'s')+' terminado'+(ix.excelExcluidos===1?'':'s')+' que vienen del Excel no reciben indirectos. Para incluir uno, en Catálogos → Proyectos da clic en su fecha de terminado (✎) y marca "Recibe indirectos de México".');
+  if(ix.historico>0.004) avisos.push('Reparto histórico: '+fmtMoney(ix.historico)+' de indirectos de meses anteriores a '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+' se repartieron entre '+ix.excelHistorico+' remolques del Excel terminados, en proporción a su costo directo. Esos remolques no reciben indirectos de meses posteriores salvo que marques "Recibe indirectos de México" al editar su fecha de terminado (Catálogos → Proyectos → ✎).');
   if(ix.sinFecha.n) avisos.push(ix.sinFecha.n+' gasto(s) de '+INDIRECTO_PROYECTOS_LABEL+' por '+fmtMoney(ix.sinFecha.mxn)+' no tienen una fecha válida y no se prorratean.');
   if(ix.terminadosSinFecha.length) avisos.push('Sin fecha de terminado (no reciben indirectos): '+ix.terminadosSinFecha.map(function(k){ return esc(proyectoNombre(k)); }).join(", ")+'. Márcalos como activos y otra vez como terminados en Catálogos para registrar la fecha.');
 
   var filasMes = ix.filas.slice().reverse().map(function(f){
-    var terms = f.proyectos.length ? f.proyectos.map(function(p){ return esc(proyectoNombre(p.key)); }).join(", ") : '<span class="hint">Ninguno</span>';
+    var terms = f.historico ? '<span class="badge badge-steel">Reparto histórico</span> <span class="hint">remolques del Excel terminados</span>'
+      : f.proyectos.length ? f.proyectos.map(function(p){ return esc(proyectoNombre(p.key)); }).join(", ") : '<span class="hint">Ninguno</span>';
     return '<tr>'+
       '<td>'+esc(monthLabel(f.ym))+'</td>'+
       '<td class="num">'+(f.indirecto?fmtMoney(f.indirecto):'—')+'</td>'+
@@ -3031,11 +3050,11 @@ function renderIndirectosView(){
     '</tr>';
   }).join("");
 
-  var filasProy = proyAsignados.sort(function(a,b){ return ix.porProyecto[b].fecha.localeCompare(ix.porProyecto[a].fecha) || ix.porProyecto[b].monto-ix.porProyecto[a].monto; }).map(function(k){
+  var filasProy = proyAsignados.sort(function(a,b){ return (ix.porProyecto[b].fecha||"").localeCompare(ix.porProyecto[a].fecha||"") || ix.porProyecto[b].monto-ix.porProyecto[a].monto; }).map(function(k){
     var p = ix.porProyecto[k];
     return '<tr>'+
       '<td><a href="#" data-action="view-proyecto-gastos" data-key="'+esc(k)+'" style="font-weight:600">'+esc(proyectoNombre(k))+'</a></td>'+
-      '<td>'+fmtDate(p.fecha)+'</td>'+
+      '<td>'+fmtDate(p.fecha)+(p.historico?' <span class="badge badge-steel">Histórico</span>':'')+'</td>'+
       '<td class="num">'+fmtMoney(p.directo)+'</td>'+
       '<td class="num">'+(p.share*100).toFixed(1)+'%</td>'+
       '<td class="num">'+fmtMoney(p.monto)+'</td>'+
@@ -3055,7 +3074,7 @@ function renderIndirectosView(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Por proyecto terminado</h3><span class="card-note">'+proyAsignados.length+' proyecto'+(proyAsignados.length===1?'':'s')+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proyecto</th><th>Terminado</th><th class="num">Costo directo</th><th class="num">% del mes</th><th class="num">Indirecto asignado</th><th class="num">Costo con indirecto</th><th class="num">Indirecto / directo</th></tr></thead>'+
+        '<thead><tr><th>Proyecto</th><th>Terminado</th><th class="num">Costo directo</th><th class="num">% del reparto</th><th class="num">Indirecto asignado</th><th class="num">Costo con indirecto</th><th class="num">Indirecto / directo</th></tr></thead>'+
         '<tbody>'+(filasProy||'<tr><td colspan="7" class="empty">Todavía no hay proyectos terminados que hayan recibido indirectos.</td></tr>')+'</tbody>'+
         (filasProy?'<tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(totDirecto)+'</td><td></td><td class="num">'+fmtMoney(ix.asignado)+'</td><td class="num">'+fmtMoney(totDirecto+ix.asignado)+'</td><td></td></tr></tfoot>':'')+
       '</table></div>'+
@@ -3066,7 +3085,7 @@ function renderIndirectosView(){
         '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th>Proyectos terminados (portal)</th><th class="num">Asignado</th><th class="num">Sin asignar</th></tr></thead>'+
         '<tbody>'+(filasMes||'<tr><td colspan="5" class="empty">Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.</td></tr>')+'</tbody>'+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
+      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Lo que quedó sin asignar antes de '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+' se repartió una sola vez entre los remolques del Excel terminados (reparto histórico). Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
     '</div>';
 }
 
@@ -3887,7 +3906,7 @@ function openCostoDetalleModal(key){
       '<td>Total (TC prom. '+fmtTc(r.tcProm)+')</td><td class="num">'+fmtMoneyInt(r.mxnConTc)+'</td><td class="num">'+fmtUsdInt(r.usdMx)+'</td>')+
     (r.sinTc ? '<p class="hint" style="color:var(--warn)">'+r.sinTc+' gasto(s) por '+fmtMoneyInt(r.sinTcMxn)+' MXN sin tipo de cambio disponible; no están en el total USD.</p>' : '')+
     (r.indirectoInfo ? '<h3 class="card-title" style="margin:14px 0 6px">Indirecto de México</h3>'+
-      '<p class="hint" style="margin-top:0">Terminado el '+fmtDate(r.indirectoInfo.fecha)+': le tocó el '+(r.indirectoInfo.share*100).toFixed(1)+'% del indirecto de '+esc(monthLabel(r.indirectoInfo.ym))+' → '+fmtMoney(r.indirectoMxn)+' MXN'+(r.indirectoTc?' = '+fmtUsd(r.indirectoUsd)+' (FIX '+fmtTc(r.indirectoTc)+').':', sin tipo de cambio disponible.')+'</p>' : '')+
+      '<p class="hint" style="margin-top:0">Terminado el '+fmtDate(r.indirectoInfo.fecha)+': le tocó el '+(r.indirectoInfo.share*100).toFixed(1)+'% del indirecto '+(r.indirectoInfo.historico ? 'histórico (meses anteriores a '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+')' : 'de '+esc(monthLabel(r.indirectoInfo.ym)))+' → '+fmtMoney(r.indirectoMxn)+' MXN'+(r.indirectoTc?' = '+fmtUsd(r.indirectoUsd)+' (FIX '+fmtTc(r.indirectoTc)+').':', sin tipo de cambio disponible.')+'</p>' : '')+
     '<h3 class="card-title" style="margin:14px 0 6px">Houston directo · '+r.gastosUsd+' gastos</h3>'+
     tbl('<th>Categoría</th><th class="num">USD</th>',
       usRows.map(function(x){ return '<tr><td>'+esc(catUs[x.c]||x.c)+'</td><td class="num">'+fmtUsdInt(x.usd)+'</td></tr>'; }).join("") || '<tr><td colspan="2" class="empty">Sin gastos directos en Houston.</td></tr>',
