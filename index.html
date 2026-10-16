@@ -406,7 +406,8 @@ var PERMS = [
   { key:"reportes",     label:"Reportes" },
   { key:"contabilidad", label:"Contabilidad" },
   { key:"houston",      label:"Houston (USD)" },
-  { key:"costo_total",  label:"Costo total (USD)" }
+  { key:"costo_total",  label:"Costo total (USD)" },
+  { key:"inventario",   label:"Inventario" }
 ];
 
 var NAV = [
@@ -417,6 +418,7 @@ var NAV = [
   { id:"comparar",   label:"Comparar proyectos", perm:"viewComparar", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="8" height="18" rx="1"/><rect x="13" y="3" width="8" height="18" rx="1"/></svg>' },
   { id:"reportes",   label:"Reportes",        perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h9l3 3v3"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>' },
   { id:"contabilidad", label:"Contabilidad",  perm:"verifyPago",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
+  { id:"inventario", label:"Inventario",      perm:"viewInventario", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><line x1="12" y1="13" x2="12" y2="21"/></svg>' },
   { id:"indirectos", label:"Indirectos (MX)", perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>' },
   { id:"houston",    label:"Houston (USD)",   perm:"viewHouston",   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="7" width="14" height="10" rx="1"/><path d="M15 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>' },
   { id:"costo_total", label:"Costo total (USD)", perm:"viewCostoTotal", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
@@ -437,6 +439,8 @@ var STATE = {
   gastosContabilidad:{},
   contFilters:{ proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
+  inventarioArticulos:{}, inventarioAjustes:[], invTab:"existencias", invPreset:"", regInvPreset:"",
+  invFilters:{ q:"", estado:"", movArticulo:"", movTipo:"" },
   indFilters:{ q:"", reparto:"", origen:"", mes:"", anio:"" },
   provSearch:"",
   proySearch:"",
@@ -507,7 +511,8 @@ var PERM_MAP = {
   viewReportes:"reportes", exportReportes:"reportes",
   verifyPago:"contabilidad",
   viewHouston:"houston", editGastoUsd:"houston", manageHouston:"houston",
-  viewCostoTotal:"costo_total"
+  viewCostoTotal:"costo_total",
+  viewInventario:"inventario", editInventario:"inventario"
 };
 function can(action){
   var p = STATE.profile;
@@ -551,7 +556,8 @@ function allGastos(){
       forma_pago:g.forma_pago||null,
       flag_sin_proveedor:!g.proveedor, flag_sin_proyecto:!g.proyecto, flag_fecha:false,
       origen:"portal", capturadoPor:g.capturadoPor||"", _docId:g.id,
-      comprobanteId:g.comprobanteId||null, comprobanteUrl:g.comprobanteUrl||null, comprobanteTipo:g.comprobanteTipo||null
+      comprobanteId:g.comprobanteId||null, comprobanteUrl:g.comprobanteUrl||null, comprobanteTipo:g.comprobanteTipo||null,
+      inv_articulo:g.inv_articulo||null, inv_cantidad:Number(g.inv_cantidad)||0, consumo_inventario:!!g.consumo_inventario
     };
   });
   return base.concat(extra);
@@ -697,6 +703,8 @@ function applyStateSnapshot(state){
   STATE.tiposCambio = state.tipos_cambio || {};
   STATE.proveedoresUsd = state.proveedores_usd || {};
   STATE.proyectosHouston = state.proyectos_houston || {};
+  STATE.inventarioArticulos = state.inventario_articulos || {};
+  applyList("inventarioAjustes","inventario_ajustes");
   _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
@@ -819,6 +827,9 @@ document.addEventListener("submit", function(e){
   else if(formId === "proyectoUsdForm") handleProyectoUsdSubmit(e.target);
   else if(formId === "proveedorUsdForm") handleProveedorUsdFormSubmit(e.target);
   else if(formId === "proyectoHoustonForm") handleProyectoHoustonSubmit(e.target);
+  else if(formId === "invArticuloForm") handleInvArticuloSubmit(e.target);
+  else if(formId === "invConsumoForm") handleInvConsumoSubmit(e.target);
+  else if(formId === "invAjusteForm") handleInvAjusteSubmit(e.target);
   else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
@@ -911,7 +922,7 @@ function rerenderView(){
   renderContent();
 }
 function renderContent(){
-  var titles = { dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre los proyectos terminados de cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
+  var titles = { inventario:["Inventario","Existencias del taller y punto de reorden"], dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre los proyectos terminados de cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
@@ -921,7 +932,7 @@ function renderContent(){
     : (STATE.view==="costo_total") ? '<button class="btn" data-action="export-costo-csv">Exportar CSV</button>' : "";
   var c = document.getElementById("content");
 
-  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter","usdfilter","costofilter","indfilter"];
+  var focusAttrs = ["filter","dashfilter","provsearch","proysearch","reportfilter","contfilter","usdfilter","costofilter","indfilter","invfilter"];
   var ae = document.activeElement, activeSelector = null, selStart = null, selEnd = null;
   if(ae && ae.dataset && c.contains(ae)){
     for(var fi=0; fi<focusAttrs.length; fi++){
@@ -941,6 +952,7 @@ function renderContent(){
   else if(STATE.view==="houston") c.innerHTML = renderHoustonView();
   else if(STATE.view==="costo_total") c.innerHTML = renderCostoTotalView();
   else if(STATE.view==="indirectos") c.innerHTML = renderIndirectosView();
+  else if(STATE.view==="inventario") c.innerHTML = renderInventarioView();
   mountCharts();
 
   if(activeSelector){
@@ -960,7 +972,7 @@ function catShortCode(codigo){ if(!codigo) return ""; var i = codigo.indexOf("-"
 function catClave(c){ return (c && c.clave) || catShortCode(c && c.codigo); }
 function catLabel(c){ return catClave(c)+" · "+c.nombre; }
 function catNameMap(){ var m={}; allCategorias().forEach(function(c){ m[c.codigo]=catLabel(c); }); return m; }
-function proyectoNombre(key){ if(key==="SIN_PROYECTO"||!key) return "Sin proyecto asignado"; var p=allProyectos()[key]; return p?p.nombre:key; }
+function proyectoNombre(key){ if(key==="SIN_PROYECTO"||!key) return "Sin proyecto asignado"; if(key===INVENTARIO_KEY) return "INVENTARIO (almacén)"; var p=allProyectos()[key]; return p?p.nombre:key; }
 function estadoDeProyecto(key){ var slug=slugify(key); var e=STATE.proyectoEstado[slug]; return (e&&e.estado)?e.estado:"activo"; }
 /* Día en que se marcó como terminado. Los que se terminaron antes de guardar
    fecha_terminado usan updatedAt, que es el momento de ese mismo clic. */
@@ -1001,6 +1013,293 @@ function handleFechaTerminadoSubmit(form){
     STATE.proyectoEstado[slug] = data;
     toast(fd.get("terminar") ? "Proyecto terminado el "+fmtDate(fecha)+" ✓" : "Fecha de terminado actualizada ✓"); closeModal(); renderContent();
   }).catch(function(){ toast("No se pudo actualizar.","err"); });
+}
+
+/* ================= INVENTARIO ================= */
+/* Compras al almacén: gastos con proyecto INVENTARIO + inv_articulo/inv_cantidad
+   (cuentan para pagos y proveedores, no como costo de ningún remolque).
+   Consumos: gastos con consumo_inventario que cargan al proyecto el SG del
+   artículo al costo promedio de sus compras. Ajustes: conteos físicos.
+   Existencia = compras − consumos + ajustes, siempre calculada. */
+var INVENTARIO_KEY = "INVENTARIO";
+var INV_UNIDADES = ["pieza","metro","rollo","caja","juego","litro","kg","otro"];
+function gastosCosto(){ return allGastos().filter(function(g){ return g.proyecto_key!==INVENTARIO_KEY; }); }
+function allArticulos(includeDeleted){
+  return Object.keys(STATE.inventarioArticulos).map(function(id){
+    var a = STATE.inventarioArticulos[id] || {};
+    return { id:id, nombre:a.nombre||id, unidad:a.unidad||"pieza", categoria:a.categoria||"", proveedor:a.proveedor||"", liga:a.liga||"",
+      punto_reorden:Number(a.punto_reorden)||0, costo_ref:Number(a.costo_ref)||0, notas:a.notas||"", eliminado:!!a.eliminado };
+  }).filter(function(a){ return includeDeleted || !a.eliminado; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+}
+function inventarioResumen(){
+  var por = {};
+  allArticulos(true).forEach(function(a){ por[a.id] = { art:a, entradas:0, entradasImporte:0, consumos:0, consumosImporte:0, ajustes:0, ultimaEntrada:null, ultimoConsumo:null }; });
+  allGastos().forEach(function(g){
+    var x = g.inv_articulo && por[g.inv_articulo]; if(!x) return;
+    var q = Number(g.inv_cantidad)||0;
+    if(g.consumo_inventario){ x.consumos += q; x.consumosImporte += g.importe; if(!x.ultimoConsumo || (g.fecha||"")>x.ultimoConsumo) x.ultimoConsumo = g.fecha; }
+    else if(g.proyecto_key===INVENTARIO_KEY){ var fe = g.fecha_factura||g.fecha; x.entradas += q; x.entradasImporte += g.importe; if(!x.ultimaEntrada || (fe||"")>x.ultimaEntrada) x.ultimaEntrada = fe; }
+  });
+  STATE.inventarioAjustes.forEach(function(j){ var x = por[j.articulo]; if(x) x.ajustes += Number(j.cantidad)||0; });
+  Object.keys(por).forEach(function(id){
+    var x = por[id];
+    x.existencia = Math.round((x.entradas - x.consumos + x.ajustes)*1000)/1000;
+    x.costoProm = x.entradas>0 ? x.entradasImporte/x.entradas : x.art.costo_ref;
+    x.valor = Math.max(0, x.existencia) * (x.costoProm||0);
+    x.estado = x.existencia<=0 ? "agotado" : (x.existencia<=x.art.punto_reorden ? "reordenar" : "ok");
+    x.faltan = Math.max(0, x.art.punto_reorden - x.existencia);
+  });
+  return por;
+}
+var INV_ESTADO_BADGE = { ok:'<span class="badge badge-good">OK</span>', reordenar:'<span class="badge badge-warn">Reordenar</span>', agotado:'<span class="badge badge-critical">Agotado</span>' };
+function fmtCant(n){ return (Math.round(n*1000)/1000).toLocaleString("en-US"); }
+function invUnidad(a, n){ var u = a.unidad||"pieza"; return n===1 || u==="kg" ? u : (u==="pieza"?"piezas":u==="metro"?"metros":u==="rollo"?"rollos":u==="caja"?"cajas":u==="juego"?"juegos":u==="litro"?"litros":u); }
+var INV_TABS = ["existencias","consumo","movimientos","articulos"];
+var INV_TAB_LABELS = { existencias:"Existencias", consumo:"Registrar consumo", movimientos:"Movimientos", articulos:"Artículos" };
+function renderInventarioView(){
+  var t = INV_TABS.indexOf(STATE.invTab)>-1 ? STATE.invTab : "existencias";
+  var body = t==="consumo" ? renderInvConsumoTab() : t==="movimientos" ? renderInvMovimientosTab() : t==="articulos" ? renderInvArticulosTab() : renderInvExistenciasTab();
+  return '<div class="tabs">'+INV_TABS.map(function(x){ return '<button class="tab" data-action="inv-tab" data-tab="'+x+'" aria-selected="'+(t===x)+'">'+INV_TAB_LABELS[x]+'</button>'; }).join("")+'</div>'+
+    '<div style="margin-top:14px">'+body+'</div>';
+}
+function renderInvExistenciasTab(){
+  var res = inventarioResumen(), F = STATE.invFilters, q = F.q.trim().toLowerCase();
+  var catMap = catNameMap(), canEdit = can("editInventario"), canBuy = can("addGasto");
+  var lista = allArticulos(false).map(function(a){ return res[a.id]; });
+  var porPedir = lista.filter(function(x){ return x.estado!=="ok"; });
+  var agotados = lista.filter(function(x){ return x.estado==="agotado"; });
+  var valor = lista.reduce(function(s,x){ return s+x.valor; },0);
+  var rows = lista.filter(function(x){
+    if(F.estado==="pedir" && x.estado==="ok") return false;
+    if(F.estado && F.estado!=="pedir" && x.estado!==F.estado) return false;
+    if(q && (x.art.nombre+" "+x.art.proveedor+" "+(catMap[x.art.categoria]||"")).toLowerCase().indexOf(q)===-1) return false;
+    return true;
+  }).sort(function(a,b){ var o = {agotado:0, reordenar:1, ok:2}; return o[a.estado]-o[b.estado] || a.art.nombre.localeCompare(b.art.nombre); });
+  if(!allArticulos(false).length) return '<div class="card"><div class="empty">Todavía no hay artículos en el inventario.'+(canEdit?' Da de alta el primero en la pestaña <a href="#" data-action="inv-tab" data-tab="articulos">Artículos</a>.':'')+'</div></div>';
+  var body = rows.map(function(x){
+    var a = x.art;
+    return '<tr>'+
+      '<td><strong>'+esc(a.nombre)+'</strong>'+(a.proveedor?'<div class="card-note">'+esc(a.proveedor)+'</div>':'')+'</td>'+
+      '<td><span class="badge badge-steel">'+esc(catShortCode(a.categoria)||"—")+'</span></td>'+
+      '<td class="num" style="font-weight:700'+(x.estado!=="ok"?'; color:'+(x.estado==="agotado"?'var(--critical)':'var(--warn)'):'')+'">'+fmtCant(x.existencia)+' <span class="hint">'+esc(invUnidad(a, x.existencia))+'</span></td>'+
+      '<td class="num">'+fmtCant(a.punto_reorden)+'</td>'+
+      '<td>'+INV_ESTADO_BADGE[x.estado]+(x.faltan>0?'<div class="card-note">faltan '+fmtCant(x.faltan)+' para el punto de reorden</div>':'')+'</td>'+
+      '<td class="num">'+(x.costoProm?fmtMoney(x.costoProm):'—')+'</td>'+
+      '<td class="num">'+fmtMoney(x.valor)+'</td>'+
+      '<td style="white-space:nowrap">'+(x.ultimaEntrada?fmtDate(x.ultimaEntrada):'—')+'</td>'+
+      '<td><div class="row-actions" style="flex-wrap:wrap; gap:4px">'+
+        (canEdit?'<button class="btn" data-action="inv-consumir" data-id="'+esc(a.id)+'">Consumir</button>':'')+
+        (canBuy?'<button class="btn" data-action="inv-comprar" data-id="'+esc(a.id)+'">Registrar compra</button>':'')+
+        (canEdit?'<button class="btn btn-ghost" data-action="inv-ajuste" data-id="'+esc(a.id)+'">Conteo</button>':'')+
+        (a.liga?'<a class="btn btn-ghost" href="'+esc(a.liga)+'" target="_blank" rel="noopener">Comprar en línea ↗</a>':'')+
+      '</div></td>'+
+    '</tr>';
+  }).join("");
+  return '<div class="grid kpis">'+
+      '<div class="card"><div class="kpi-label">Artículos</div><div class="kpi-value">'+lista.length+'</div><div class="kpi-delta">en el catálogo</div></div>'+
+      '<div class="card"><div class="kpi-label">Por pedir</div><div class="kpi-value" style="color:'+(porPedir.length?'var(--warn)':'inherit')+'">'+porPedir.length+'</div><div class="kpi-delta">en o debajo del punto de reorden</div></div>'+
+      '<div class="card"><div class="kpi-label">Agotados</div><div class="kpi-value" style="color:'+(agotados.length?'var(--critical)':'inherit')+'">'+agotados.length+'</div><div class="kpi-delta">sin existencia</div></div>'+
+      '<div class="card"><div class="kpi-label">Valor del inventario</div><div class="kpi-value">'+fmtMoneyInt(valor)+'</div><div class="kpi-delta">a costo promedio</div></div>'+
+    '</div>'+
+    '<div class="card" style="margin-top:14px">'+
+      '<div class="filters">'+
+        '<input type="text" class="q" placeholder="Buscar artículo, proveedor o SG…" data-invfilter="q" value="'+esc(F.q)+'">'+
+        '<select data-invfilter="estado"><option value="">Todos</option><option value="pedir"'+(F.estado==="pedir"?' selected':'')+'>Por pedir (reordenar y agotados)</option><option value="agotado"'+(F.estado==="agotado"?' selected':'')+'>Solo agotados</option><option value="ok"'+(F.estado==="ok"?' selected':'')+'>Solo OK</option></select>'+
+      '</div>'+
+      '<div class="table-wrap"><table>'+
+        '<thead><tr><th>Artículo</th><th>SG</th><th class="num">Existencia</th><th class="num">Punto de reorden</th><th>Estado</th><th class="num">Costo prom.</th><th class="num">Valor</th><th>Última compra</th><th></th></tr></thead>'+
+        '<tbody>'+(body||'<tr><td colspan="9" class="empty">Sin artículos con estos filtros.</td></tr>')+'</tbody>'+
+      '</table></div>'+
+      '<p class="hint" style="margin-top:10px">Existencia = compras (Registrar gasto → "Entra a inventario") − consumos asignados a proyectos ± conteos físicos. Un artículo pasa a <strong>Reordenar</strong> cuando su existencia llega a su punto de reorden.</p>'+
+    '</div>';
+}
+function invProyectoOptions(){
+  var proyMap = allProyectos();
+  return Object.keys(proyMap).map(function(k){ return proyMap[k]; }).filter(function(p){ return p.es_valido && !esProyectoIndirecto(p.key) && estadoDeProyecto(p.key)!=="terminado"; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+}
+function renderInvConsumoTab(){
+  if(!can("editInventario")) return '<div class="card"><p class="hint">Tu perfil no tiene permiso para registrar consumos de inventario.</p></div>';
+  var res = inventarioResumen(), arts = allArticulos(false), pre = STATE.invPreset; STATE.invPreset = "";
+  if(!arts.length) return '<div class="card"><div class="empty">Primero da de alta artículos en la pestaña <a href="#" data-action="inv-tab" data-tab="articulos">Artículos</a>.</div></div>';
+  var proys = invProyectoOptions(), catMap = catNameMap();
+  var recientes = allGastos().filter(function(g){ return g.consumo_inventario; }).sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||"") || String(b.id).localeCompare(String(a.id)); }).slice(0,10);
+  return '<div class="card form-card"><form id="invConsumoForm">'+
+      '<div class="form-grid">'+
+        '<div class="field"><label>'+reqLabel("Tu nombre")+'</label><input name="capturadoPor" required value="'+esc(getRememberedName())+'"></div>'+
+        '<div class="field"><label>'+reqLabel("Fecha")+'</label><input type="date" name="fecha" value="'+todayISO()+'" required></div>'+
+        '<div class="field span2"><label>'+reqLabel("Artículo")+'</label><select name="articulo" required><option value="">Selecciona…</option>'+arts.map(function(a){ var x = res[a.id]; return '<option value="'+esc(a.id)+'"'+(a.id===pre?' selected':'')+'>'+esc(a.nombre)+' — hay '+fmtCant(x.existencia)+' '+esc(invUnidad(a, x.existencia))+' · '+esc(catShortCode(a.categoria)||"sin SG")+'</option>'; }).join("")+'</select></div>'+
+        '<div class="field"><label>'+reqLabel("Cantidad")+'</label><input type="number" name="cantidad" step="any" min="0.001" required placeholder="0"></div>'+
+        '<div class="field"><label>'+reqLabel("Proyecto")+'</label><select name="proyecto_key" required><option value="">Selecciona…</option>'+proys.map(function(p){ return '<option value="'+esc(p.key)+'">'+esc(p.nombre)+'</option>'; }).join("")+'</select></div>'+
+        '<div class="field span2"><label>Nota</label><input name="nota" placeholder="Opcional: tarea o dónde se usó"></div>'+
+      '</div>'+
+      '<p class="hint">Se descuenta de la existencia y se carga al proyecto como costo, en el SG del artículo, a su costo promedio de compra.</p>'+
+      '<div style="margin-top:12px"><button class="btn btn-primary" type="submit">Registrar consumo</button></div>'+
+    '</form></div>'+
+    '<div class="card" style="margin-top:14px"><div class="card-head"><h3 class="card-title">Últimos consumos</h3></div>'+
+      (recientes.length ? '<div class="barlist">'+recientes.map(function(g){
+        var a = STATE.inventarioArticulos[g.inv_articulo] || {};
+        return '<div class="flag-item"><span>'+esc(fmtDate(g.fecha))+' · '+esc(a.nombre||g.inv_articulo)+' × '+fmtCant(g.inv_cantidad)+' → <strong>'+esc(proyectoNombre(g.proyecto_key))+'</strong> <span class="card-note">('+esc(catMap[g.categoria]||g.categoria||"—")+' · '+esc(g.capturadoPor||"—")+')</span></span><span class="num">'+fmtMoney(g.importe)+'</span></div>';
+      }).join("")+'</div>' : '<div class="empty">Sin consumos registrados.</div>')+
+    '</div>';
+}
+function handleInvConsumoSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form), id = fd.get("articulo"), a = STATE.inventarioArticulos[id];
+  var cant = parseFloat(fd.get("cantidad")), pk = fd.get("proyecto_key");
+  if(!a){ toast("Selecciona un artículo.","err"); return; }
+  if(!cant || cant<=0){ toast("Escribe una cantidad válida.","err"); return; }
+  if(!pk){ toast("Selecciona el proyecto.","err"); return; }
+  var x = inventarioResumen()[id];
+  if(cant > x.existencia + 1e-9){ toast("Solo hay "+fmtCant(x.existencia)+" "+invUnidad(allArticulos(true).filter(function(z){return z.id===id;})[0], x.existencia)+" de "+a.nombre+". Si el conteo real es distinto, corrígelo con \"Conteo\" en Existencias.","err"); return; }
+  if(!(x.costoProm>0)){ toast("Este artículo no tiene costo: registra su compra o captura un costo de referencia en Artículos.","err"); return; }
+  if(!a.categoria){ toast("Asígnale un SG al artículo en la pestaña Artículos antes de consumirlo.","err"); return; }
+  var capturador = (fd.get("capturadoPor")||"").trim(); try{ localStorage.setItem("rt_capturador", capturador); }catch(e){}
+  var nota = (fd.get("nota")||"").trim(), fecha = fd.get("fecha")||todayISO();
+  var gasto = { proyecto: proyectoNombre(pk), proyecto_key: pk, fecha: fecha, fecha_factura: fecha, proveedor: "INVENTARIO",
+    descripcion: "Consumo de inventario: "+a.nombre+" × "+fmtCant(cant)+(nota?" · "+nota:""), factura: null,
+    importe: Math.round(cant*x.costoProm*100)/100, cantidad: cant, categoria: a.categoria, forma_pago: "inventario",
+    capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid(),
+    consumo_inventario: true, inv_articulo: id, inv_cantidad: cant };
+  var btn = form.querySelector('button[type=submit]'); if(btn) btn.disabled = true;
+  STATE.db.collection("gastos_nuevos").add(gasto).then(function(res){
+    STATE.gastosNuevos.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, gasto));
+    toast("Consumo registrado: "+fmtMoney(gasto.importe)+" a "+proyectoNombre(pk)+" ✓"); renderContent();
+  }).catch(function(err){ if(btn) btn.disabled = false; toast(err && err.status===403 ? "No tienes permiso del módulo Inventario." : "No se pudo registrar.","err"); });
+}
+function invMovimientos(){
+  var arts = STATE.inventarioArticulos, out = [];
+  allGastos().forEach(function(g){
+    if(!g.inv_articulo) return;
+    if(g.consumo_inventario) out.push({ fecha:g.fecha, tipo:"consumo", articulo:g.inv_articulo, cantidad:-(Number(g.inv_cantidad)||0), detalle:proyectoNombre(g.proyecto_key), importe:g.importe, quien:g.capturadoPor||"" });
+    else if(g.proyecto_key===INVENTARIO_KEY) out.push({ fecha:g.fecha_factura||g.fecha, tipo:"entrada", articulo:g.inv_articulo, cantidad:Number(g.inv_cantidad)||0, detalle:(g.proveedor||"")+(g.factura?" · fact. "+g.factura:""), importe:g.importe, quien:g.capturadoPor||"" });
+  });
+  STATE.inventarioAjustes.forEach(function(j){ out.push({ fecha:j.fecha, tipo:"ajuste", articulo:j.articulo, cantidad:Number(j.cantidad)||0, detalle:j.motivo||"", importe:null, quien:j.capturadoPor||"" }); });
+  return out.sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||""); });
+}
+function renderInvMovimientosTab(){
+  var F = STATE.invFilters, arts = allArticulos(true), byId = {};
+  arts.forEach(function(a){ byId[a.id] = a; });
+  var movs = invMovimientos().filter(function(m){ return (!F.movArticulo || m.articulo===F.movArticulo) && (!F.movTipo || m.tipo===F.movTipo); });
+  var tipoBadge = { entrada:'<span class="badge badge-good">Compra</span>', consumo:'<span class="badge badge-accent">Consumo</span>', ajuste:'<span class="badge badge-muted">Conteo / ajuste</span>' };
+  var body = movs.slice(0,500).map(function(m){
+    var a = byId[m.articulo] || { nombre:m.articulo, unidad:"pieza" };
+    return '<tr><td style="white-space:nowrap">'+fmtDate(m.fecha)+'</td><td>'+tipoBadge[m.tipo]+'</td><td>'+esc(a.nombre)+'</td>'+
+      '<td class="num" style="color:'+(m.cantidad<0?'var(--critical)':'var(--good)')+'">'+(m.cantidad>0?'+':'')+fmtCant(m.cantidad)+' <span class="hint">'+esc(invUnidad(a, Math.abs(m.cantidad)))+'</span></td>'+
+      '<td>'+esc(m.detalle||"—")+'</td><td class="num">'+(m.importe!==null?fmtMoney(m.importe):'—')+'</td><td>'+esc(m.quien||"—")+'</td></tr>';
+  }).join("");
+  return '<div class="card"><div class="filters">'+
+      '<select data-invfilter="movArticulo"><option value="">Todos los artículos</option>'+arts.map(function(a){ return '<option value="'+esc(a.id)+'"'+(F.movArticulo===a.id?' selected':'')+'>'+esc(a.nombre)+(a.eliminado?' (eliminado)':'')+'</option>'; }).join("")+'</select>'+
+      '<select data-invfilter="movTipo"><option value="">Compras, consumos y ajustes</option><option value="entrada"'+(F.movTipo==="entrada"?' selected':'')+'>Solo compras</option><option value="consumo"'+(F.movTipo==="consumo"?' selected':'')+'>Solo consumos</option><option value="ajuste"'+(F.movTipo==="ajuste"?' selected':'')+'>Solo conteos / ajustes</option></select>'+
+    '</div><div class="table-wrap"><table>'+
+      '<thead><tr><th>Fecha</th><th>Tipo</th><th>Artículo</th><th class="num">Cantidad</th><th>Proyecto / proveedor / motivo</th><th class="num">Importe</th><th>Capturó</th></tr></thead>'+
+      '<tbody>'+(body||'<tr><td colspan="7" class="empty">Sin movimientos.</td></tr>')+'</tbody>'+
+    '</table></div>'+(movs.length>500?'<p class="hint">Mostrando los 500 más recientes de '+movs.length+'.</p>':'')+'</div>';
+}
+function renderInvArticulosTab(){
+  var canEdit = can("editInventario"), master = isMasterUser(), catMap = catNameMap(), res = inventarioResumen();
+  var arts = allArticulos(false);
+  return '<div class="card">'+
+    (canEdit ? '<button class="btn btn-primary" data-action="inv-new-articulo" style="margin-bottom:14px">+ Nuevo artículo</button>' : '')+
+    '<div class="table-wrap"><table>'+
+      '<thead><tr><th>Artículo</th><th>Unidad</th><th>SG</th><th>Proveedor habitual</th><th class="num">Punto de reorden</th><th class="num">Costo de referencia</th><th class="num">Existencia</th><th></th></tr></thead>'+
+      '<tbody>'+(arts.map(function(a){
+        return '<tr><td><strong>'+esc(a.nombre)+'</strong>'+(a.notas?'<div class="card-note">'+esc(a.notas)+'</div>':'')+'</td><td>'+esc(a.unidad)+'</td>'+
+          '<td>'+esc(catMap[a.categoria]||a.categoria||"—")+'</td><td>'+esc(a.proveedor||"—")+(a.liga?' <a href="'+esc(a.liga)+'" target="_blank" rel="noopener">↗</a>':'')+'</td>'+
+          '<td class="num">'+fmtCant(a.punto_reorden)+'</td><td class="num">'+(a.costo_ref?fmtMoney(a.costo_ref):'—')+'</td><td class="num">'+fmtCant(res[a.id].existencia)+'</td>'+
+          '<td><div class="row-actions">'+(canEdit?'<button class="btn" data-action="inv-edit-articulo" data-id="'+esc(a.id)+'">Editar</button>':'')+(master?' <button class="btn btn-danger" data-action="inv-delete-articulo" data-id="'+esc(a.id)+'">Eliminar</button>':'')+'</div></td></tr>';
+      }).join("") || '<tr><td colspan="8" class="empty">Todavía no hay artículos.</td></tr>')+'</tbody>'+
+    '</table></div>'+
+    '<p class="hint" style="margin-top:10px">El SG define a qué subsistema se carga el costo cuando se consume el artículo en un proyecto. El costo de referencia solo se usa mientras el artículo no tenga compras registradas.</p>'+
+  '</div>';
+}
+function openInvArticuloModal(id){
+  var a = { id:"", nombre:"", unidad:"pieza", categoria:"", proveedor:"", liga:"", punto_reorden:0, costo_ref:0, notas:"" };
+  if(id){ var f = allArticulos(true).filter(function(x){ return x.id===id; })[0]; if(!f) return; a = f; }
+  var cats = allCategorias().filter(function(c){ return c.codigo!=="SIN-CAT"; }).sort(function(x,y){ return x.orden-y.orden; });
+  openModal('<h3>'+(id?"Editar artículo":"Nuevo artículo")+'</h3><form id="invArticuloForm"><input type="hidden" name="id" value="'+esc(a.id)+'">'+
+    '<div class="field"><label>'+reqLabel("Nombre")+'</label><input name="nombre" value="'+esc(a.nombre)+'" required autofocus placeholder="Ej. Contacto doble 110V"></div>'+
+    '<div class="form-grid">'+
+      '<div class="field"><label>'+reqLabel("Unidad")+'</label><select name="unidad">'+INV_UNIDADES.map(function(u){ return '<option value="'+u+'"'+(a.unidad===u?' selected':'')+'>'+u+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>'+reqLabel("SG (subsistema)")+'</label><select name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){ return '<option value="'+esc(c.codigo)+'"'+(a.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>'+reqLabel("Punto de reorden")+'</label><input type="number" name="punto_reorden" step="any" min="0" required value="'+esc(a.punto_reorden)+'"></div>'+
+      '<div class="field"><label>Costo de referencia (MXN por unidad)</label><input type="number" name="costo_ref" step="0.01" min="0" value="'+(a.costo_ref||"")+'" placeholder="Opcional"></div>'+
+      '<div class="field"><label>Proveedor habitual</label><input name="proveedor" value="'+esc(a.proveedor)+'" placeholder="Amazon, Mercado Libre…"></div>'+
+      '<div class="field"><label>Liga para comprar</label><input type="url" name="liga" value="'+esc(a.liga)+'" placeholder="https://…"></div>'+
+      (id ? '' : '<div class="field"><label>Existencia inicial</label><input type="number" name="inicial" step="any" min="0" placeholder="Lo que hay hoy (opcional)"></div>')+
+    '</div>'+
+    '<div class="field"><label>Notas</label><input name="notas" value="'+esc(a.notas)+'" placeholder="Opcional: dónde se usa, ubicación en el taller…"></div>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+  '</form>');
+  var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "640px";
+}
+function handleInvArticuloSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form), id = fd.get("id")||"", nombre = (fd.get("nombre")||"").trim();
+  if(!nombre){ toast("Escribe un nombre.","err"); return; }
+  if(allArticulos(false).some(function(x){ return x.id!==id && normKey(x.nombre)===normKey(nombre); })){ toast("Ya existe un artículo con ese nombre.","err"); return; }
+  var pr = parseFloat(fd.get("punto_reorden")); if(isNaN(pr) || pr<0){ toast("Escribe un punto de reorden válido.","err"); return; }
+  var cr = (fd.get("costo_ref")||"").trim(), costo = cr==="" ? 0 : parseFloat(cr); if(isNaN(costo) || costo<0){ toast("Escribe un costo válido.","err"); return; }
+  if(!fd.get("categoria")){ toast("Selecciona el SG.","err"); return; }
+  var ini = (fd.get("inicial")||"").trim(), inicial = ini==="" ? 0 : parseFloat(ini); if(isNaN(inicial) || inicial<0){ toast("Escribe una existencia inicial válida.","err"); return; }
+  var finalId = id; if(!finalId){ var base = slugify(nombre), n = 2; finalId = base; while(STATE.inventarioArticulos[finalId]) finalId = base+"-"+(n++); }
+  var now = new Date().toISOString();
+  var data = Object.assign({}, STATE.inventarioArticulos[finalId]||{}, { nombre:nombre, unidad:fd.get("unidad")||"pieza", categoria:fd.get("categoria"),
+    punto_reorden:pr, costo_ref:costo, proveedor:(fd.get("proveedor")||"").trim(), liga:(fd.get("liga")||"").trim(), notas:(fd.get("notas")||"").trim(), updatedAt:now });
+  if(!id) data.creadoEn = now;
+  STATE.db.doc("inventario_articulos/"+finalId).set(data).then(function(){
+    STATE.inventarioArticulos[finalId] = data;
+    if(!id && inicial>0) return guardarAjusteInventario(finalId, inicial, "Existencia inicial", getRememberedName()||quienSoy());
+  }).then(function(){ toast(id ? "Artículo actualizado ✓" : "Artículo creado ✓"); closeModal(); renderContent(); })
+    .catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Inventario." : "No se pudo guardar.","err"); });
+}
+function guardarAjusteInventario(id, cantidad, motivo, quien){
+  var a = STATE.inventarioArticulos[id] || {};
+  var doc = { articulo:id, articulo_nombre:a.nombre||id, cantidad:cantidad, motivo:motivo, fecha:todayISO(), capturadoPor:quien||quienSoy(), creadoEn:new Date().toISOString(), _cid:uid() };
+  return STATE.db.collection("inventario_ajustes").add(doc).then(function(res){
+    STATE.inventarioAjustes.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, doc));
+  });
+}
+function openInvAjusteModal(id){
+  var a = allArticulos(true).filter(function(x){ return x.id===id; })[0]; if(!a) return;
+  var x = inventarioResumen()[id];
+  openModal('<h3>Conteo físico: '+esc(a.nombre)+'</h3>'+
+    '<p class="hint" style="margin-top:0">Según el portal hay <strong>'+fmtCant(x.existencia)+' '+esc(invUnidad(a, x.existencia))+'</strong>. Escribe cuántas hay realmente y se registra la diferencia como ajuste.</p>'+
+    '<form id="invAjusteForm"><input type="hidden" name="id" value="'+esc(id)+'">'+
+      '<div class="field"><label>'+reqLabel("Existencia contada")+'</label><input type="number" name="contada" step="any" min="0" required autofocus value="'+esc(x.existencia)+'"></div>'+
+      '<div class="field"><label>Motivo</label><input name="motivo" placeholder="Ej. conteo mensual, merma, pieza dañada"></div>'+
+      '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar conteo</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+    '</form>');
+}
+function handleInvAjusteSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form), id = fd.get("id"), contada = parseFloat(fd.get("contada"));
+  if(isNaN(contada) || contada<0){ toast("Escribe una cantidad válida.","err"); return; }
+  var dif = Math.round((contada - inventarioResumen()[id].existencia)*1000)/1000;
+  if(Math.abs(dif)<1e-9){ toast("Coincide con el portal; no hay nada que ajustar."); closeModal(); return; }
+  guardarAjusteInventario(id, dif, (fd.get("motivo")||"").trim()||"Conteo físico", getRememberedName()||quienSoy()).then(function(){
+    toast("Conteo guardado ("+(dif>0?"+":"")+fmtCant(dif)+") ✓"); closeModal(); renderContent();
+  }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Inventario." : "No se pudo guardar.","err"); });
+}
+function deleteInvArticuloModal(id){
+  var a = STATE.inventarioArticulos[id] || {}, x = inventarioResumen()[id];
+  openModal('<h3>Eliminar artículo</h3><p class="hint">"'+esc(a.nombre||id)+'" dejará de aparecer en el inventario'+(x && x.existencia>0 ? ' aunque todavía tiene '+fmtCant(x.existencia)+' en existencia' : '')+'. Sus compras y consumos ya registrados se conservan.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-danger" data-action="inv-confirm-delete-articulo" data-id="'+esc(id)+'">Sí, eliminar</button><button class="btn" data-action="modal-close">Cancelar</button></div>');
+}
+function setInvArticuloEliminado(id){
+  if(!isMasterUser()){ toast("Solo el Master Administrator puede eliminar.","err"); return; }
+  var data = Object.assign({}, STATE.inventarioArticulos[id]||{}, { eliminado:true, updatedAt:new Date().toISOString() });
+  STATE.db.doc("inventario_articulos/"+id).set(data).then(function(){ STATE.inventarioArticulos[id] = data; toast("Artículo eliminado"); closeModal(); renderContent(); })
+    .catch(function(){ toast("No se pudo eliminar.","err"); });
+}
+function toggleRegistrarInventario(form){
+  var on = !!(form.querySelector('input[name="inv_entra"]')||{}).checked;
+  var box = form.querySelector("[data-inv-box]"), pf = form.querySelector("[data-reg-proyecto-field]"), ps = form.querySelector("#f_proyecto");
+  if(box) box.style.display = on ? "" : "none";
+  if(pf) pf.style.display = on ? "none" : "";
+  if(ps){ if(on) ps.removeAttribute("required"); else ps.setAttribute("required",""); }
+  var as = form.querySelector('select[name="inv_articulo"]'), cs = form.querySelector('input[name="inv_cantidad"]');
+  if(as){ if(on) as.setAttribute("required",""); else as.removeAttribute("required"); }
+  if(cs){ if(on) cs.setAttribute("required",""); else cs.removeAttribute("required"); }
 }
 
 /* ================= CHARTS ================= */
@@ -1083,9 +1382,9 @@ document.addEventListener("mouseleave", function(e){
 
 /* ================= DASHBOARD ================= */
 function monthLabel(ym){ var meses=["ene","feb","mar","abr","may","jun","jul","ago","sep","oct","nov","dic"]; var p=ym.split("-"); return meses[parseInt(p[1],10)-1]+" "+p[0].slice(2); }
-function filteredDashboardGastos(){
+function filteredDashboardGastos(){ // costo de proyectos: sin compras al almacén
   var f = STATE.dashFilters;
-  return allGastos().filter(function(r){
+  return gastosCosto().filter(function(r){
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
     if(f.formaPago && r.forma_pago!==f.formaPago) return false;
@@ -1330,7 +1629,12 @@ function renderCompararView(){
 function filteredReportGastos(dateField){
   var f = STATE.reportFilters;
   dateField = dateField || "fecha";
+  // Plantillas de facturas (proveedores/consolidado) llevan las compras reales
+  // y no los consumos de inventario; las de costo llevan los consumos y no las
+  // compras al almacén.
+  var deFacturas = STATE.reportTemplate==="proveedores" || STATE.reportTemplate==="consolidado";
   return allGastos().filter(function(r){
+    if(deFacturas ? r.consumo_inventario : r.proyecto_key===INVENTARIO_KEY) return false;
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.proveedor && normKey(r.proveedor)!==normKey(f.proveedor)) return false;
     if(f.categoria && r.categoria!==f.categoria) return false;
@@ -2226,7 +2530,7 @@ function renderGastosView(){
       '<td class="desc-cell" title="'+esc(r.descripcion)+'">'+esc(r.descripcion||"—")+'</td>'+
       '<td class="num">'+esc(r.factura||"—")+'</td>'+
       '<td><span class="badge badge-steel">'+esc(catMap[r.categoria]||r.categoria||"—")+'</span></td>'+
-      '<td>'+(r.forma_pago==="credito"?'<span class="badge badge-warn">Crédito</span>':r.forma_pago==="efectivo"?'<span class="badge badge-good">Efectivo</span>':'<span class="badge badge-muted">—</span>')+'</td>'+
+      '<td>'+(r.forma_pago==="credito"?'<span class="badge badge-warn">Crédito</span>':r.forma_pago==="efectivo"?'<span class="badge badge-good">Efectivo</span>':r.forma_pago==="inventario"?'<span class="badge badge-accent">Inventario</span>':'<span class="badge badge-muted">—</span>')+'</td>'+
       '<td class="num">'+fmtMoney(r.importe)+'</td>'+
       '<td><span class="badge '+(r.origen==="portal"?"badge-accent":"badge-muted")+'">'+(r.origen==="portal"?"Portal":"Excel")+'</span>'+(r._edited?' <span class="badge badge-warn" title="Editado por '+esc((STATE.gastosEdits[String(r.id)]||{}).editadoPor||"")+'">Editado</span>':'')+'</td>'+
       '<td>'+(comprobante||'<span class="hint">—</span>')+'</td>'+
@@ -2280,20 +2584,29 @@ function renderRegistrarView(){
   var cats = allCategorias().filter(function(c){return c.codigo!=="SIN-CAT";}).sort(function(a,b){return a.orden-b.orden;});
   var recientes = STATE.gastosNuevos.slice().sort(function(a,b){ return (b.creadoEn||"").localeCompare(a.creadoEn||""); }).slice(0,8);
   STATE._acSources["reg-proveedor"] = allProveedores();
+  var invArts = allArticulos(false), invPre = STATE.regInvPreset; STATE.regInvPreset = "";
+  var invPreArt = invPre && STATE.inventarioArticulos[invPre];
+  var invHTML = invArts.length ? '<div class="field span2" style="border:1px dashed var(--line); border-radius:6px; padding:10px 12px">'+
+      '<label style="display:flex; align-items:center; gap:8px; text-transform:none; letter-spacing:normal; font-weight:600; font-size:13px; color:var(--ink); cursor:pointer"><input type="checkbox" name="inv_entra" style="width:auto"'+(invPreArt?' checked':'')+'> Entra a inventario <span class="hint" style="font-weight:400">(compra para el almacén del taller; se carga a los proyectos cuando se consuma)</span></label>'+
+      '<div data-inv-box="1" class="form-grid" style="margin-top:8px'+(invPreArt?'':'; display:none')+'">'+
+        '<div class="field"><label>'+reqLabel("Artículo")+'</label><select name="inv_articulo"'+(invPreArt?' required':'')+'><option value="">Selecciona…</option>'+invArts.map(function(a){ return '<option value="'+esc(a.id)+'"'+(a.id===invPre?' selected':'')+'>'+esc(a.nombre)+' ('+esc(a.unidad)+')</option>'; }).join("")+'</select></div>'+
+        '<div class="field"><label>'+reqLabel("Cantidad que entra")+'</label><input type="number" name="inv_cantidad" step="any" min="0.001" placeholder="0"'+(invPreArt?' required':'')+'></div>'+
+      '</div></div>' : '';
   return '' +
   '<div class="card form-card">'+
     '<form id="registrarForm">'+
       '<div class="form-grid">'+
+        invHTML+
         '<div class="field"><label for="f_capturador">'+reqLabel("Tu nombre")+'</label><input id="f_capturador" name="capturadoPor" required value="'+esc(getRememberedName())+'" placeholder="¿Quién registra?"></div>'+
         '<div class="field"><label for="f_fecha">'+reqLabel("Fecha de registro")+'</label><input type="date" id="f_fecha" name="fecha" value="'+todayISO()+'" required></div>'+
-        '<div class="field"><label for="f_proyecto">'+reqLabel("Proyecto")+'</label><select id="f_proyecto" name="proyecto_key" required>'+
+        '<div class="field" data-reg-proyecto-field="1"'+(invPreArt?' style="display:none"':'')+'><label for="f_proyecto">'+reqLabel("Proyecto")+'</label><select id="f_proyecto" name="proyecto_key"'+(invPreArt?'':' required')+'>'+
           '<option value="">Selecciona…</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'" data-nombre="'+esc(p.nombre)+'">'+esc(p.nombre)+'</option>';}).join("")+
         '</select></div>'+
         '<div class="field"><label for="f_proveedor">'+reqLabel("Proveedor")+'</label><div class="ac-wrap"><input id="f_proveedor" name="proveedor" autocomplete="off" data-ac="reg-proveedor" required placeholder="Escribe para buscar…"><div class="ac-list" id="ac-reg-proveedor"></div></div></div>'+
         '<div class="field"><label for="f_fecha_factura">'+reqLabel("Fecha de factura")+'</label><input type="date" id="f_fecha_factura" name="fecha_factura" required></div>'+
         '<div class="field span2"><label for="f_desc">'+reqLabel("Descripción")+'</label><input id="f_desc" name="descripcion" required placeholder="¿Qué se compró?"></div>'+
         '<div class="field"><label for="f_factura">'+reqLabel("N° de factura")+'</label><input id="f_factura" name="factura" required placeholder="Número de factura"></div>'+
-        '<div class="field"><label for="f_categoria">'+reqLabel("Categoría")+'</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'">'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
+        '<div class="field"><label for="f_categoria">'+reqLabel("Categoría")+'</label><select id="f_categoria" name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){return '<option value="'+esc(c.codigo)+'"'+(invPreArt && invPreArt.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>';}).join("")+'</select></div>'+
         '<div class="field"><label for="f_importe">'+reqLabel("Importe")+'</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" id="f_importe" name="importe" step="0.01" min="0.01" required placeholder="0.00"></div></div>'+
         '<div class="field"><label for="f_forma_pago">'+reqLabel("Forma de pago")+'</label><select id="f_forma_pago" name="forma_pago" required><option value="efectivo">Efectivo</option><option value="credito">Crédito</option></select></div>'+
         '<div class="field span2"><label for="f_comprobante">Comprobante (foto o PDF)</label><input type="file" id="f_comprobante" name="comprobante" accept="image/png,image/jpeg,image/gif,image/webp,application/pdf"><span class="hint" style="margin-top:4px">Opcional.</span></div>'+
@@ -2313,7 +2626,14 @@ function submitGasto(form){
   var fd = new FormData(form);
   var proyKey = fd.get("proyecto_key");
   var proyNombre = "";
-  if(proyKey){
+  var invEntra = !!fd.get("inv_entra"), invArticulo = null, invCantidad = 0;
+  if(invEntra){
+    invArticulo = fd.get("inv_articulo"); invCantidad = parseFloat(fd.get("inv_cantidad"));
+    if(!invArticulo || !STATE.inventarioArticulos[invArticulo]){ toast("Selecciona el artículo que entra a inventario.","err"); return; }
+    if(!invCantidad || invCantidad<=0){ toast("Escribe cuántas piezas entran a inventario.","err"); return; }
+    proyKey = INVENTARIO_KEY; proyNombre = proyectoNombre(INVENTARIO_KEY);
+  } else if(!proyKey){ toast("Selecciona el proyecto.","err"); return; }
+  if(proyKey && !invEntra){
     var opt = form.querySelector('#f_proyecto option[value="'+CSS.escape(proyKey)+'"]');
     proyNombre = opt ? opt.dataset.nombre : proyKey;
   }
@@ -2338,12 +2658,14 @@ function submitGasto(form){
       forma_pago: fd.get("forma_pago")||"efectivo",
       capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid()
     };
+    if(invEntra){ gasto.inv_articulo = invArticulo; gasto.inv_cantidad = invCantidad; }
     if(uploaded){ gasto.comprobanteId = uploaded.id; gasto.comprobanteUrl = uploaded.url; gasto.comprobanteTipo = uploaded.contentType; }
 
     return STATE.db.collection("gastos_nuevos").add(gasto).then(function(res){
       STATE.gastosNuevos.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, gasto));
-      toast("Gasto guardado ✓");
+      toast(invEntra ? "Gasto guardado ✓ · entraron "+fmtCant(invCantidad)+" a inventario" : "Gasto guardado ✓");
       form.reset();
+      toggleRegistrarInventario(form);
       document.getElementById("f_fecha").value = todayISO();
       document.getElementById("f_capturador").value = capturador;
       renderContent();
@@ -4130,6 +4452,14 @@ document.addEventListener("click", function(e){
   else if(action==="cat-tab"){ STATE.catTab = el.dataset.tab; renderContent(); }
   else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
   else if(action==="export-propuesta-csv") exportPropuestaCSV();
+  else if(action==="inv-tab"){ STATE.invTab = el.dataset.tab; renderContent(); }
+  else if(action==="inv-new-articulo") openInvArticuloModal(null);
+  else if(action==="inv-edit-articulo") openInvArticuloModal(el.dataset.id);
+  else if(action==="inv-ajuste") openInvAjusteModal(el.dataset.id);
+  else if(action==="inv-consumir"){ STATE.invPreset = el.dataset.id; STATE.invTab = "consumo"; renderContent(); }
+  else if(action==="inv-comprar"){ STATE.regInvPreset = el.dataset.id; setView("registrar"); }
+  else if(action==="inv-delete-articulo") deleteInvArticuloModal(el.dataset.id);
+  else if(action==="inv-confirm-delete-articulo") setInvArticuloEliminado(el.dataset.id);
   else if(action==="clear-ind-filters"){ STATE.indFilters = { q:"", reparto:"", origen:"", mes:"", anio:"" }; renderContent(); }
   else if(action==="usuarios-tab"){ STATE.usuariosTab = el.dataset.tab; renderContent(); }
   else if(action==="refresh-activity-log"){ STATE.activityLog = null; renderContent(); }
@@ -4286,6 +4616,8 @@ document.addEventListener("input", debounce(function(e){
     STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.indfilter){
     STATE.indFilters[e.target.dataset.indfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.invfilter){
+    STATE.invFilters[e.target.dataset.invfilter] = e.target.value; renderContent();
   }
 }, 260));
 document.addEventListener("change", function(e){
@@ -4326,6 +4658,13 @@ document.addEventListener("change", function(e){
     STATE.costoFilters[e.target.dataset.costofilter] = e.target.value; renderContent();
   } else if(e.target && e.target.dataset && e.target.dataset.indfilter && e.target.tagName==="SELECT"){
     STATE.indFilters[e.target.dataset.indfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.dataset && e.target.dataset.invfilter && e.target.tagName==="SELECT"){
+    STATE.invFilters[e.target.dataset.invfilter] = e.target.value; renderContent();
+  } else if(e.target && e.target.name==="inv_entra" && e.target.form && e.target.form.id==="registrarForm"){
+    toggleRegistrarInventario(e.target.form);
+  } else if(e.target && e.target.name==="inv_articulo" && e.target.form && e.target.form.id==="registrarForm"){
+    var invArt = STATE.inventarioArticulos[e.target.value]; var catSel = e.target.form.querySelector("#f_categoria");
+    if(invArt && invArt.categoria && catSel) catSel.value = invArt.categoria;
   } else if(e.target && e.target.name==="tipo_usd"){
     var pf = e.target.form && e.target.form.querySelector("[data-usd-proyecto-field]");
     if(pf) pf.style.display = e.target.value==="proyecto" ? "" : "none";
