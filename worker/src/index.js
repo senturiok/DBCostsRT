@@ -35,7 +35,7 @@ const BASE_FILES = {
 const SESSION_COOKIE = "rt_session";
 const SESSION_TTL_SECONDS = 30 * 24 * 60 * 60; // 30 days
 
-const LIST_COLLECTIONS = ["gastos_nuevos", "proyectos_nuevos", "proveedores_nuevos", "categorias_nuevas", "perfiles", "gastos_usd"];
+const LIST_COLLECTIONS = ["gastos_nuevos", "proyectos_nuevos", "proveedores_nuevos", "categorias_nuevas", "perfiles", "gastos_usd", "inventario_ajustes"];
 const MAP_COLLECTIONS = [
   "proyecto_estado", "proveedores_info", "proyectos_info", "gastos_edits", "gastos_contabilidad",
   // Módulo Houston (USD): categorías USD (id = código), ciclo de vida
@@ -45,6 +45,8 @@ const MAP_COLLECTIONS = [
   "categorias_usd", "proyectos_usd", "tipos_cambio", "proveedores_usd",
   // Proyectos propios de Houston (reparaciones, mejoras, servicios…), id = slug.
   "proyectos_houston",
+  // Inventario de taller: catálogo de artículos (id = slug del nombre).
+  "inventario_articulos",
 ];
 const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS]);
 
@@ -156,6 +158,8 @@ const COLLECTION_LABELS = {
   tipos_cambio: "Tipo de cambio",
   proveedores_usd: "Proveedor USD",
   proyectos_houston: "Proyecto Houston",
+  inventario_articulos: "Artículo de inventario",
+  inventario_ajustes: "Ajuste de inventario",
 };
 
 function summarizeForLog(collection, data) {
@@ -171,6 +175,8 @@ function summarizeForLog(collection, data) {
   }
   if (collection === "categorias_usd") return data.eliminado ? "Eliminada: " + (data.nombre || "") : (data.clave ? data.clave + " · " : "") + (data.nombre || "");
   if (collection === "proveedores_usd") return data.eliminado ? "Eliminado: " + (data.nombre || "") : data.nombre || "";
+  if (collection === "inventario_articulos") return data.eliminado ? "Eliminado: " + (data.nombre || "") : (data.nombre || "") + (data.punto_reorden != null ? " · reorden " + data.punto_reorden : "");
+  if (collection === "inventario_ajustes") return (data.articulo_nombre || data.articulo || "") + " " + (data.cantidad > 0 ? "+" : "") + data.cantidad + (data.motivo ? " · " + data.motivo : "");
   if (collection === "proyectos_houston") {
     if (data.eliminado) return "Eliminado: " + (data.nombre || "");
     const parts = [data.nombre || ""];
@@ -314,6 +320,7 @@ const COLLECTION_MODULE = {
   proveedores_nuevos: ["catalogos", "registrar"],
   gastos_usd: "houston",
   proyectos_usd: "houston",
+  inventario_ajustes: "inventario",
   tipos_cambio: ["houston", "contabilidad"],
 };
 
@@ -337,8 +344,19 @@ function authorizeWrite(profile, collection, method, payload) {
 
   if (collection === "gastos_nuevos") {
     // POST = registrar un gasto nuevo; PUT/PATCH = editar uno existente.
+    // Un consumo de inventario (salida a un proyecto) también es un POST aquí
+    // y lo puede crear quien tenga el módulo Inventario.
     const moduleKey = method === "POST" ? "registrar" : "gastos";
-    return hasModule(profile, moduleKey) ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para esta acción." };
+    if (hasModule(profile, moduleKey)) return { ok: true };
+    if (method === "POST" && payload && payload.consumo_inventario === true && hasModule(profile, "inventario")) return { ok: true };
+    return { ok: false, status: 403, error: "No tienes permiso para esta acción." };
+  }
+
+  if (collection === "inventario_articulos") {
+    if (payload && payload.eliminado === true) {
+      return profile.isMaster ? { ok: true } : { ok: false, status: 403, error: "Solo el Master Administrator puede eliminar." };
+    }
+    return hasModule(profile, "inventario") ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso del módulo Inventario." };
   }
 
   if (collection === "categorias_usd" || collection === "proveedores_usd" || collection === "proyectos_houston") {
