@@ -557,7 +557,8 @@ function allGastos(){
       flag_sin_proveedor:!g.proveedor, flag_sin_proyecto:!g.proyecto, flag_fecha:false,
       origen:"portal", capturadoPor:g.capturadoPor||"", _docId:g.id,
       comprobanteId:g.comprobanteId||null, comprobanteUrl:g.comprobanteUrl||null, comprobanteTipo:g.comprobanteTipo||null,
-      inv_articulo:g.inv_articulo||null, inv_cantidad:Number(g.inv_cantidad)||0, consumo_inventario:!!g.consumo_inventario
+      inv_articulo:g.inv_articulo||null, inv_cantidad:Number(g.inv_cantidad)||0, consumo_inventario:!!g.consumo_inventario,
+      moneda:g.moneda||"MXN", importe_usd:g.importe_usd!=null?Number(g.importe_usd):null, tc:g.tc||null, tc_fecha:g.tc_fecha||null
     };
   });
   return base.concat(extra);
@@ -1171,7 +1172,7 @@ function invMovimientos(){
   allGastos().forEach(function(g){
     if(!g.inv_articulo) return;
     if(g.consumo_inventario) out.push({ fecha:g.fecha, tipo:"consumo", articulo:g.inv_articulo, cantidad:-(Number(g.inv_cantidad)||0), detalle:proyectoNombre(g.proyecto_key), importe:g.importe, quien:g.capturadoPor||"" });
-    else if(g.proyecto_key===INVENTARIO_KEY) out.push({ fecha:g.fecha_factura||g.fecha, tipo:"entrada", articulo:g.inv_articulo, cantidad:Number(g.inv_cantidad)||0, detalle:(g.proveedor||"")+(g.factura?" · fact. "+g.factura:""), importe:g.importe, quien:g.capturadoPor||"" });
+    else if(g.proyecto_key===INVENTARIO_KEY) out.push({ fecha:g.fecha_factura||g.fecha, tipo:"entrada", articulo:g.inv_articulo, cantidad:Number(g.inv_cantidad)||0, detalle:(g.proveedor||"")+(g.factura?" · fact. "+g.factura:"")+(g.moneda==="USD"&&g.importe_usd!=null?" · "+fmtUsd(g.importe_usd)+" × FIX "+fmtTc(g.tc):""), importe:g.importe, quien:g.capturadoPor||"" });
   });
   STATE.inventarioAjustes.forEach(function(j){ out.push({ fecha:j.fecha, tipo:"ajuste", articulo:j.articulo, cantidad:Number(j.cantidad)||0, detalle:j.motivo||"", importe:null, quien:j.capturadoPor||"" }); });
   return out.sort(function(a,b){ return (b.fecha||"").localeCompare(a.fecha||""); });
@@ -1300,6 +1301,22 @@ function toggleRegistrarInventario(form){
   var as = form.querySelector('select[name="inv_articulo"]'), cs = form.querySelector('input[name="inv_cantidad"]');
   if(as){ if(on) as.setAttribute("required",""); else as.removeAttribute("required"); }
   if(cs){ if(on) cs.setAttribute("required",""); else cs.removeAttribute("required"); }
+  updateRegistrarMoneda(form);
+}
+// Compra al inventario en dólares: el importe se captura en USD y se guarda en
+// pesos al FIX de la fecha de factura (o el último publicado antes).
+function updateRegistrarMoneda(form){
+  var on = !!(form.querySelector('input[name="inv_entra"]')||{}).checked;
+  var mon = form.querySelector('select[name="inv_moneda"]'), usd = on && mon && mon.value==="USD";
+  var lbl = form.querySelector('label[for="f_importe"]'), pre = form.querySelector('#f_importe') && form.querySelector('#f_importe').parentNode.querySelector(".input-money-prefix");
+  if(lbl) lbl.innerHTML = reqLabel(usd ? "Importe (USD)" : "Importe");
+  if(pre) pre.textContent = usd ? "US$" : "$";
+  var hint = form.querySelector("[data-inv-tc]"); if(!hint) return;
+  if(!usd){ hint.innerHTML = ""; return; }
+  var fecha = (form.querySelector("#f_fecha_factura")||{}).value || todayISO(), tc = tcParaFecha(fecha);
+  var imp = parseFloat((form.querySelector("#f_importe")||{}).value);
+  if(!tc){ hint.innerHTML = '<span style="color:var(--critical)">No hay tipo de cambio FIX para el '+esc(fmtDate(fecha))+'.</span>'; return; }
+  hint.innerHTML = 'FIX '+fmtTc(tc.fix)+' ('+esc(fmtDate(tc.fecha))+')'+(imp>0 ? ' → <strong>'+fmtMoney(Math.round(imp*tc.fix*100)/100)+' MXN</strong>' : '');
 }
 
 /* ================= CHARTS ================= */
@@ -2591,6 +2608,8 @@ function renderRegistrarView(){
       '<div data-inv-box="1" class="form-grid" style="margin-top:8px'+(invPreArt?'':'; display:none')+'">'+
         '<div class="field"><label>'+reqLabel("Artículo")+'</label><select name="inv_articulo"'+(invPreArt?' required':'')+'><option value="">Selecciona…</option>'+invArts.map(function(a){ return '<option value="'+esc(a.id)+'"'+(a.id===invPre?' selected':'')+'>'+esc(a.nombre)+' ('+esc(a.unidad)+')</option>'; }).join("")+'</select></div>'+
         '<div class="field"><label>'+reqLabel("Cantidad que entra")+'</label><input type="number" name="inv_cantidad" step="any" min="0.001" placeholder="0"'+(invPreArt?' required':'')+'></div>'+
+        '<div class="field"><label>'+reqLabel("Moneda de la compra")+'</label><select name="inv_moneda"><option value="MXN">Pesos (MXN)</option><option value="USD">Dólares (USD)</option></select></div>'+
+        '<div class="field" style="align-self:end"><p class="hint" data-inv-tc="1" style="margin:0 0 10px"></p></div>'+
       '</div></div>' : '';
   return '' +
   '<div class="card form-card">'+
@@ -2626,11 +2645,17 @@ function submitGasto(form){
   var fd = new FormData(form);
   var proyKey = fd.get("proyecto_key");
   var proyNombre = "";
-  var invEntra = !!fd.get("inv_entra"), invArticulo = null, invCantidad = 0;
+  var invEntra = !!fd.get("inv_entra"), invArticulo = null, invCantidad = 0, invUsd = null;
   if(invEntra){
     invArticulo = fd.get("inv_articulo"); invCantidad = parseFloat(fd.get("inv_cantidad"));
     if(!invArticulo || !STATE.inventarioArticulos[invArticulo]){ toast("Selecciona el artículo que entra a inventario.","err"); return; }
     if(!invCantidad || invCantidad<=0){ toast("Escribe cuántas piezas entran a inventario.","err"); return; }
+    if(fd.get("inv_moneda")==="USD"){
+      var usdFecha = fd.get("fecha_factura")||fd.get("fecha")||todayISO(), usdTc = tcParaFecha(usdFecha), usdImp = parseFloat(fd.get("importe"));
+      if(!usdTc){ toast("No hay tipo de cambio FIX cargado para el "+fmtDate(usdFecha)+". Cárgalo en Houston → Tipo de cambio o captura la compra en pesos.","err"); return; }
+      if(!usdImp || usdImp<=0){ toast("Escribe el importe en dólares.","err"); return; }
+      invUsd = { usd:usdImp, fix:usdTc.fix, fecha:usdTc.fecha, mxn:Math.round(usdImp*usdTc.fix*100)/100 };
+    }
     proyKey = INVENTARIO_KEY; proyNombre = proyectoNombre(INVENTARIO_KEY);
   } else if(!proyKey){ toast("Selecciona el proyecto.","err"); return; }
   if(proyKey && !invEntra){
@@ -2640,7 +2665,7 @@ function submitGasto(form){
   var proveedorInput = (fd.get("proveedor")||"").trim();
   var proveedorMatch = proveedorInput ? allProveedores().filter(function(n){ return normKey(n)===normKey(proveedorInput); })[0] : null;
   if(!proveedorMatch){ toast("Escribe y selecciona un proveedor válido de la lista. Para dar de alta uno nuevo, ve a Catálogos > Proveedores.","err"); return; }
-  var importe = parseFloat(fd.get("importe"));
+  var importe = invUsd ? invUsd.mxn : parseFloat(fd.get("importe"));
   if(!importe || importe<=0){ toast("Escribe un importe válido.","err"); return; }
   var capturador = (fd.get("capturadoPor")||"").trim();
   try{ localStorage.setItem("rt_capturador", capturador); }catch(e){}
@@ -2659,11 +2684,12 @@ function submitGasto(form){
       capturadoPor: capturador, creadoEn: new Date().toISOString(), _cid: uid()
     };
     if(invEntra){ gasto.inv_articulo = invArticulo; gasto.inv_cantidad = invCantidad; }
+    if(invUsd){ gasto.moneda = "USD"; gasto.importe_usd = invUsd.usd; gasto.tc = invUsd.fix; gasto.tc_fecha = invUsd.fecha; }
     if(uploaded){ gasto.comprobanteId = uploaded.id; gasto.comprobanteUrl = uploaded.url; gasto.comprobanteTipo = uploaded.contentType; }
 
     return STATE.db.collection("gastos_nuevos").add(gasto).then(function(res){
       STATE.gastosNuevos.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, gasto));
-      toast(invEntra ? "Gasto guardado ✓ · entraron "+fmtCant(invCantidad)+" a inventario" : "Gasto guardado ✓");
+      toast(invEntra ? "Gasto guardado ✓ · entraron "+fmtCant(invCantidad)+" a inventario"+(invUsd ? " · "+fmtUsd(invUsd.usd)+" × FIX "+fmtTc(invUsd.fix)+" = "+fmtMoney(invUsd.mxn) : "") : "Gasto guardado ✓");
       form.reset();
       toggleRegistrarInventario(form);
       document.getElementById("f_fecha").value = todayISO();
@@ -4662,6 +4688,8 @@ document.addEventListener("change", function(e){
     STATE.invFilters[e.target.dataset.invfilter] = e.target.value; renderContent();
   } else if(e.target && e.target.name==="inv_entra" && e.target.form && e.target.form.id==="registrarForm"){
     toggleRegistrarInventario(e.target.form);
+  } else if(e.target && (e.target.name==="inv_moneda" || e.target.id==="f_fecha_factura") && e.target.form && e.target.form.id==="registrarForm"){
+    updateRegistrarMoneda(e.target.form);
   } else if(e.target && e.target.name==="inv_articulo" && e.target.form && e.target.form.id==="registrarForm"){
     var invArt = STATE.inventarioArticulos[e.target.value]; var catSel = e.target.form.querySelector("#f_categoria");
     if(invArt && invArt.categoria && catSel) catSel.value = invArt.categoria;
@@ -4671,6 +4699,9 @@ document.addEventListener("change", function(e){
     var hf = e.target.form && e.target.form.querySelector("[data-usd-proyhou-field]");
     if(hf) hf.style.display = e.target.value==="houston" ? "" : "none";
   }
+});
+document.addEventListener("input", function(e){
+  if(e.target && (e.target.id==="f_importe" || e.target.id==="f_fecha_factura") && e.target.form && e.target.form.id==="registrarForm") updateRegistrarMoneda(e.target.form);
 });
 document.addEventListener("DOMContentLoaded", boot);
 })();
