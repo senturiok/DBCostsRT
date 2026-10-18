@@ -53,6 +53,12 @@ const PAGE = `<!DOCTYPE html>
   }
   .card-cta svg{ transition:transform .18s ease; }
   a.card:hover .card-cta svg{ transform:translateX(4px); }
+  /* Acceso al Tablero de Dirección: una franja a lo ancho, debajo de los cuatro portales. */
+  a.card.wide{grid-column:1 / -1; flex-direction:row; align-items:center; gap:18px; padding:18px 26px;}
+  a.card.wide .card-icon{margin:0;}
+  a.card.wide .card-title, a.card.wide .card-desc{margin:0;}
+  a.card.wide .card-cta{margin:0 0 0 auto;}
+  @media (max-width:560px){ a.card.wide{flex-wrap:wrap; gap:12px 16px;} a.card.wide .card-cta{margin:0;} }
 
   /* Tablero de producción (datos de produccion.serviceranchotrailers.org) */
   .dash{margin-top:48px; text-align:left;}
@@ -142,6 +148,16 @@ const PAGE = `<!DOCTYPE html>
       </div>
       <div class="card-title">Portal de Producción</div>
       <p class="card-desc">produccion.serviceranchotrailers.org</p>
+      <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
+    </a>
+    <a class="card wide" href="https://direccion.serviceranchotrailers.org">
+      <div class="card-icon">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="20" x2="4" y2="12"/><line x1="10" y1="20" x2="10" y2="6"/><line x1="16" y1="20" x2="16" y2="14"/><line x1="22" y1="20" x2="22" y2="9"/><line x1="2" y1="20" x2="23" y2="20"/></svg>
+      </div>
+      <div>
+        <div class="card-title">Tablero de Dirección</div>
+        <p class="card-desc">Solo dirección · lo crítico de los cuatro portales en una pantalla.</p>
+      </div>
       <span class="card-cta">Entrar <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>
     </a>
   </div>
