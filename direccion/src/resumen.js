@@ -133,6 +133,41 @@ function resumenCotizaciones(d, hoy) {
   };
 }
 
+// ---------- Sales Orders (Cotizaciones → Producción, Compras, Cobranza) ----------
+const PASOS = ["produccion", "compras", "cobranza"];
+
+export function resumenSalesOrders(d) {
+  if (!d) return null;
+  const lista = d.cotizaciones
+    .filter((q) => q.salesOrder)
+    .map((q) => {
+      const so = q.salesOrder;
+      const e = so.envio;
+      let estado;
+      if (so.anterior) estado = "anterior";
+      else if (!e) estado = q.estado === "won" ? "por_enviar" : "no_ganada";
+      else estado = PASOS.every((k) => e[k] && e[k].ok) ? "enviada" : "error";
+      return {
+        folio: so.folio,
+        proyecto: so.proyecto || q.negocio || q.cliente,
+        cliente: q.cliente,
+        vendedor: q.vendedor,
+        entrega: so.entrega,
+        total: q.total,
+        financiado: !!q.financiamiento,
+        estado,
+        enviada: e ? e.at : null,
+        produccion: e ? e.produccion : null,
+        compras: e ? e.compras : null,
+        cobranza: e ? e.cobranza : null,
+      };
+    });
+  const orden = { error: 0, por_enviar: 1, no_ganada: 2, enviada: 3, anterior: 4 };
+  lista.sort((a, b) => orden[a.estado] - orden[b.estado] || (b.enviada || b.entrega || "").localeCompare(a.enviada || a.entrega || ""));
+  const n = (s) => lista.filter((x) => x.estado === s).length;
+  return { porEnviar: n("por_enviar"), conError: n("error"), enviadas: n("enviada"), anteriores: n("anterior"), lista };
+}
+
 // ---------- Costeo ----------
 function resumenCosteo(d, hoy) {
   if (!d) return null;
@@ -196,8 +231,18 @@ function ligarProyectos({ costeo, produccion, cotizaciones, cobranza }, crudos) 
 const fmtUsd = (n) => "$" + r0(n).toLocaleString("en-US") + " USD";
 const fmtMxn = (n) => "$" + r0(n).toLocaleString("en-US") + " MXN";
 
-function alertas({ costeo, produccion, cotizaciones, cobranza }, proyectos) {
+function alertas({ costeo, produccion, cotizaciones, cobranza, salesOrders }, proyectos) {
   const a = [];
+  if (salesOrders) {
+    const errores = salesOrders.lista.filter((x) => x.estado === "error");
+    if (errores.length) {
+      a.push({ nivel: "bad", portal: "Sales Orders", titulo: `${errores.length} Sales Order${errores.length > 1 ? "s" : ""} con error al enviar`, detalle: errores.slice(0, 3).map((x) => x.proyecto).join(", ") + " · reintentar en Cotizaciones" });
+    }
+    const pendientes = salesOrders.lista.filter((x) => x.estado === "por_enviar");
+    if (pendientes.length) {
+      a.push({ nivel: "warn", portal: "Sales Orders", titulo: `${pendientes.length} Sales Order${pendientes.length > 1 ? "s" : ""} sin enviar a producción`, detalle: pendientes.slice(0, 4).map((x) => x.proyecto).join(", ") });
+    }
+  }
   if (cobranza) {
     const graves = cobranza.contactar.filter((c) => c.diasAtraso > 14);
     if (graves.length) a.push({ nivel: "bad", portal: "Cobranza", titulo: `${graves.length} cliente${graves.length > 1 ? "s" : ""} con más de 14 días de atraso`, detalle: `Suman ${fmtUsd(graves.reduce((s, c) => s + c.vencido, 0))} · ${graves.slice(0, 3).map((c) => c.negocio || c.cliente).join(", ")}` });
@@ -228,6 +273,7 @@ export function armarResumen(crudos, hoy) {
     cobranza: resumenCobranza(crudos.cobranza, hoy),
     cotizaciones: resumenCotizaciones(crudos.cotizaciones, hoy),
     produccion: resumenProduccion(crudos.produccion, hoy),
+    salesOrders: resumenSalesOrders(crudos.cotizaciones),
   };
   const proyectos = ligarProyectos(r, crudos);
   const out = { hoy, ...r, proyectos, alertas: alertas(r, proyectos) };
