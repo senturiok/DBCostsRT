@@ -2874,7 +2874,8 @@ function handleProyectoFormSubmit(form){
 
   if(key){
     var infoKey = slugify(key);
-    var data = { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() };
+    // Conserva lo que no está en el formulario (p. ej. salesFolio del Sales Order).
+    var data = Object.assign({}, STATE.proyectosInfo[infoKey]||{}, { nombre:nombre, tipoTraila:tipoTraila, tamanoTraila:tamanoTraila, updatedAt:new Date().toISOString() });
     STATE.db.doc("proyectos_info/"+infoKey).set(data).then(function(){
       STATE.proyectosInfo[infoKey] = data;
       toast("Proyecto actualizado ✓"); closeModal(); renderContent();
