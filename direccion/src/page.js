@@ -50,7 +50,12 @@ export function dashboardPage(nonce) {
 <title>Dirección · Rancho Trailers</title>${FONTS}
 <style nonce="${nonce}">${BASE_CSS}
 [hidden]{display:none!important}
-#hoy,#proy{display:grid;gap:16px;align-content:start}
+#hoy,#proy,#so{display:grid;gap:16px;align-content:start}
+.flow{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+@media (max-width:760px){.flow{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.step{display:flex;flex-direction:column;gap:2px;max-width:220px;white-space:normal}
+.step .sub{overflow-wrap:anywhere}
+tr.anterior td{color:var(--muted)}
 .wrap{max-width:1240px;margin:0 auto;padding:20px 16px 56px;display:grid;gap:18px}
 header{display:flex;justify-content:space-between;align-items:flex-end;gap:12px;flex-wrap:wrap}
 header h1{font-size:clamp(28px,4.5vw,38px)}
@@ -120,9 +125,11 @@ td .sub{display:block;color:var(--muted);font-size:12px}
   <nav class="tabs" role="tablist">
     <button role="tab" id="tab-hoy" aria-selected="true" type="button">Hoy</button>
     <button role="tab" id="tab-proy" aria-selected="false" type="button">Proyectos</button>
+    <button role="tab" id="tab-so" aria-selected="false" type="button">Sales Orders</button>
   </nav>
   <main id="hoy"><div class="state">Cargando datos de los portales…</div></main>
   <main id="proy" hidden></main>
+  <main id="so" hidden></main>
   <p class="foot" id="foot"></p>
 </div>
 <script nonce="${nonce}">${CLIENT_JS}</script>
@@ -257,6 +264,37 @@ function renderProy() {
   document.querySelectorAll("[data-f]").forEach((b) => b.addEventListener("click", () => { filtro = b.dataset.f; renderProy(); }));
 }
 
+const ESTADO_SO = { error: ["bad", "Con error"], por_enviar: ["warn", "Sin enviar"], no_ganada: ["", "Cotización no ganada"], enviada: ["good", "Enviada"], anterior: ["", "Capturada antes"] };
+const ACCION_COMPRAS = { crear: "creado", ligar: "ligado", existe: "ya ligado" };
+
+function paso(k, r, so) {
+  if (so.estado === "anterior") return '<span class="muted">—</span>';
+  if (!r && k === "cobranza" && !so.financiado) return pill("", "Contado");
+  if (!r) return so.estado === "por_enviar" ? pill("warn", "Pendiente") : '<span class="muted">—</span>';
+  if (!r.ok) return '<span class="step">' + pill("bad", "Error") + '<span class="sub">' + esc(r.error) + "</span></span>";
+  if (r.omitido) return pill("", "Contado");
+  const txt = k === "produccion" ? (r.accion === "existe" ? "Ya existía" : "Orden creada") : k === "compras" ? "Proyecto " + (ACCION_COMPRAS[r.accion] || "listo") : r.accion === "existe" ? "Ya existía" : "Contrato creado";
+  return '<span class="step">' + pill("good", txt) + (r.nombre ? '<span class="sub">' + esc(r.nombre) + "</span>" : "") + "</span>";
+}
+
+function renderSo() {
+  const s = DATA.salesOrders;
+  if (!s) { $("so").innerHTML = noData("cotizaciones"); return; }
+  const tile = (cls, n, label, sub) => '<div class="tile"><div class="k"><span class="src">' + label + "</span>" + (n && cls ? pill(cls, cls === "good" ? "listo" : "revisar") : "") + '</div><div class="v">' + n + '</div><div class="s">' + sub + "</div></div>";
+  let h = '<div class="flow">' +
+    tile("warn", s.porEnviar, "Sin enviar", "Ganadas con Sales Order que no se han mandado a producción") +
+    tile("bad", s.conError, "Con error", "Algún portal rechazó el envío; reintentar en Cotizaciones") +
+    tile("good", s.enviadas, "Enviadas", "Orden, proyecto y (si es financiada) contrato creados") +
+    tile("", s.anteriores, "Capturadas antes", "Se quedaron como estaban antes del envío automático") + "</div>";
+  h += '<div class="panel"><div class="panel-h"><h3>Cotización → Producción → Compras → Cobranza</h3><span>' + s.lista.length + " Sales Orders</span></div>";
+  h += s.lista.length ? '<div class="tbl wide"><table><thead><tr><th>Sales Order</th><th>Estado</th><th>Entrega</th><th class="r">Venta USD</th><th>Producción</th><th>Compras</th><th>Cobranza</th><th>Enviada</th></tr></thead><tbody>' + s.lista.map((x) => {
+    const e = ESTADO_SO[x.estado] || ["", x.estado];
+    return '<tr class="' + (x.estado === "anterior" ? "anterior" : "") + '"><td><b>' + esc(x.proyecto) + '</b><span class="sub">' + esc([x.folio, x.vendedor, x.financiado ? "financiada" : "contado"].filter(Boolean).join(" · ")) + "</span></td><td>" + pill(e[0], e[1]) + "</td><td>" + fecha(x.entrega) + '</td><td class="r">' + usd(x.total) + "</td><td>" + paso("produccion", x.produccion, x) + "</td><td>" + paso("compras", x.compras, x) + "</td><td>" + paso("cobranza", x.cobranza, x) + "</td><td>" + (x.enviada ? fecha(x.enviada) : "—") + "</td></tr>";
+  }).join("") + "</tbody></table></div>" : '<p class="muted">Todavía no hay Sales Orders.</p>';
+  h += '<p class="muted">Las Sales Orders se mandan desde Cotizaciones con "Send to production" (solo el administrador). Reenviar solo reintenta lo que falló.</p></div>';
+  $("so").innerHTML = h;
+}
+
 function render() {
   const f = DATA.fuentes;
   $("fuentes").innerHTML = Object.keys(NOMBRES).map((k) => '<span class="chip' + (f[k] && f[k].ok ? "" : " off") + '" title="' + esc(f[k] && f[k].error ? f[k].error : "Conectado") + '">' + NOMBRES[k] + (f[k] && f[k].ok ? "" : " sin datos") + "</span>").join("");
@@ -265,6 +303,7 @@ function render() {
   $("foot").textContent = "Actualizado " + new Date(DATA.generado).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) + ". Solo lectura: este tablero no modifica nada en los portales.";
   renderHoy();
   renderProy();
+  renderSo();
 }
 
 async function load() {
@@ -283,12 +322,12 @@ async function load() {
 }
 
 function tab(which) {
-  const hoy = which === "hoy";
-  $("tab-hoy").setAttribute("aria-selected", hoy); $("tab-proy").setAttribute("aria-selected", !hoy);
-  $("hoy").hidden = !hoy; $("proy").hidden = hoy;
+  for (const t of ["hoy", "proy", "so"]) {
+    $("tab-" + t).setAttribute("aria-selected", t === which);
+    $(t).hidden = t !== which;
+  }
 }
-$("tab-hoy").addEventListener("click", () => tab("hoy"));
-$("tab-proy").addEventListener("click", () => tab("proy"));
+for (const t of ["hoy", "proy", "so"]) $("tab-" + t).addEventListener("click", () => tab(t));
 $("refresh").addEventListener("click", load);
 load();
 setInterval(() => { if (!document.hidden) load(); }, 5 * 60 * 1000);
