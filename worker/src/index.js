@@ -16,6 +16,7 @@
  */
 
 import { handleBot } from "./bot.js";
+import { handleIntegracion } from "./integracion.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -609,6 +610,10 @@ export default {
     const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
 
     try {
+      // Sales Orders del Portal de Cotizaciones (su propia clave INTEGRACION_TOKEN).
+      if (segments[0] === "integracion") {
+        return handleIntegracion(request, env, url, { getDoc, putDoc, listDocs, logActivity, catalogo: PROYECTOS_CAT });
+      }
       // Acceso de solo lectura del bot de WhatsApp (su propia clave BOT_TOKEN).
       if (segments[0] === "bot") {
         return handleBot(request, env, url, {
