@@ -1,5 +1,6 @@
 worker/
 selector/
+direccion/
 .git/
 .github/
 README.md
