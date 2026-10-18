@@ -1,0 +1,15 @@
+name = "rancho-trailers-direccion"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+# Solo por su dominio propio; sin la URL *.workers.dev.
+workers_dev = false
+
+# Tablero de Dirección: solo lectura de los resúmenes de Costeo, Cobranza y
+# Cotizaciones (/bot/datos con DIRECCION_TOKEN) y del tablero público de
+# Producción. Secretos (wrangler secret put):
+#   DIRECCION_PASSWORD  contraseña para entrar
+#   SESSION_SECRET      firma la cookie de sesión (cambiarla cierra todas las sesiones)
+#   DIRECCION_TOKEN     mismo valor que DIRECCION_TOKEN en Costeo, Cobranza y Cotizaciones
+[[routes]]
+pattern = "direccion.serviceranchotrailers.org"
+custom_domain = true

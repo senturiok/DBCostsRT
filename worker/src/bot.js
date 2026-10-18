@@ -137,6 +137,15 @@ async function datos(env, deps) {
     .map((g) => ({ fecha: g.fecha, tipo: g.tipo, proyecto: g.proyecto_key ? calc.proyectoNombre(g.proyecto_key) : g.proyecto_houston || "", proveedor: g.proveedor || "", importeUsd: r2(g.importe_usd) }))
     .sort((a, b) => b.fecha.localeCompare(a.fecha));
 
+  // Gasto por mes (AAAA-MM) para las tendencias del Tablero de Dirección.
+  const porMes = {};
+  const mes = (m) => (porMes[m] = porMes[m] || { mes: m, mxn: 0, usd: 0 });
+  for (const r of gastos) if (r.fecha && r.fecha <= hoy) mes(r.fecha.slice(0, 7)).mxn += Number(r.importe) || 0;
+  for (const g of gastosUsd) if (g.fecha && g.fecha <= hoy) mes(g.fecha.slice(0, 7)).usd += Number(g.importe_usd) || 0;
+  const gastoPorMes = Object.values(porMes)
+    .map((x) => ({ mes: x.mes, mxn: r2(x.mxn), usd: r2(x.usd) }))
+    .sort((a, b) => a.mes.localeCompare(b.mes));
+
   // C. Propuesta de pago a proveedores del viernes.
   const viernes = calc.propuestaViernes();
   const prop = calc.computePropuestaPago(viernes);
@@ -164,6 +173,7 @@ async function datos(env, deps) {
     proyectos,
     gastosRecientes: recientes,
     gastosRecientesUsd: recientesUsd,
+    gastoPorMes,
     propuesta,
     proyectosHouston: houston,
     indirectosPendientesMxn: r2(costo.indirectos.pendiente),
@@ -173,7 +183,9 @@ async function datos(env, deps) {
 export async function handleBot(request, env, url, deps) {
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!env.BOT_TOKEN || !sameToken(token, env.BOT_TOKEN)) return json({ error: "No autorizado" }, 401);
+  // BOT_TOKEN: bot de WhatsApp. DIRECCION_TOKEN: Tablero de Dirección
+  // (direccion.serviceranchotrailers.org). Claves separadas para revocar una sin la otra.
+  if (![env.BOT_TOKEN, env.DIRECCION_TOKEN].some((t) => t && sameToken(token, t))) return json({ error: "No autorizado" }, 401);
   if (request.method !== "GET") return json({ error: "Solo lectura" }, 405);
   if (url.pathname === "/bot/datos") return json(await datos(env, deps));
   return json({ error: "not found" }, 404);
