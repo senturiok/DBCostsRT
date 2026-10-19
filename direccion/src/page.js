@@ -269,10 +269,11 @@ const ACCION_COMPRAS = { crear: "creado", ligar: "ligado", existe: "ya ligado" }
 
 function paso(k, r, so) {
   if (so.estado === "anterior") return '<span class="muted">—</span>';
-  if (!r && k === "cobranza" && !so.financiado) return pill("", "Contado");
+  const sinCobranza = (motivo) => pill("", motivo === "financiera_externa" ? "Financiera externa" : "Contado");
+  if (k === "cobranza" && so.tipoCobranza !== "si" && (!r || r.omitido)) return sinCobranza(so.tipoCobranza);
   if (!r) return so.estado === "por_enviar" ? pill("warn", "Pendiente") : '<span class="muted">—</span>';
   if (!r.ok) return '<span class="step">' + pill("bad", "Error") + '<span class="sub">' + esc(r.error) + "</span></span>";
-  if (r.omitido) return pill("", "Contado");
+  if (r.omitido) return sinCobranza(r.motivo);
   const txt = k === "produccion" ? (r.accion === "existe" ? "Ya existía" : "Orden creada") : k === "compras" ? "Proyecto " + (ACCION_COMPRAS[r.accion] || "listo") : r.accion === "existe" ? "Ya existía" : "Contrato creado";
   return '<span class="step">' + pill("good", txt) + (r.nombre ? '<span class="sub">' + esc(r.nombre) + "</span>" : "") + "</span>";
 }
@@ -289,7 +290,7 @@ function renderSo() {
   h += '<div class="panel"><div class="panel-h"><h3>Cotización → Producción → Compras → Cobranza</h3><span>' + s.lista.length + " Sales Orders</span></div>";
   h += s.lista.length ? '<div class="tbl wide"><table><thead><tr><th>Sales Order</th><th>Estado</th><th>Entrega</th><th class="r">Venta USD</th><th>Producción</th><th>Compras</th><th>Cobranza</th><th>Enviada</th></tr></thead><tbody>' + s.lista.map((x) => {
     const e = ESTADO_SO[x.estado] || ["", x.estado];
-    return '<tr class="' + (x.estado === "anterior" ? "anterior" : "") + '"><td><b>' + esc(x.proyecto) + '</b><span class="sub">' + esc([x.folio, x.vendedor, x.financiado ? "financiada" : "contado"].filter(Boolean).join(" · ")) + "</span></td><td>" + pill(e[0], e[1]) + "</td><td>" + fecha(x.entrega) + '</td><td class="r">' + usd(x.total) + "</td><td>" + paso("produccion", x.produccion, x) + "</td><td>" + paso("compras", x.compras, x) + "</td><td>" + paso("cobranza", x.cobranza, x) + "</td><td>" + (x.enviada ? fecha(x.enviada) : "—") + "</td></tr>";
+    return '<tr class="' + (x.estado === "anterior" ? "anterior" : "") + '"><td><b>' + esc(x.proyecto) + '</b><span class="sub">' + esc([x.folio, x.vendedor, x.tipoCobranza === "financiera_externa" ? "financiada por el socio" : x.financiado ? "financiada" : "contado"].filter(Boolean).join(" · ")) + "</span></td><td>" + pill(e[0], e[1]) + "</td><td>" + fecha(x.entrega) + '</td><td class="r">' + usd(x.total) + "</td><td>" + paso("produccion", x.produccion, x) + "</td><td>" + paso("compras", x.compras, x) + "</td><td>" + paso("cobranza", x.cobranza, x) + "</td><td>" + (x.enviada ? fecha(x.enviada) : "—") + "</td></tr>";
   }).join("") + "</tbody></table></div>" : '<p class="muted">Todavía no hay Sales Orders.</p>';
   h += '<p class="muted">Las Sales Orders se mandan desde Cotizaciones con "Send to production" (solo el administrador). Reenviar solo reintenta lo que falló.</p></div>';
   $("so").innerHTML = h;
