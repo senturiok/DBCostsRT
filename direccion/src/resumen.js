@@ -155,6 +155,8 @@ export function resumenSalesOrders(d) {
         entrega: so.entrega,
         total: q.total,
         financiado: !!q.financiamiento,
+        // "si" | "contado" | "financiera_externa" (joint venture: financia otra empresa, no va a Cobranza)
+        tipoCobranza: so.cobranza || (q.financiamiento ? "si" : "contado"),
         estado,
         enviada: e ? e.at : null,
         produccion: e ? e.produccion : null,
