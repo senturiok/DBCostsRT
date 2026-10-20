@@ -4086,6 +4086,7 @@ function renderHoustonProyectosTab(){
     if(i.fecha_exportacion) rows += '<div class="prov-contact-row"><span class="lbl">Exportó</span><span>'+esc(fmtDate(i.fecha_exportacion))+(i.pedimento?' · Ped. '+esc(i.pedimento):'')+'</span></div>';
     if(i.fecha_venta) rows += '<div class="prov-contact-row"><span class="lbl">Vendió</span><span>'+esc(fmtDate(i.fecha_venta))+(i.cliente?' · '+esc(i.cliente):'')+'</span></div>';
     if(i.precio_venta_usd) rows += '<div class="prov-contact-row"><span class="lbl">Precio</span><span class="num">'+fmtUsd(Number(i.precio_venta_usd))+'</span></div>';
+    else if(cashPriceProyecto(p.key)) rows += '<div class="prov-contact-row"><span class="lbl">Cash price</span><span class="num">'+fmtUsd(cashPriceProyecto(p.key))+' <span class="hint">(Sales Order)</span></span></div>';
     var archivos = proyectoUsdArchivos(i);
     if(archivos.length) rows += '<div class="prov-contact-row"><span class="lbl">Archivos</span><span>'+archivosUsdLinksHTML(archivos)+'</span></div>';
     return '<div class="prov-card">'+
@@ -4106,15 +4107,18 @@ function proyectoUsdArchivos(i){ return Array.isArray(i && i.archivos) ? i.archi
 function archivosUsdLinksHTML(archivos){
   return archivos.map(function(a){ return '<a href="'+esc(a.url)+'" target="_blank" rel="noopener" title="'+esc(a.nombre||"Archivo")+'">📎 '+esc(a.nombre||"Archivo")+'</a>'; }).join("<br>");
 }
+// Cash price del Sales Order (TOTAL PROJECT PRICE de la cotización, USD): llega del Portal de Cotizaciones.
+function cashPriceProyecto(key){ var info = STATE.proyectosInfo[slugify(key)]; return info && Number(info.cashPriceUsd)>0 ? Number(info.cashPriceUsd) : null; }
 function openProyectoUsdModal(key){
-  var i = proyectoUsdInfo(key);
+  var i = proyectoUsdInfo(key), cash = cashPriceProyecto(key);
   var archivos = proyectoUsdArchivos(i);
   openModal('<h3>'+esc(proyectoNombre(key))+' · exportación y venta</h3>'+
     '<form id="proyectoUsdForm"><input type="hidden" name="key" value="'+esc(key)+'">'+
       '<div class="field"><label>Fecha de exportación</label><input type="date" name="fecha_exportacion" value="'+esc(i.fecha_exportacion||"")+'"></div>'+
       '<div class="field"><label>Pedimento</label><input name="pedimento" value="'+esc(i.pedimento||"")+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Fecha de venta</label><input type="date" name="fecha_venta" value="'+esc(i.fecha_venta||"")+'"></div>'+
-      '<div class="field"><label>Precio de venta (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" min="0" name="precio_venta_usd" value="'+esc(i.precio_venta_usd||"")+'" placeholder="0.00"></div></div>'+
+      '<div class="field"><label>Precio de venta (USD)</label><div class="input-money"><span class="input-money-prefix">$</span><input type="number" step="0.01" min="0" name="precio_venta_usd" value="'+esc(i.precio_venta_usd||cash||"")+'" placeholder="0.00"></div>'+
+        (cash ? '<span class="hint" style="margin-top:4px">Cash price del Sales Order: '+fmtUsd(cash)+(i.precio_venta_usd && Number(i.precio_venta_usd)!==cash ? ' (el precio guardado es distinto)' : '')+'</span>' : '')+'</div>'+
       '<div class="field"><label>Cliente</label><input name="cliente" value="'+esc(i.cliente||"")+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Notas</label><input name="notas" value="'+esc(i.notas||"")+'" placeholder="Opcional"></div>'+
       (archivos.length ? '<div class="field"><label>Archivos guardados</label><div style="display:flex; flex-direction:column; gap:4px">'+

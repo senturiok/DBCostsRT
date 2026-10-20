@@ -2,12 +2,13 @@
 // Order a producción, crea o liga el proyecto en Compras. Protegido con el
 // secreto INTEGRACION_TOKEN (distinto de los de solo lectura del bot).
 //
-// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente }
+// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente, cashPrice }
 // - Si un proyecto ya tiene ese folio, lo regresa sin cambiar nada.
 // - Si ya existe un proyecto activo sin folio que se llama como el nombre
 //   interno, el de proyecto o la orden en Producción, lo liga.
 // - Si no, lo crea (con " 2", " 3"… si el nombre ya lo usa otro remolque).
-// El folio queda en proyectos_info/<slug>.salesFolio.
+// El folio queda en proyectos_info/<slug>.salesFolio y el cash price (TOTAL PROJECT
+// PRICE de la cotización, USD) en .cashPriceUsd: Houston lo propone como precio de venta.
 
 function json(data, status) {
   return new Response(JSON.stringify(data), {
@@ -91,7 +92,17 @@ export async function handleIntegracion(request, env, url, deps) {
   const plan = planProyecto(proyectos, { folio, internalName: body.internalName, projectName: body.projectName, nombresProduccion });
   if (plan.accion === "error") return json({ ok: false, error: plan.error }, 400);
   const slug = slugify(plan.key);
-  if (plan.accion === "existe") return json({ ok: true, accion: "existe", proyecto: plan.key });
+  const cashPrice = Number(body.cashPrice) > 0 ? Math.round(Number(body.cashPrice) * 100) / 100 : null;
+  if (plan.accion === "existe") {
+    // Proyectos ligados antes de mandar el cash price: se completa solo si falta.
+    const prev = (await getDoc(env, "proyectos_info", slug)) || {};
+    if (cashPrice && !prev.cashPriceUsd) {
+      const info = Object.assign({}, prev, { cashPriceUsd: cashPrice, updatedAt: new Date().toISOString() });
+      await putDoc(env, "proyectos_info", slug, info);
+      await logActivity(env, { isMaster: false, nombre: "Portal de Cotizaciones" }, "PUT", "proyectos_info", slug, info);
+    }
+    return json({ ok: true, accion: "existe", proyecto: plan.key });
+  }
 
   const now = new Date().toISOString();
   const actor = { isMaster: false, nombre: "Portal de Cotizaciones" };
@@ -107,6 +118,7 @@ export async function handleIntegracion(request, env, url, deps) {
     tamanoTraila: prev.tamanoTraila || tamano,
     salesFolio: folio,
     cliente: body.cliente || prev.cliente || "",
+    cashPriceUsd: prev.cashPriceUsd || cashPrice,
     updatedAt: now,
   });
   await putDoc(env, "proyectos_info", slug, info);
