@@ -58,6 +58,8 @@ function resumenCobranza(d, hoy) {
         ultimoContacto: c.ultimoContacto ? c.ultimoContacto.fecha : null,
         resultado: c.ultimoContacto ? c.ultimoContacto.resultado : null,
       })),
+    // 3 meses de histórico, el actual y 2 de proyección (los calcula Cobranza con sus reglas).
+    meses: Array.isArray(d.meses) ? d.meses : [],
   };
 }
 

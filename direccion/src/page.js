@@ -106,6 +106,9 @@ td.r,th.r{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-
 td .sub{display:block;color:var(--muted);font-size:12px}
 .wide table{min-width:900px}
 .steps{display:inline-flex;gap:2px;vertical-align:middle}
+.mbars{display:flex;flex-direction:column;gap:3px}
+.mbar{display:block;height:7px;border-radius:2px;min-width:2px}
+.mbar.prog{background:var(--steel)} .mbar.cob{background:var(--accent)}
 .steps i{width:11px;height:8px;border-radius:2px;background:var(--sunk)}
 .steps i.on{background:var(--steel)} .steps i.cur{background:var(--accent)}
 .filters{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
@@ -198,6 +201,28 @@ function steps(o) {
   return '<span class="steps" title="' + esc(o.nivel + " " + (o.nivelNombre || "")) + '">' + lv.map((_, i) => '<i class="' + (done || i < idx ? "on" : i === idx ? "cur" : "") + '"></i>').join("") + '</span> <span class="num">' + esc(o.nivel || "") + "</span>";
 }
 
+const MES_LARGO = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+const mesLargo = (ym) => { const [y, m] = ym.split("-"); return MES_LARGO[Number(m) - 1] + " " + y; };
+const TIPO_MES = { historico: ["", "Histórico"], actual: ["info", "Mes actual"], proyeccion: ["warn", "Proyección"] };
+// Cobranza por mes: lo programado (cuotas del mes) contra lo cobrado; el actual y los 2 siguientes como proyección.
+function cobranzaMeses(meses) {
+  const top = Math.max(1, ...meses.map((m) => Math.max(m.programado || 0, m.cobrado || 0)));
+  const bar = (v, cls) => '<span class="mbar ' + cls + '" style="width:' + Math.max(0, Math.min(100, (v || 0) / top * 100)).toFixed(1) + '%"></span>';
+  const proy = meses.filter((m) => m.tipo !== "historico").reduce((s, m) => s + (m.programado || 0), 0);
+  let h = '<div class="panel"><div class="panel-h"><h3>Cobranza por mes</h3><span>USD · 3 meses de histórico, el actual y 2 de proyección</span></div>';
+  h += '<div class="tbl"><table><thead><tr><th>Mes</th><th></th><th class="r">Programado</th><th class="r">Cobrado</th><th class="r">%</th><th style="min-width:160px"></th><th>Notas</th></tr></thead><tbody>';
+  h += meses.map((m) => {
+    const t = TIPO_MES[m.tipo] || ["", m.tipo];
+    const notas = [];
+    if (m.tipo === "actual") notas.push("faltan " + usd(m.pendiente));
+    if (m.nuevos) notas.push("+" + usd(m.nuevos) + " de clientes por entregar");
+    if (m.clientes) notas.push(m.clientes + " clientes");
+    return "<tr" + (m.tipo === "actual" ? ' style="font-weight:600"' : "") + "><td>" + esc(mesLargo(m.mes)) + "</td><td>" + pill(t[0], t[1]) + '</td><td class="r">' + usd(m.programado) + '</td><td class="r">' + (m.cobrado == null ? "—" : usd(m.cobrado)) + '</td><td class="r">' + (m.porcentaje == null ? "—" : m.porcentaje + "%") + '</td><td><div class="mbars">' + bar(m.programado, "prog") + (m.cobrado == null ? "" : bar(m.cobrado, "cob")) + '</div></td><td class="muted">' + esc(notas.join(" · ")) + "</td></tr>";
+  }).join("");
+  h += '</tbody></table></div><p class="muted">Programado = las cuotas que tocan en el mes según cada contrato (respeta liquidaciones y pausas). Cobrado = lo pagado en el mes (puede incluir atrasos o adelantos, por eso a veces pasa de 100%). Proyección de este mes y los 2 siguientes: ' + usd(proy) + ' USD.</p></div>';
+  return h;
+}
+
 function renderHoy() {
   const d = DATA, cob = d.cobranza, pr = d.produccion, cot = d.cotizaciones, cos = d.costeo;
   let h = '<div class="tiles">';
@@ -226,6 +251,8 @@ function renderHoy() {
     h += '<div class="panel-h"><h3>Cobrado por semana</h3><span>USD · últimas 8 semanas</span></div>' + lineChart(cob.cobradoPorSemana.map((w) => ({ l: fecha(w.desde), v: w.monto })), short) + "</div>";
   } else h += noData("cobranza");
   h += "</div>";
+
+  if (cob && cob.meses && cob.meses.length) h += cobranzaMeses(cob.meses);
 
   if (cot) {
     h += '<div class="grid2"><div class="panel"><div class="panel-h"><h3>Cotizaciones abiertas</h3><span>enviadas, sin ganar ni perder</span></div>';
