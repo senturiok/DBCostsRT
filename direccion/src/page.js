@@ -66,8 +66,9 @@ header h1{font-size:clamp(28px,4.5vw,38px)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
 .chip{font-family:var(--mono);font-size:11px;padding:3px 8px;border-radius:999px;background:var(--good-bg);color:var(--good)}
 .chip.off{background:var(--bad-bg);color:var(--bad)}
-.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
-.tabs button{cursor:pointer;background:none;border:0;padding:10px 14px;color:var(--muted);font-family:var(--display);font-size:19px;font-weight:600;border-bottom:3px solid transparent;margin-bottom:-1px}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line);overflow-x:auto;scrollbar-width:none}
+.tabs button{cursor:pointer;background:none;border:0;padding:10px 14px;color:var(--muted);font-family:var(--display);font-size:19px;font-weight:600;border-bottom:3px solid transparent;margin-bottom:-1px;white-space:nowrap;flex:none}
+@media (max-width:520px){.tabs button{font-size:16px;padding:9px 10px}}
 .tabs button[aria-selected="true"]{color:var(--ink);border-bottom-color:var(--accent)}
 .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
 .tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
@@ -126,10 +127,12 @@ td .sub{display:block;color:var(--muted);font-size:12px}
     <button role="tab" id="tab-hoy" aria-selected="true" type="button">Hoy</button>
     <button role="tab" id="tab-proy" aria-selected="false" type="button">Proyectos</button>
     <button role="tab" id="tab-so" aria-selected="false" type="button">Sales Orders</button>
+    <button role="tab" id="tab-eq" aria-selected="false" type="button">Equipos</button>
   </nav>
   <main id="hoy"><div class="state">Cargando datos de los portales…</div></main>
   <main id="proy" hidden></main>
   <main id="so" hidden></main>
+  <main id="eq" hidden></main>
   <p class="foot" id="foot"></p>
 </div>
 <script nonce="${nonce}">${CLIENT_JS}</script>
@@ -296,15 +299,43 @@ function renderSo() {
   $("so").innerHTML = h;
 }
 
+const DIAS = ["dom","lun","mar","mié","jue","vie","sáb"];
+const diaLargo = (iso) => DIAS[new Date(iso + "T12:00:00Z").getUTCDay()] + " " + fecha(iso);
+const h1 = (n) => n == null ? "—" : (Math.round(n * 10) / 10).toLocaleString("es-MX");
+const cumplePill = (pct) => pct == null ? pill("", "sin plan") : pill(pct >= 90 ? "good" : pct >= 60 ? "warn" : "bad", pct + "% del plan");
+
+function renderEq() {
+  const e = DATA.equipos;
+  if (!e) { $("eq").innerHTML = '<div class="panel"><p class="muted">No llegaron los datos de equipos de Producción' + (DATA.fuentes.equipos && DATA.fuentes.equipos.error ? " (" + esc(DATA.fuentes.equipos.error) + ")" : "") + ".</p></div>"; return; }
+  const t = e.totales;
+  const rango = e.desde === e.hasta ? diaLargo(e.desde) : diaLargo(e.desde) + " a " + diaLargo(e.hasta);
+  let h = '<div class="tiles">';
+  h += '<div class="tile"><div class="k"><span class="src">Horas hechas</span>' + cumplePill(t.cumplimiento) + '</div><div class="v">' + h1(t.horasHechas) + ' h</div><div class="s">de ' + h1(t.horasPlan) + " h que tenía el plan · " + esc(rango) + "</div></div>";
+  h += '<div class="tile"><div class="k"><span class="src">Tareas avanzadas</span></div><div class="v">' + t.tareas + '</div><div class="s">' + t.terminadas + " terminadas</div></div>";
+  h += '<div class="tile"><div class="k"><span class="src">Sin captura</span>' + pill(t.sinCaptura.length ? "warn" : "good", t.sinCaptura.length ? t.sinCaptura.length + " equipos" : "todos capturaron") + '</div><div class="v">' + t.sinCaptura.length + '</div><div class="s">' + (t.sinCaptura.length ? esc(t.sinCaptura.join(", ")) : "Todos los equipos registraron avance") + "</div></div>";
+  h += "</div>";
+  h += '<div class="panel"><div class="panel-h"><h3>Por equipo</h3><span>' + esc(rango) + ' · horas del equipo, igual que Capacidad → Real</span></div><div class="tbl"><table><thead><tr><th>Equipo</th><th class="r">Plan</th><th class="r">Hecho</th><th class="r">Fuera de plan</th><th>Cumplimiento</th><th class="r">Terminadas</th></tr></thead><tbody>';
+  h += e.equipos.map((q) => "<tr><td><b>" + esc(q.equipo) + "</b>" + (q.activo ? "" : '<span class="sub">inactivo</span>') + '</td><td class="r">' + h1(q.horasPlan) + '</td><td class="r">' + h1(q.horasHechas) + '</td><td class="r">' + (q.horasFueraPlan ? h1(q.horasFueraPlan) : "—") + "</td><td>" + (q.tareas.length || q.horasHechas ? cumplePill(q.cumplimiento) : pill("bad", "sin captura")) + '</td><td class="r">' + q.terminadas + "</td></tr>").join("");
+  h += "</tbody></table></div></div>";
+  const conTareas = e.equipos.filter((q) => q.tareas.length);
+  if (conTareas.length) {
+    h += '<div class="grid2">' + conTareas.map((q) => '<div class="panel"><div class="panel-h"><h3>' + esc(q.equipo) + "</h3><span>" + h1(q.horasHechas) + " h · " + q.tareas.length + " tarea" + (q.tareas.length > 1 ? "s" : "") + '</span></div><div class="tbl"><table><thead><tr>' + (e.dias.length > 1 ? "<th>Día</th>" : "") + '<th>Orden</th><th>Tarea</th><th class="r">Avance</th></tr></thead><tbody>' +
+      q.tareas.map((x) => "<tr>" + (e.dias.length > 1 ? "<td>" + esc(diaLargo(x.dia)) + "</td>" : "") + "<td><b>" + esc(x.orden) + "</b></td><td>" + esc((x.n ? x.n + " " : "") + x.tarea) + (x.fueraDePlan ? ' <span class="pill info">fuera de plan</span>' : "") + '</td><td class="r">' + (x.avanceDia != null ? "+" + x.avanceDia + "% → " : "") + x.avanceTotal + "%" + (x.avanceTotal >= 100 ? " ✓" : "") + "</td></tr>").join("") +
+      "</tbody></table></div></div>").join("") + "</div>";
+  }
+  $("eq").innerHTML = h;
+}
+
 function render() {
   const f = DATA.fuentes;
   $("fuentes").innerHTML = Object.keys(NOMBRES).map((k) => '<span class="chip' + (f[k] && f[k].ok ? "" : " off") + '" title="' + esc(f[k] && f[k].error ? f[k].error : "Conectado") + '">' + NOMBRES[k] + (f[k] && f[k].ok ? "" : " sin datos") + "</span>").join("");
   const [y, m, dd] = DATA.hoy.split("-");
   $("fecha").textContent = "Rancho Trailers · " + Number(dd) + " " + MESES[Number(m) - 1] + " " + y;
   $("foot").textContent = "Actualizado " + new Date(DATA.generado).toLocaleTimeString("es-MX", { hour: "2-digit", minute: "2-digit" }) + ". Solo lectura: este tablero no modifica nada en los portales.";
-  renderHoy();
-  renderProy();
-  renderSo();
+  // Cada pestaña por separado: si una falla con datos incompletos, las demás se ven.
+  for (const [id, fn] of [["hoy", renderHoy], ["proy", renderProy], ["so", renderSo], ["eq", renderEq]]) {
+    try { fn(); } catch (e) { $(id).innerHTML = '<div class="state">No se pudo mostrar esta sección: ' + esc(e.message) + "</div>"; }
+  }
 }
 
 async function load() {
@@ -323,12 +354,12 @@ async function load() {
 }
 
 function tab(which) {
-  for (const t of ["hoy", "proy", "so"]) {
+  for (const t of ["hoy", "proy", "so", "eq"]) {
     $("tab-" + t).setAttribute("aria-selected", t === which);
     $(t).hidden = t !== which;
   }
 }
-for (const t of ["hoy", "proy", "so"]) $("tab-" + t).addEventListener("click", () => tab(t));
+for (const t of ["hoy", "proy", "so", "eq"]) $("tab-" + t).addEventListener("click", () => tab(t));
 $("refresh").addEventListener("click", load);
 load();
 setInterval(() => { if (!document.hidden) load(); }, 5 * 60 * 1000);

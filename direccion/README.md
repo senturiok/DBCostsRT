@@ -20,6 +20,7 @@ crítico de los cuatro portales.
 npx wrangler secret put DIRECCION_PASSWORD   # contraseña para entrar
 npx wrangler secret put SESSION_SECRET       # firma la cookie; cambiarla cierra todas las sesiones
 npx wrangler secret put DIRECCION_TOKEN      # mismo valor en Costeo, Cobranza y Cotizaciones
+npx wrangler secret put PRODUCCION_TOKEN     # mismo valor que DIRECCION_TOKEN en el Portal de Producción (pestaña Equipos)
 ```
 
 ## Desplegar
