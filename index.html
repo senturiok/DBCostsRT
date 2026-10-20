@@ -1404,7 +1404,8 @@ function openInvArticuloModal(id){
       '<div class="field"><label>Costo de referencia (MXN por unidad)</label><input type="number" name="costo_ref" step="0.01" min="0" value="'+(a.costo_ref||"")+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Proveedor habitual</label><input name="proveedor" value="'+esc(a.proveedor)+'" placeholder="Amazon, Mercado Libre…"></div>'+
       '<div class="field"><label>Liga para comprar</label><input type="url" name="liga" value="'+esc(a.liga)+'" placeholder="https://…"></div>'+
-      (id ? '' : '<div class="field"><label>Existencia inicial</label><input type="number" name="inicial" step="any" min="0" placeholder="Lo que hay hoy (opcional)"></div>')+
+      '<div class="field"><label>Existencia inicial</label><input type="number" name="inicial" step="any" min="0" value="'+(id ? esc(existenciaInicial(id)) : '')+'" placeholder="'+(id ? '0' : 'Lo que hay hoy (opcional)')+'">'+
+        (id ? '<div class="hint" style="margin-top:4px">Con lo que arrancó el artículo. Para diferencias de un conteo usa "Conteo" en Existencias.</div>' : '')+'</div>'+
     '</div>'+
     '<div class="field"><label>Notas</label><input name="notas" value="'+esc(a.notas)+'" placeholder="Opcional: dónde se usa, ubicación en el taller…"></div>'+
     '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
@@ -1428,8 +1429,23 @@ function handleInvArticuloSubmit(form){
   STATE.db.doc("inventario_articulos/"+finalId).set(data).then(function(){
     STATE.inventarioArticulos[finalId] = data;
     if(!id && inicial>0) return guardarAjusteInventario(finalId, inicial, "Existencia inicial", getRememberedName()||quienSoy());
+    if(id) return corregirExistenciaInicial(id, inicial);
   }).then(function(){ toast(id ? "Artículo actualizado ✓" : "Artículo creado ✓"); closeModal(); renderContent(); })
     .catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Inventario." : "No se pudo guardar.","err"); });
+}
+// Existencia inicial = los ajustes con motivo "Existencia inicial" del artículo.
+function ajustesIniciales(id){ return STATE.inventarioAjustes.filter(function(j){ return j.articulo===id && j.motivo==="Existencia inicial"; }); }
+function existenciaInicial(id){ return Math.round(ajustesIniciales(id).reduce(function(s,j){ return s+(Number(j.cantidad)||0); },0)*1000)/1000; }
+// Cambia la existencia inicial: corrige su ajuste (o lo crea), sin tocar compras, consumos ni conteos.
+function corregirExistenciaInicial(id, nueva){
+  var actual = existenciaInicial(id);
+  if(Math.abs(nueva - actual) < 1e-9) return Promise.resolve();
+  var previos = ajustesIniciales(id).filter(function(j){ return j.id && String(j.id).indexOf("_local_")!==0; });
+  if(!previos.length) return guardarAjusteInventario(id, nueva, "Existencia inicial", getRememberedName()||quienSoy());
+  var j = previos[0], resto = actual - (Number(j.cantidad)||0);
+  var data = Object.assign({}, j, { cantidad: Math.round((nueva - resto)*1000)/1000, editadoPor: getRememberedName()||quienSoy(), editadoEn: new Date().toISOString(), cantidad_anterior: Number(j.cantidad)||0 });
+  delete data.id; delete data._pending;
+  return STATE.db.doc("inventario_ajustes/"+j.id).set(data).then(function(){ Object.assign(j, data); });
 }
 function guardarAjusteInventario(id, cantidad, motivo, quien){
   var a = STATE.inventarioArticulos[id] || {};
