@@ -82,6 +82,8 @@ async function resumen(env) {
     fuente("cobranza", `${COBRANZA_URL}/bot/datos`, tok),
     fuente("cotizaciones", `${COTIZACIONES_URL}/bot/datos`, tok),
     fuente("produccion", `${PRODUCCION_URL}/api/public/ordenes`, null),
+    // Lo que hizo cada equipo el día hábil anterior (su propia clave PRODUCCION_TOKEN).
+    fuente("equipos", `${PRODUCCION_URL}/api/direccion/equipos`, env.PRODUCCION_TOKEN),
   ]);
   const crudos = Object.fromEntries(fuentes.map((f) => [f.nombre, f.datos]));
   const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -89,6 +91,7 @@ async function resumen(env) {
     generado: new Date().toISOString(),
     fuentes: Object.fromEntries(fuentes.map((f) => [f.nombre, { ok: f.ok, error: f.error || null, ms: f.ms }])),
     ...armarResumen(crudos, hoy),
+    equipos: crudos.equipos || null,
   };
 }
 
