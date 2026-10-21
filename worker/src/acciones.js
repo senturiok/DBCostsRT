@@ -80,34 +80,59 @@ export function resumenInventario(articulos, gastosNuevos, ajustes) {
   return por;
 }
 
-/** Lo que le falta consumir a un proyecto según el uso estándar de su remolque (pura). */
-export function materialPendiente(proyecto, articulos, gastosNuevos, inv) {
+const NIVELES = ["L1", "L2", "L3", "L4", "L5"];
+const nivelDe = (n) => (NIVELES.includes(n) ? n : "L4");
+
+/**
+ * Partes de un artículo para el material estándar. Un artículo dividido por uso
+ * (p. ej. Interior / Exterior) da una parte por uso, cada una con su SG, su nivel
+ * de carga y su uso por remolque; todas comparten la existencia del artículo.
+ * Sin división, el artículo completo es una sola parte (uso ""). Pura.
+ */
+export function partesArticulo(id, a) {
+  const usos = Array.isArray(a.usos) ? a.usos.filter((u) => u && u.clave) : [];
+  if (!usos.length) return [{ id, uso: "", nombre: a.nombre, categoria: a.categoria, nivelCarga: nivelDe(a.nivelCarga), std: a.uso || {} }];
+  return usos.map((u) => ({ id, uso: u.clave, nombre: `${a.nombre} (${u.nombre || u.clave})`, categoria: u.categoria, nivelCarga: nivelDe(u.nivelCarga), std: u.uso || {} }));
+}
+
+/**
+ * Lo que le falta consumir a un proyecto según el uso estándar de su remolque,
+ * por parte (artículo o uso del artículo). nivel: solo las partes que se cargan
+ * en ese nivel. Pura.
+ */
+export function materialPendiente(proyecto, articulos, gastosNuevos, inv, nivel) {
   const usado = {};
   gastosNuevos.forEach((g) => {
-    if (g.consumo_inventario && g.inv_articulo && g.proyecto_key === proyecto.key) usado[g.inv_articulo] = (usado[g.inv_articulo] || 0) + (Number(g.inv_cantidad) || 0);
+    if (!g.consumo_inventario || !g.inv_articulo || g.proyecto_key !== proyecto.key) return;
+    const k = `${g.inv_articulo}|${g.inv_uso || ""}`;
+    usado[k] = (usado[k] || 0) + (Number(g.inv_cantidad) || 0);
   });
   const k = `${proyecto.tamanoTraila}|${proyecto.tipoTraila}`;
   return Object.keys(articulos)
     .filter((id) => !articulos[id].eliminado)
-    .map((id) => {
-      const a = articulos[id];
-      const std = Number((a.uso || {})[k]) || 0;
+    .flatMap((id) => partesArticulo(id, articulos[id]))
+    .filter((p) => !nivel || p.nivelCarga === nivel)
+    .map((p) => {
+      const std = Number(p.std[k]) || 0;
       if (!(std > 0)) return null;
-      const pendiente = Math.max(0, r3(std - (usado[id] || 0)));
-      return { id, a, pendiente, existencia: inv[id].existencia, costoProm: inv[id].costoProm };
+      const pendiente = Math.max(0, r3(std - (usado[`${p.id}|${p.uso}`] || 0)));
+      return { id: p.id, uso: p.uso, nombre: p.nombre, categoria: p.categoria, a: articulos[p.id], estandar: std, pendiente, existencia: inv[p.id].existencia, costoProm: inv[p.id].costoProm };
     })
-    .filter((x) => x && x.pendiente > 0)
-    .sort((x, y) => String(x.a.nombre).localeCompare(String(y.a.nombre)));
+    .filter(Boolean)
+    .sort((x, y) => String(x.nombre).localeCompare(String(y.nombre)));
 }
 
-export function gastoConsumo(id, a, cant, costoProm, proyecto, fecha, por) {
-  return {
+/** Gasto de consumo de una parte (de materialPendiente) al proyecto. */
+export function gastoConsumo(i, cant, proyecto, fecha, por) {
+  const g = {
     proyecto: proyecto.nombre, proyecto_key: proyecto.key, fecha, fecha_factura: fecha, proveedor: "INVENTARIO",
-    descripcion: `Consumo de inventario: ${a.nombre} × ${r3(cant)} · material estándar`, factura: null,
-    importe: r2(cant * costoProm), cantidad: cant, categoria: a.categoria, forma_pago: "inventario",
+    descripcion: `Consumo de inventario: ${i.nombre} × ${r3(cant)} · material estándar`, factura: null,
+    importe: r2(cant * i.costoProm), cantidad: cant, categoria: i.categoria, forma_pago: "inventario",
     capturadoPor: por, creadoEn: new Date().toISOString(), _cid: uid(),
-    consumo_inventario: true, inv_articulo: id, inv_cantidad: cant,
+    consumo_inventario: true, inv_articulo: i.id, inv_cantidad: cant,
   };
+  if (i.uso) g.inv_uso = i.uso;
+  return g;
 }
 
 export async function handleAcciones(request, env, deps) {
@@ -205,18 +230,21 @@ async function materialEstandar({ env, deps, state, activos, datos, confirmar, p
   const articulos = state.inventario_articulos || {};
   const gastosNuevos = state.gastos_nuevos || [];
   const inv = resumenInventario(articulos, gastosNuevos, state.inventario_ajustes || []);
-  const items = materialPendiente(proyecto, articulos, gastosNuevos, inv);
+  const items = materialPendiente(proyecto, articulos, gastosNuevos, inv).filter((i) => i.pendiente > 0);
   if (!items.length) return { ok: false, error: `${proyecto.nombre} (${proyecto.tamanoTraila} ${proyecto.tipoTraila}) ya tiene cargado todo su material estándar, o no hay uso estándar para esa medida.` };
+  // Los usos de un mismo artículo comparten existencia: se compara lo que piden entre todos.
+  const pide = {};
+  items.forEach((i) => { pide[i.id] = r3((pide[i.id] || 0) + i.pendiente); });
   const problemas = items
-    .map((i) => (!i.a.categoria ? `${i.a.nombre}: sin SG` : !(i.costoProm > 0) ? `${i.a.nombre}: sin costo` : i.pendiente > i.existencia + 1e-9 ? `${i.a.nombre}: necesita ${i.pendiente}, hay ${i.existencia}` : null))
+    .map((i) => (!i.categoria ? `${i.nombre}: sin SG` : !(i.costoProm > 0) ? `${i.nombre}: sin costo` : pide[i.id] > i.existencia + 1e-9 ? `${i.nombre}: necesita ${pide[i.id] === i.pendiente ? i.pendiente : `${pide[i.id]} entre sus usos`}, hay ${i.existencia}` : null))
     .filter(Boolean);
   if (problemas.length) return { ok: false, error: `No se puede cargar el material de ${proyecto.nombre}: ${problemas.join("; ")}. Registra la compra o corrígelo en Inventario.` };
   const total = items.reduce((s, i) => s + i.pendiente * i.costoProm, 0);
-  const resumen = `Cargar material estándar a *${proyecto.nombre}* (${proyecto.tamanoTraila} ${proyecto.tipoTraila}): ${items.map((i) => `${i.a.nombre} × ${i.pendiente}`).join(", ")} — *${mxn(total)}* a costo promedio.`;
+  const resumen = `Cargar material estándar a *${proyecto.nombre}* (${proyecto.tamanoTraila} ${proyecto.tipoTraila}): ${items.map((i) => `${i.nombre} × ${i.pendiente}`).join(", ")} — *${mxn(total)}* a costo promedio.`;
   if (!confirmar) return { ok: true, resumen, datos: { proyecto: proyecto.nombre } };
   const fecha = houstonToday();
   for (const i of items) {
-    const g = gastoConsumo(i.id, i.a, i.pendiente, i.costoProm, proyecto, fecha, por);
+    const g = gastoConsumo(i, i.pendiente, proyecto, fecha, por);
     const id = uid();
     await deps.putDoc(env, "gastos_nuevos", id, g);
     await deps.logActivity(env, { isMaster: false, nombre: por }, "POST", "gastos_nuevos", id, g);
