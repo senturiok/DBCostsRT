@@ -1,6 +1,7 @@
 // Producción avisa cuando una orden entra a un nivel (L1–L5): se carga a su
 // proyecto el material estándar que le falta (Inventario → Uso por remolque) de
-// los artículos que se cargan en ese nivel (nivelCarga, L4 si no se eligió),
+// los artículos que se cargan en ese nivel (nivelCarga, L4 si no se eligió; un
+// artículo dividido por uso, p. ej. Interior / Exterior, tiene nivel y SG por uso),
 // solo lo que hay en existencia. Lo que falta se reporta para comprarlo y se carga después
 // (vuelve a correr sin duplicar: solo toma lo pendiente). Servidor a servidor
 // con el secreto INTEGRACION_TOKEN.
@@ -10,7 +11,7 @@
 //     faltantes: [{articulo, falta, motivo}], total, sinArticulos }
 import { makeCalc } from "./costeo-calc.js";
 import { normKey, slugify } from "./integracion.js";
-import { gastoConsumo, houstonToday, materialPendiente, resumenInventario } from "./acciones.js";
+import { gastoConsumo, houstonToday, materialPendiente, partesArticulo, resumenInventario } from "./acciones.js";
 
 function json(data, status) {
   return new Response(JSON.stringify(data), {
@@ -51,11 +52,10 @@ export async function handleMaterialL4(request, env, deps) {
   }
   const state = await deps.buildState(env);
   const nivel = ["L1", "L2", "L3", "L4", "L5"].includes(b.nivel) ? b.nivel : "L4";
-  const delNivel = (a) => (["L1", "L2", "L3", "L4", "L5"].includes(a.nivelCarga) ? a.nivelCarga : "L4") === nivel;
-  const todos = state.inventario_articulos || {};
-  const articulos = Object.fromEntries(Object.entries(todos).filter(([, a]) => a && !a.eliminado && delNivel(a)));
-  // Ningún artículo se carga en este nivel: no hay nada que hacer ni que avisar.
-  if (!Object.keys(articulos).length) return json({ ok: true, nivel, sinArticulos: true, cargados: [], faltantes: [], total: 0 });
+  const todos = Object.fromEntries(Object.entries(state.inventario_articulos || {}).filter(([, a]) => a && !a.eliminado));
+  // Ningún artículo (ni uso de artículo) se carga en este nivel: no hay nada que hacer ni que avisar.
+  if (!Object.entries(todos).some(([id, a]) => partesArticulo(id, a).some((p) => p.nivelCarga === nivel)))
+    return json({ ok: true, nivel, sinArticulos: true, cargados: [], faltantes: [], total: 0 });
   const calc = makeCalc({
     gastosBase: deps.base.gastos, proyectosCat: deps.base.proyectos, proveedoresCat: deps.base.proveedores, categoriasCat: deps.base.categorias,
     gastosNuevos: state.gastos_nuevos || [], proyectosNuevos: state.proyectos_nuevos || [], proveedoresNuevos: state.proveedores_nuevos || [],
@@ -69,29 +69,33 @@ export async function handleMaterialL4(request, env, deps) {
   if (!proyecto.tipoTraila || !proyecto.tamanoTraila) return json({ ok: false, proyecto: proyecto.nombre, error: `${proyecto.nombre} no tiene tamaño o tipo de remolque en Compras.` });
 
   const gastosNuevos = state.gastos_nuevos || [];
-  const inv = resumenInventario(todos, gastosNuevos, state.inventario_ajustes || []);
-  const items = materialPendiente(proyecto, articulos, gastosNuevos, inv);
+  const inv = resumenInventario(state.inventario_articulos || {}, gastosNuevos, state.inventario_ajustes || []);
+  const partes = materialPendiente(proyecto, todos, gastosNuevos, inv, nivel);
   const por = `Producción · ${nivel}`;
   const fecha = houstonToday();
   const cargados = [], faltantes = [];
-  for (const i of items) {
-    if (!i.a.categoria) { faltantes.push({ articulo: i.a.nombre, falta: i.pendiente, motivo: "sin SG" }); continue; }
-    if (!(i.costoProm > 0)) { faltantes.push({ articulo: i.a.nombre, falta: i.pendiente, motivo: "sin costo" }); continue; }
-    const cant = r3(Math.min(i.pendiente, Math.max(0, i.existencia)));
+  // Los usos de un artículo comparten existencia: lo que toma uno ya no está para el otro.
+  const queda = {};
+  for (const i of partes.filter((x) => x.pendiente > 0)) {
+    if (!i.categoria) { faltantes.push({ articulo: i.nombre, falta: i.pendiente, motivo: "sin SG" }); continue; }
+    if (!(i.costoProm > 0)) { faltantes.push({ articulo: i.nombre, falta: i.pendiente, motivo: "sin costo" }); continue; }
+    if (!(i.id in queda)) queda[i.id] = Math.max(0, i.existencia);
+    const cant = r3(Math.min(i.pendiente, queda[i.id]));
     if (cant > 0) {
-      const g = gastoConsumo(i.id, i.a, cant, i.costoProm, proyecto, fecha, por);
-      g.descripcion = `Consumo de inventario: ${i.a.nombre} × ${cant} · material estándar (orden pasó a ${nivel})`;
+      queda[i.id] = r3(queda[i.id] - cant);
+      const g = gastoConsumo(i, cant, proyecto, fecha, por);
+      g.descripcion = `Consumo de inventario: ${i.nombre} × ${cant} · material estándar (orden pasó a ${nivel})`;
       const id = uid();
       await deps.putDoc(env, "gastos_nuevos", id, g);
       await deps.logActivity(env, { isMaster: false, nombre: por }, "POST", "gastos_nuevos", id, g);
-      cargados.push({ articulo: i.a.nombre, cantidad: cant, unidad: i.a.unidad || "pieza", importe: g.importe });
+      cargados.push({ articulo: i.nombre, cantidad: cant, unidad: i.a.unidad || "pieza", importe: g.importe });
     }
-    if (i.pendiente - cant > 1e-9) faltantes.push({ articulo: i.a.nombre, falta: r3(i.pendiente - cant), motivo: "sin existencia" });
+    if (i.pendiente - cant > 1e-9) faltantes.push({ articulo: i.nombre, falta: r3(i.pendiente - cant), motivo: "sin existencia" });
   }
   return json({
     ok: true,
     nivel,
-    sinArticulos: !items.length && !Object.values(articulos).some((a) => Number((a.uso || {})[`${proyecto.tamanoTraila}|${proyecto.tipoTraila}`]) > 0),
+    sinArticulos: !partes.length,
     proyecto: proyecto.nombre,
     medida: `${proyecto.tamanoTraila} ${proyecto.tipoTraila}`,
     cargados,
