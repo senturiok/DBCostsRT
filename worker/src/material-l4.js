@@ -1,12 +1,13 @@
-// Producción avisa cuando una orden llega a L4: se carga a su proyecto el
-// material estándar que le falta (Inventario → Uso por remolque), solo lo que
-// hay en existencia. Lo que falta se reporta para comprarlo y se carga después
+// Producción avisa cuando una orden entra a un nivel (L1–L5): se carga a su
+// proyecto el material estándar que le falta (Inventario → Uso por remolque) de
+// los artículos que se cargan en ese nivel (nivelCarga, L4 si no se eligió),
+// solo lo que hay en existencia. Lo que falta se reporta para comprarlo y se carga después
 // (vuelve a correr sin duplicar: solo toma lo pendiente). Servidor a servidor
 // con el secreto INTEGRACION_TOKEN.
 //
-// POST /integracion/material-l4 { folio, nombres: [nombre interno, cliente], orden }
-// → { ok, proyecto, medida, cargados: [{articulo, cantidad, unidad, importe}],
-//     faltantes: [{articulo, falta, motivo}], total }
+// POST /integracion/material-l4 { folio, nombres: [nombre interno, cliente], orden, nivel }
+// → { ok, nivel, proyecto, medida, cargados: [{articulo, cantidad, unidad, importe}],
+//     faltantes: [{articulo, falta, motivo}], total, sinArticulos }
 import { makeCalc } from "./costeo-calc.js";
 import { normKey, slugify } from "./integracion.js";
 import { gastoConsumo, houstonToday, materialPendiente, resumenInventario } from "./acciones.js";
@@ -49,6 +50,12 @@ export async function handleMaterialL4(request, env, deps) {
     return json({ ok: false, error: "JSON inválido" }, 400);
   }
   const state = await deps.buildState(env);
+  const nivel = ["L1", "L2", "L3", "L4", "L5"].includes(b.nivel) ? b.nivel : "L4";
+  const delNivel = (a) => (["L1", "L2", "L3", "L4", "L5"].includes(a.nivelCarga) ? a.nivelCarga : "L4") === nivel;
+  const todos = state.inventario_articulos || {};
+  const articulos = Object.fromEntries(Object.entries(todos).filter(([, a]) => a && !a.eliminado && delNivel(a)));
+  // Ningún artículo se carga en este nivel: no hay nada que hacer ni que avisar.
+  if (!Object.keys(articulos).length) return json({ ok: true, nivel, sinArticulos: true, cargados: [], faltantes: [], total: 0 });
   const calc = makeCalc({
     gastosBase: deps.base.gastos, proyectosCat: deps.base.proyectos, proveedoresCat: deps.base.proveedores, categoriasCat: deps.base.categorias,
     gastosNuevos: state.gastos_nuevos || [], proyectosNuevos: state.proyectos_nuevos || [], proveedoresNuevos: state.proveedores_nuevos || [],
@@ -61,11 +68,10 @@ export async function handleMaterialL4(request, env, deps) {
   if (!proyecto) return json({ ok: false, error: `No encontré en Compras el proyecto de la orden ${b.orden || ""}.` });
   if (!proyecto.tipoTraila || !proyecto.tamanoTraila) return json({ ok: false, proyecto: proyecto.nombre, error: `${proyecto.nombre} no tiene tamaño o tipo de remolque en Compras.` });
 
-  const articulos = state.inventario_articulos || {};
   const gastosNuevos = state.gastos_nuevos || [];
-  const inv = resumenInventario(articulos, gastosNuevos, state.inventario_ajustes || []);
+  const inv = resumenInventario(todos, gastosNuevos, state.inventario_ajustes || []);
   const items = materialPendiente(proyecto, articulos, gastosNuevos, inv);
-  const por = "Producción · L4";
+  const por = `Producción · ${nivel}`;
   const fecha = houstonToday();
   const cargados = [], faltantes = [];
   for (const i of items) {
@@ -74,7 +80,7 @@ export async function handleMaterialL4(request, env, deps) {
     const cant = r3(Math.min(i.pendiente, Math.max(0, i.existencia)));
     if (cant > 0) {
       const g = gastoConsumo(i.id, i.a, cant, i.costoProm, proyecto, fecha, por);
-      g.descripcion = `Consumo de inventario: ${i.a.nombre} × ${cant} · material estándar (orden pasó a L4)`;
+      g.descripcion = `Consumo de inventario: ${i.a.nombre} × ${cant} · material estándar (orden pasó a ${nivel})`;
       const id = uid();
       await deps.putDoc(env, "gastos_nuevos", id, g);
       await deps.logActivity(env, { isMaster: false, nombre: por }, "POST", "gastos_nuevos", id, g);
@@ -84,6 +90,8 @@ export async function handleMaterialL4(request, env, deps) {
   }
   return json({
     ok: true,
+    nivel,
+    sinArticulos: !items.length && !Object.values(articulos).some((a) => Number((a.uso || {})[`${proyecto.tamanoTraila}|${proyecto.tipoTraila}`]) > 0),
     proyecto: proyecto.nombre,
     medida: `${proyecto.tamanoTraila} ${proyecto.tipoTraila}`,
     cargados,

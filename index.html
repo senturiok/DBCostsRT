@@ -1025,6 +1025,8 @@ function handleFechaTerminadoSubmit(form){
    artículo al costo promedio de sus compras. Ajustes: conteos físicos.
    Existencia = compras − consumos + ajustes, siempre calculada. */
 var INVENTARIO_KEY = "INVENTARIO";
+// Nivel de Producción en el que se carga solo el material estándar de cada artículo (ver worker/src/material-l4.js).
+var NIVELES_CARGA = ["L1","L2","L3","L4","L5"], NIVEL_CARGA_DEFAULT = "L4";
 var INV_UNIDADES = ["pieza","metro","rollo","caja","juego","litro","kg","otro"];
 function gastosCosto(){ return allGastos().filter(function(g){ return g.proyecto_key!==INVENTARIO_KEY; }); }
 function allArticulos(includeDeleted){
@@ -1032,7 +1034,8 @@ function allArticulos(includeDeleted){
     var a = STATE.inventarioArticulos[id] || {};
     return { id:id, nombre:a.nombre||id, unidad:a.unidad||"pieza", categoria:a.categoria||"", proveedor:a.proveedor||"", liga:a.liga||"",
       punto_reorden:Number(a.punto_reorden)||0, costo_ref:Number(a.costo_ref)||0, notas:a.notas||"", eliminado:!!a.eliminado,
-      uso:(a.uso && typeof a.uso==="object") ? a.uso : {} };
+      uso:(a.uso && typeof a.uso==="object") ? a.uso : {},
+      nivelCarga: NIVELES_CARGA.indexOf(a.nivelCarga)>-1 ? a.nivelCarga : NIVEL_CARGA_DEFAULT };
   }).filter(function(a){ return includeDeleted || !a.eliminado; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function inventarioResumen(){
@@ -1380,19 +1383,19 @@ function renderInvArticulosTab(){
   return '<div class="card">'+
     (canEdit ? '<button class="btn btn-primary" data-action="inv-new-articulo" style="margin-bottom:14px">+ Nuevo artículo</button>' : '')+
     '<div class="table-wrap"><table>'+
-      '<thead><tr><th>Artículo</th><th>Unidad</th><th>SG</th><th>Proveedor habitual</th><th class="num">Punto de reorden</th><th class="num">Costo de referencia</th><th class="num">Existencia</th><th></th></tr></thead>'+
+      '<thead><tr><th>Artículo</th><th>Unidad</th><th>SG</th><th title="Nivel de Producción en el que se carga solo su material estándar">Se carga en</th><th>Proveedor habitual</th><th class="num">Punto de reorden</th><th class="num">Costo de referencia</th><th class="num">Existencia</th><th></th></tr></thead>'+
       '<tbody>'+(arts.map(function(a){
         return '<tr><td><strong>'+esc(a.nombre)+'</strong>'+(a.notas?'<div class="card-note">'+esc(a.notas)+'</div>':'')+'</td><td>'+esc(a.unidad)+'</td>'+
-          '<td>'+esc(catMap[a.categoria]||a.categoria||"—")+'</td><td>'+esc(a.proveedor||"—")+(a.liga?' <a href="'+esc(a.liga)+'" target="_blank" rel="noopener">↗</a>':'')+'</td>'+
+          '<td>'+esc(catMap[a.categoria]||a.categoria||"—")+'</td><td><span class="badge badge-steel">'+esc(a.nivelCarga)+'</span></td><td>'+esc(a.proveedor||"—")+(a.liga?' <a href="'+esc(a.liga)+'" target="_blank" rel="noopener">↗</a>':'')+'</td>'+
           '<td class="num">'+fmtCant(a.punto_reorden)+'</td><td class="num">'+(a.costo_ref?fmtMoney(a.costo_ref):'—')+'</td><td class="num">'+fmtCant(res[a.id].existencia)+'</td>'+
           '<td><div class="row-actions">'+(canEdit?'<button class="btn" data-action="inv-edit-articulo" data-id="'+esc(a.id)+'">Editar</button> <button class="btn btn-ghost" data-action="inv-uso-articulo" data-id="'+esc(a.id)+'">Uso por remolque'+(usoMedidas(a)?' ('+usoMedidas(a)+')':'')+'</button>':'')+(master?' <button class="btn btn-danger" data-action="inv-delete-articulo" data-id="'+esc(a.id)+'">Eliminar</button>':'')+'</div></td></tr>';
-      }).join("") || '<tr><td colspan="8" class="empty">Todavía no hay artículos.</td></tr>')+'</tbody>'+
+      }).join("") || '<tr><td colspan="9" class="empty">Todavía no hay artículos.</td></tr>')+'</tbody>'+
     '</table></div>'+
-    '<p class="hint" style="margin-top:10px">El SG define a qué subsistema se carga el costo cuando se consume el artículo en un proyecto. El costo de referencia solo se usa mientras el artículo no tenga compras registradas. <strong>Uso por remolque</strong> es cuánto lleva cada tamaño y tipo; con él se carga el material de un proyecto en un clic y se pronostica la compra (pestaña Material por proyecto).</p>'+
+    '<p class="hint" style="margin-top:10px">El SG define a qué subsistema se carga el costo cuando se consume el artículo en un proyecto. El costo de referencia solo se usa mientras el artículo no tenga compras registradas. <strong>Uso por remolque</strong> es cuánto lleva cada tamaño y tipo; con él se carga el material de un proyecto en un clic y se pronostica la compra (pestaña Material por proyecto). <strong>Se carga en</strong> es el nivel de Producción en el que su material estándar se descuenta solo del inventario y se carga como gasto del proyecto.</p>'+
   '</div>';
 }
 function openInvArticuloModal(id){
-  var a = { id:"", nombre:"", unidad:"pieza", categoria:"", proveedor:"", liga:"", punto_reorden:0, costo_ref:0, notas:"" };
+  var a = { id:"", nombre:"", unidad:"pieza", categoria:"", proveedor:"", liga:"", punto_reorden:0, costo_ref:0, notas:"", nivelCarga:NIVEL_CARGA_DEFAULT };
   if(id){ var f = allArticulos(true).filter(function(x){ return x.id===id; })[0]; if(!f) return; a = f; }
   var cats = allCategorias().filter(function(c){ return c.codigo!=="SIN-CAT"; }).sort(function(x,y){ return x.orden-y.orden; });
   openModal('<h3>'+(id?"Editar artículo":"Nuevo artículo")+'</h3><form id="invArticuloForm"><input type="hidden" name="id" value="'+esc(a.id)+'">'+
@@ -1400,6 +1403,7 @@ function openInvArticuloModal(id){
     '<div class="form-grid">'+
       '<div class="field"><label>'+reqLabel("Unidad")+'</label><select name="unidad">'+INV_UNIDADES.map(function(u){ return '<option value="'+u+'"'+(a.unidad===u?' selected':'')+'>'+u+'</option>'; }).join("")+'</select></div>'+
       '<div class="field"><label>'+reqLabel("SG (subsistema)")+'</label><select name="categoria" required><option value="">Selecciona…</option>'+cats.map(function(c){ return '<option value="'+esc(c.codigo)+'"'+(a.categoria===c.codigo?' selected':'')+'>'+esc(catLabel(c))+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Se carga en nivel (Producción)</label><select name="nivelCarga">'+NIVELES_CARGA.map(function(n){ return '<option value="'+n+'"'+(a.nivelCarga===n?' selected':'')+'>'+n+'</option>'; }).join("")+'</select><span class="hint" style="margin-top:4px">Al entrar la orden a este nivel se descuenta su material estándar.</span></div>'+
       '<div class="field"><label>'+reqLabel("Punto de reorden")+'</label><input type="number" name="punto_reorden" step="any" min="0" required value="'+esc(a.punto_reorden)+'"></div>'+
       '<div class="field"><label>Costo de referencia (MXN por unidad)</label><input type="number" name="costo_ref" step="0.01" min="0" value="'+(a.costo_ref||"")+'" placeholder="Opcional"></div>'+
       '<div class="field"><label>Proveedor habitual</label><input name="proveedor" value="'+esc(a.proveedor)+'" placeholder="Amazon, Mercado Libre…"></div>'+
@@ -1424,7 +1428,7 @@ function handleInvArticuloSubmit(form){
   var finalId = id; if(!finalId){ var base = slugify(nombre), n = 2; finalId = base; while(STATE.inventarioArticulos[finalId]) finalId = base+"-"+(n++); }
   var now = new Date().toISOString();
   var data = Object.assign({}, STATE.inventarioArticulos[finalId]||{}, { nombre:nombre, unidad:fd.get("unidad")||"pieza", categoria:fd.get("categoria"),
-    punto_reorden:pr, costo_ref:costo, proveedor:(fd.get("proveedor")||"").trim(), liga:(fd.get("liga")||"").trim(), notas:(fd.get("notas")||"").trim(), updatedAt:now });
+    punto_reorden:pr, costo_ref:costo, nivelCarga: NIVELES_CARGA.indexOf(fd.get("nivelCarga"))>-1 ? fd.get("nivelCarga") : NIVEL_CARGA_DEFAULT, proveedor:(fd.get("proveedor")||"").trim(), liga:(fd.get("liga")||"").trim(), notas:(fd.get("notas")||"").trim(), updatedAt:now });
   if(!id) data.creadoEn = now;
   STATE.db.doc("inventario_articulos/"+finalId).set(data).then(function(){
     STATE.inventarioArticulos[finalId] = data;
