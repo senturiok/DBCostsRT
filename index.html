@@ -2411,7 +2411,7 @@ function renderContabilidadProveedoresTab(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Gastos a crédito</h3><span class="card-note">'+groups.length+' factura'+(groups.length===1?"":"s")+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SG1 Chasis: 90 días), al corte del viernes">Fecha propuesta de pago</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SGX Traila completa: 90 días), al corte del viernes">Fecha propuesta de pago</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
         '<tbody>'+(rows||'<tr><td colspan="9" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
         '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
@@ -2431,13 +2431,13 @@ function diasCreditoMap(){
   });
   return m;
 }
-// Las notas del SG1 Chasis se pagan a 90 días, sin importar el crédito del proveedor.
-var DIAS_CREDITO_CHASIS = 90;
-function esNotaChasis(r){ return /^SG1(-|$)/.test(normKey(r.categoria||"")); }
+// Las notas del SGX (Traila completa) se pagan a 90 días, sin importar el crédito del proveedor.
+var DIAS_CREDITO_SGX = 90;
+function esNotaSGX(r){ return /^SGX(-|$)/.test(normKey(r.categoria||"")); }
 function vencimientoCredito(r, diasMap){
   var dias = diasMap[normKey(r.proveedor||"")];
   if(dias===undefined) dias = DIAS_CREDITO_DEFAULT;
-  if(esNotaChasis(r)) dias = DIAS_CREDITO_CHASIS;
+  if(esNotaSGX(r)) dias = DIAS_CREDITO_SGX;
   if(!r.fecha_factura || isImplausibleYear(r.fecha_factura)) return { dias:dias, vence:null, viernes:null };
   var vence = isoAddDays(r.fecha_factura, dias);
   return { dias:dias, vence:vence, viernes:viernesEnOPosterior(vence) };
@@ -2492,7 +2492,7 @@ function renderPropuestaPagoTab(){
       '<select data-propviernes="1">'+opts.map(function(fv){ return '<option value="'+fv+'"'+(fv===viernes?' selected':'')+'>'+fmtDate(fv)+(fv===hoyViernes?' (este viernes)':'')+'</option>'; }).join("")+'</select>'+
       '<button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>'+
       '<button class="btn" data-action="export-propuesta-csv">Exportar CSV</button>'+
-    '</div><p class="hint" style="margin:8px 0 0">Incluye las facturas a crédito <strong>verificadas</strong> cuyo viernes de pago es este o uno anterior (atrasadas). Vencimiento = fecha de factura + días de crédito del proveedor ('+DIAS_CREDITO_DEFAULT+' si no tiene capturados; las notas del SG1 Chasis siempre a '+DIAS_CREDITO_CHASIS+' días); se paga el viernes del vencimiento o el siguiente.</p></div>';
+    '</div><p class="hint" style="margin:8px 0 0">Incluye las facturas a crédito <strong>verificadas</strong> cuyo viernes de pago es este o uno anterior (atrasadas). Vencimiento = fecha de factura + días de crédito del proveedor ('+DIAS_CREDITO_DEFAULT+' si no tiene capturados; las notas del SGX (Traila completa) siempre a '+DIAS_CREDITO_SGX+' días); se paga el viernes del vencimiento o el siguiente.</p></div>';
 
   var avisos = [];
   if(res.pendientes.length){
