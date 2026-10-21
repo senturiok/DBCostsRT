@@ -131,9 +131,13 @@ export function makeCalc(STATE) {
     return m;
   }
 
+  // Las notas del SG1 Chasis se pagan a 90 días, sin importar el crédito del proveedor.
+  var DIAS_CREDITO_CHASIS = 90;
+  function esNotaChasis(r){ return /^SG1(-|$)/.test(normKey(r.categoria||"")); }
   function vencimientoCredito(r, diasMap){
     var dias = diasMap[normKey(r.proveedor||"")];
     if(dias===undefined) dias = DIAS_CREDITO_DEFAULT;
+    if(esNotaChasis(r)) dias = DIAS_CREDITO_CHASIS;
     if(!r.fecha_factura || isImplausibleYear(r.fecha_factura)) return { dias:dias, vence:null, viernes:null };
     var vence = isoAddDays(r.fecha_factura, dias);
     return { dias:dias, vence:vence, viernes:viernesEnOPosterior(vence) };
