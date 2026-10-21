@@ -238,6 +238,12 @@ function propuestasViernes(list) {
     '</tbody></table></div><p class="muted">Facturas a crédito ya verificadas, en el viernes en que se pagan según los días de crédito del proveedor; el primer viernes incluye lo vencido. Total 4 viernes: ' + mxn(total) + " MXN.</p>";
 }
 
+// Costo registrado en el Portal de Compras (gastos en MXN; total en USD con indirectos y Houston si ya lo hay).
+function costoOrden(o) {
+  if (!o.costo) return '<span class="sub">Costo: sin gastos ligados en Compras</span>';
+  return '<span class="sub">Costo: <b>' + mxn(o.costo.mxn) + " MXN</b>" + (o.costo.totalUsd ? " · total " + usd(o.costo.totalUsd) + " USD" : "") + "</span>";
+}
+
 function renderHoy() {
   const d = DATA, cob = d.cobranza, pr = d.produccion, cot = d.cotizaciones, cos = d.costeo;
   let h = '<div class="tiles">';
@@ -256,9 +262,10 @@ function renderHoy() {
 
   h += '<div class="grid2">';
   if (pr) {
-    const foco = pr.ordenes.filter((o) => o.estado !== "terminada").sort((a, b) => (a.entrega || "9").localeCompare(b.entrega || "9"));
-    h += '<div class="panel"><div class="panel-h"><h3>Producción por nivel</h3><span>' + pr.activas + " activas</span></div>" + barChart(pr.porNivel.map((l) => ({ l: l.code + " " + l.name, v: l.n })), String);
-    h += '<div class="tbl"><table><thead><tr><th>Orden</th><th>Nivel</th><th class="r">Avance</th><th>Entrega</th><th>Estado</th></tr></thead><tbody>' + foco.slice(0, 12).map((o) => { const e = ESTADO_PROD[o.estado] || ["", o.estado]; return "<tr><td><b>" + esc(o.nombre) + '</b><span class="sub">' + esc(o.modelo || "") + "</span></td><td>" + steps(o) + '</td><td class="r">' + (o.avance == null ? "—" : Math.round(o.avance) + "%") + "</td><td>" + fecha(o.entrega) + (o.estimada && o.estimada !== o.entrega ? '<span class="sub">est. ' + fecha(o.estimada) + "</span>" : "") + "</td><td>" + pill(e[0], e[1]) + "</td></tr>"; }).join("") + "</tbody></table></div></div>";
+    const foco = pr.ordenes.filter((o) => o.estado !== "terminada").sort((a, b) => (a.entrega || "9").localeCompare(b.entrega || "9")).slice(0, 12)
+      .concat(pr.ordenes.filter((o) => o.estado === "terminada").sort((a, b) => (b.terminada || "").localeCompare(a.terminada || "")));
+    h += '<div class="panel"><div class="panel-h"><h3>Producción por nivel</h3><span>' + pr.activas + " activas · " + pr.terminadasMes + " terminadas este mes</span></div>" + barChart(pr.porNivel.map((l) => ({ l: l.code + " " + l.name, v: l.n })), String);
+    h += '<div class="tbl"><table><thead><tr><th>Orden</th><th>Nivel</th><th class="r">Avance</th><th>Entrega</th><th>Estado</th></tr></thead><tbody>' + foco.map((o) => { const e = ESTADO_PROD[o.estado] || ["", o.estado]; return "<tr><td><b>" + esc(o.nombre) + '</b><span class="sub">' + esc(o.modelo || "") + "</span>" + costoOrden(o) + "</td><td>" + steps(o) + '</td><td class="r">' + (o.avance == null ? "—" : Math.round(o.avance) + "%") + "</td><td>" + fecha(o.entrega) + (o.estado === "terminada" && o.terminada ? '<span class="sub">terminó ' + fecha(o.terminada) + "</span>" : o.estimada && o.estimada !== o.entrega ? '<span class="sub">est. ' + fecha(o.estimada) + "</span>" : "") + "</td><td>" + pill(e[0], e[1]) + "</td></tr>"; }).join("") + "</tbody></table></div></div>";
   } else h += noData("produccion");
   if (cob) {
     h += '<div class="panel"><div class="panel-h"><h3>A quién cobrar</h3><span>' + cob.atrasados + (cob.atrasados === 1 ? " atrasado" : " atrasados") + " · cartera " + usd(cob.cartera) + " USD</span></div>";

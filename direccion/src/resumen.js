@@ -282,6 +282,19 @@ export function armarResumen(crudos, hoy) {
     salesOrders: resumenSalesOrders(crudos.cotizaciones),
   };
   const proyectos = ligarProyectos(r, crudos);
+  // Lo que lleva registrado cada remolque en el Portal de Compras, junto a su orden de Producción.
+  if (r.produccion) {
+    const conCosto = proyectos.filter((f) => f.costeo);
+    const porNombre = Object.fromEntries(conCosto.map((f) => [f.key, f.costeo]));
+    // Si el nombre no coincide exacto ("JOEL DEMOTT" contra "JOEL"), la primera palabra, si solo hay un proyecto así.
+    const porPrimera = {};
+    for (const f of conCosto) if (!/\s/.test(f.key)) porPrimera[f.key] = porPrimera[f.key] === undefined ? f.costeo : null;
+    for (const o of r.produccion.ordenes) {
+      const k = normKey(o.nombre);
+      const c = porNombre[k] || porPrimera[k.split(/[\s\-]+/)[0]] || null;
+      o.costo = c ? { mxn: c.mxn, totalUsd: c.totalUsd } : null;
+    }
+  }
   const out = { hoy, ...r, proyectos, alertas: alertas(r, proyectos) };
   // La lista completa de cotizaciones y proyectos de costeo solo sirve para ligar; no se manda al navegador.
   if (out.cotizaciones) delete out.cotizaciones.lista;
