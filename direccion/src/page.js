@@ -353,12 +353,53 @@ const diaLargo = (iso) => DIAS[new Date(iso + "T12:00:00Z").getUTCDay()] + " " +
 const h1 = (n) => n == null ? "—" : (Math.round(n * 10) / 10).toLocaleString("es-MX");
 const cumplePill = (pct) => pct == null ? pill("", "sin plan") : pill(pct >= 90 ? "good" : pct >= 60 ? "warn" : "bad", pct + "% del plan");
 
+// Día que se ve en Equipos: null = hoy (llega con el resumen); otro día se pide aparte.
+let eqFecha = null, EQ = null, eqError = "", eqCargando = false;
+const isoMas = (iso, n) => new Date(Date.parse(iso + "T12:00:00Z") + n * 864e5).toISOString().slice(0, 10);
+
+function eqBarra() {
+  const dia = eqFecha || DATA.hoy;
+  return '<div class="filters" style="align-items:center">' +
+    '<button class="btn" type="button" data-eqdia="' + isoMas(dia, -1) + '" title="Día anterior">‹</button>' +
+    '<input type="date" id="eqFecha" value="' + dia + '" max="' + DATA.hoy + '" class="btn" style="padding:4px 10px">' +
+    '<button class="btn" type="button" data-eqdia="' + isoMas(dia, 1) + '" title="Día siguiente"' + (dia >= DATA.hoy ? " disabled" : "") + '>›</button>' +
+    '<button class="btn" type="button" data-eqdia="' + DATA.hoy + '" aria-pressed="' + (!eqFecha) + '">Hoy</button>' +
+    (eqCargando ? '<span class="muted">Cargando…</span>' : "") + "</div>";
+}
+
+async function eqIr(fecha) {
+  if (!fecha) return;
+  if (fecha >= DATA.hoy) { eqFecha = null; EQ = null; eqError = ""; renderEq(); return; }
+  eqFecha = fecha; eqError = ""; eqCargando = true; renderEq();
+  try {
+    const res = await fetch("/api/equipos?fecha=" + encodeURIComponent(fecha), { cache: "no-store" });
+    if (res.status === 401) { location.href = "/login"; return; }
+    const d = await res.json();
+    if (eqFecha !== fecha) return;
+    if (!res.ok) { EQ = null; eqError = d.error || "El servidor respondió " + res.status; } else EQ = d;
+  } catch (err) {
+    if (eqFecha === fecha) { EQ = null; eqError = err.message; }
+  } finally {
+    if (eqFecha === fecha) { eqCargando = false; renderEq(); }
+  }
+}
+
 function renderEq() {
-  const e = DATA.equipos;
-  if (!e) { $("eq").innerHTML = '<div class="panel"><p class="muted">No llegaron los datos de equipos de Producción' + (DATA.fuentes.equipos && DATA.fuentes.equipos.error ? " (" + esc(DATA.fuentes.equipos.error) + ")" : "") + ".</p></div>"; return; }
+  const barra = eqBarra();
+  const e = eqFecha ? EQ : DATA.equipos;
+  const conecta = () => {
+    document.querySelectorAll("[data-eqdia]").forEach((b) => b.addEventListener("click", () => eqIr(b.dataset.eqdia)));
+    $("eqFecha").addEventListener("change", (ev) => eqIr(ev.target.value));
+  };
+  if (!e) {
+    const err = eqFecha ? eqError : DATA.fuentes.equipos && DATA.fuentes.equipos.error;
+    $("eq").innerHTML = barra + '<div class="panel"><p class="muted">' + (eqCargando ? "Cargando…" : "No llegaron los datos de equipos de Producción" + (err ? " (" + esc(err) + ")" : "") + ".") + "</p></div>";
+    conecta();
+    return;
+  }
   const t = e.totales;
-  const rango = e.desde === e.hasta ? diaLargo(e.desde) : diaLargo(e.desde) + " a " + diaLargo(e.hasta);
-  let h = '<div class="tiles">';
+  const rango = (e.desde === DATA.hoy && e.hasta === DATA.hoy ? "hoy, " : "") + (e.desde === e.hasta ? diaLargo(e.desde) : diaLargo(e.desde) + " a " + diaLargo(e.hasta));
+  let h = barra + '<div class="tiles">';
   h += '<div class="tile"><div class="k"><span class="src">Horas hechas</span>' + cumplePill(t.cumplimiento) + '</div><div class="v">' + h1(t.horasHechas) + ' h</div><div class="s">de ' + h1(t.horasPlan) + " h que tenía el plan · " + esc(rango) + "</div></div>";
   h += '<div class="tile"><div class="k"><span class="src">Tareas avanzadas</span></div><div class="v">' + t.tareas + '</div><div class="s">' + t.terminadas + " terminadas</div></div>";
   h += '<div class="tile"><div class="k"><span class="src">Sin captura</span>' + pill(t.sinCaptura.length ? "warn" : "good", t.sinCaptura.length ? t.sinCaptura.length + " equipos" : "todos capturaron") + '</div><div class="v">' + t.sinCaptura.length + '</div><div class="s">' + (t.sinCaptura.length ? esc(t.sinCaptura.join(", ")) : "Todos los equipos registraron avance") + "</div></div>";
@@ -373,6 +414,7 @@ function renderEq() {
       "</tbody></table></div></div>").join("") + "</div>";
   }
   $("eq").innerHTML = h;
+  conecta();
 }
 
 function render() {
