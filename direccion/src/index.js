@@ -82,8 +82,8 @@ async function resumen(env) {
     fuente("cobranza", `${COBRANZA_URL}/bot/datos`, tok),
     fuente("cotizaciones", `${COTIZACIONES_URL}/bot/datos`, tok),
     fuente("produccion", `${PRODUCCION_URL}/api/public/ordenes`, null),
-    // Lo que hizo cada equipo el día hábil anterior (su propia clave PRODUCCION_TOKEN).
-    fuente("equipos", `${PRODUCCION_URL}/api/direccion/equipos`, env.PRODUCCION_TOKEN),
+    // Lo que hizo cada equipo hoy (su propia clave PRODUCCION_TOKEN); otro día con /api/equipos?fecha=.
+    fuente("equipos", `${PRODUCCION_URL}/api/direccion/equipos?fecha=hoy`, env.PRODUCCION_TOKEN),
   ]);
   const crudos = Object.fromEntries(fuentes.map((f) => [f.nombre, f.datos]));
   const hoy = new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
@@ -124,6 +124,13 @@ export default {
     if (url.pathname === "/api/resumen") {
       if (!valid) return json({ error: "Sesión vencida" }, 401);
       return json(await resumen(env));
+    }
+    if (url.pathname === "/api/equipos") {
+      if (!valid) return json({ error: "Sesión vencida" }, 401);
+      const fecha = url.searchParams.get("fecha") || "hoy";
+      if (fecha !== "hoy" && !/^\d{4}-\d{2}-\d{2}$/.test(fecha)) return json({ error: "Fecha inválida" }, 400);
+      const f = await fuente("equipos", `${PRODUCCION_URL}/api/direccion/equipos?fecha=${fecha}`, env.PRODUCCION_TOKEN);
+      return f.ok ? json(f.datos) : json({ error: f.error }, 502);
     }
     if (url.pathname === "/") return valid ? html(dashboardPage(nonce), nonce) : redirect("/login");
     return new Response("No encontrado", { status: 404, headers: SECURITY });
