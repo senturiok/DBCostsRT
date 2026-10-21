@@ -2495,10 +2495,11 @@ function renderContabilidadProveedoresTab(){
       '<td>'+esc(grp.proveedor||"—")+'</td>'+
       '<td style="white-space:nowrap">'+fmtDate(grp.fecha_factura)+'</td>'+
       '<td style="white-space:nowrap">'+propuestaHtml+'</td>'+
-      '<td style="white-space:nowrap">'+esc(grp.factura||"—")+comprobantesClip(grp.comprobantes)+'</td>'+
+      '<td>'+esc(grp.factura||"—")+'</td>'+
       '<td>'+esc(grp.proyectos.join(", ")||"—")+'</td>'+
       '<td class="num">'+fmtMoney(grp.importe)+'</td>'+
       '<td>'+(estadoBadge[estado]||"")+notaHtml+parcialHtml+pagoHtml+'</td>'+
+      '<td style="white-space:nowrap">'+(grp.comprobantes.length?comprobantesClip(grp.comprobantes):'<span class="hint">—</span>')+'</td>'+
       '<td>'+acciones+'</td>'+
     '</tr>';
   }).join("");
@@ -2507,9 +2508,9 @@ function renderContabilidadProveedoresTab(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Gastos a crédito</h3><span class="card-note">'+groups.length+' factura'+(groups.length===1?"":"s")+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SGX Traila completa: 90 días), al corte del viernes">Fecha propuesta de pago</th><th title="📎 = foto o archivo anexado; clic para verlo">Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>'+
-        '<tbody>'+(rows||'<tr><td colspan="8" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
-        '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="2"></td></tr></tfoot>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SGX Traila completa: 90 días), al corte del viernes">Fecha propuesta de pago</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="9" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
+        '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>';
 }
@@ -2558,9 +2559,8 @@ function computePropuestaPago(viernes){
     var r = it.r, facturaTrim = (r.factura||"").trim();
     var k = normKey(r.proveedor||"")+"||"+(facturaTrim ? facturaTrim.toUpperCase() : "SIN-FACTURA-"+r.id);
     var f = facturas[k];
-    if(!f){ f = facturas[k] = { proveedor:r.proveedor||"—", factura:r.factura, fecha_factura:r.fecha_factura, dias:it.dias, vence:it.vence, viernesPago:it.viernesPago, atrasada:false, saldo:0, ids:[], proyectos:[], comprobantes:[] }; orden.push(k); }
+    if(!f){ f = facturas[k] = { proveedor:r.proveedor||"—", factura:r.factura, fecha_factura:r.fecha_factura, dias:it.dias, vence:it.vence, viernesPago:it.viernesPago, atrasada:false, saldo:0, ids:[], proyectos:[] }; orden.push(k); }
     f.saldo += it.saldo; f.ids.push(r.id);
-    if(r.comprobanteUrl && f.comprobantes.indexOf(r.comprobanteUrl)<0) f.comprobantes.push(r.comprobanteUrl);
     if(it.vence<f.vence){ f.vence = it.vence; f.viernesPago = it.viernesPago; f.fecha_factura = r.fecha_factura; }
     f.atrasada = f.atrasada || it.atrasada;
     var pn = proyectoNombre(r.proyecto_key); if(f.proyectos.indexOf(pn)<0) f.proyectos.push(pn);
@@ -2606,7 +2606,7 @@ function renderPropuestaPagoTab(){
     sub += f.saldo;
     rows.push('<tr>'+
       '<td>'+esc(f.proveedor)+'</td>'+
-      '<td style="white-space:nowrap">'+esc(f.factura||"—")+comprobantesClip(f.comprobantes)+'</td>'+
+      '<td>'+esc(f.factura||"—")+'</td>'+
       '<td>'+esc(f.proyectos.join(", ")||"—")+'</td>'+
       '<td style="white-space:nowrap">'+fmtDate(f.fecha_factura)+'</td>'+
       '<td class="num">'+f.dias+'</td>'+
