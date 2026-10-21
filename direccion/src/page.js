@@ -223,6 +223,21 @@ function cobranzaMeses(meses) {
   return h;
 }
 
+// Propuesta de pago a proveedores de los próximos 4 viernes (MXN), del Portal de Compras.
+function propuestasViernes(list) {
+  if (!list || !list.length) return "";
+  const total = list.reduce((t, p) => t + (p.total || 0), 0);
+  return '<div class="panel-h" style="margin-top:14px"><h3>Propuestas de pago</h3><span>MXN · próximos 4 viernes</span></div>' +
+    '<div class="tbl"><table><thead><tr><th>Viernes</th><th class="r">Propuesta</th><th class="r">Facturas</th><th>Notas</th></tr></thead><tbody>' +
+    list.map((p, i) => {
+      const notas = [];
+      if (p.atrasadas) notas.push(p.atrasadas + " vencida" + (p.atrasadas > 1 ? "s" : ""));
+      if (p.porVerificarN) notas.push("+" + mxn(p.porVerificar) + " por verificar (" + p.porVerificarN + ")");
+      return "<tr" + (i === 0 ? ' style="font-weight:600"' : "") + "><td>" + esc(diaLargo(p.viernes)) + '</td><td class="r">' + mxn(p.total) + '</td><td class="r">' + p.facturas + '</td><td class="muted">' + esc(notas.join(" · ")) + "</td></tr>";
+    }).join("") +
+    '</tbody></table></div><p class="muted">Facturas a crédito ya verificadas, en el viernes en que se pagan según los días de crédito del proveedor; el primer viernes incluye lo vencido. Total 4 viernes: ' + mxn(total) + " MXN.</p>";
+}
+
 function renderHoy() {
   const d = DATA, cob = d.cobranza, pr = d.produccion, cot = d.cotizaciones, cos = d.costeo;
   let h = '<div class="tiles">';
@@ -236,7 +251,7 @@ function renderHoy() {
   h += '<div class="panel"><div class="panel-h"><h3>Requiere tu atención</h3><span>' + d.alertas.length + " pendientes</span></div>";
   h += d.alertas.length ? '<ul class="alerts">' + d.alertas.map((a) => '<li class="' + a.nivel + '"><div><span class="p">' + esc(a.portal) + "</span><br><b>" + esc(a.titulo) + '</b><div class="m">' + esc(a.detalle) + "</div></div></li>").join("") + "</ul>" : '<p class="muted">Nada urgente. Todo en orden.</p>';
   h += "</div>";
-  h += cos ? '<div class="panel"><div class="panel-h"><h3>Gasto mensual en taller</h3><span>MXN · México</span></div>' + lineChart(cos.gastoPorMes.map((m) => ({ l: mesCorto(m.mes), v: m.mxn })), short) + '<p class="muted">El último punto es el mes en curso. Gasto de los últimos 14 días: ' + mxn(cos.gasto14Mxn) + " MXN.</p></div>" : noData("costeo");
+  h += cos ? '<div class="panel"><div class="panel-h"><h3>Gasto mensual en taller</h3><span>MXN · México</span></div>' + lineChart(cos.gastoPorMes.map((m) => ({ l: mesCorto(m.mes), v: m.mxn })), short) + '<p class="muted">El último punto es el mes en curso. Gasto de los últimos 14 días: ' + mxn(cos.gasto14Mxn) + " MXN.</p>" + propuestasViernes(cos.propuestas) + "</div>" : noData("costeo");
   h += "</div>";
 
   h += '<div class="grid2">';
