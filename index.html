@@ -437,7 +437,7 @@ var STATE = {
   reportGenerated:false,
   reportTemplate:"completo",
   gastosContabilidad:{},
-  contFilters:{ proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
+  contFilters:{ q:"", proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
   inventarioArticulos:{}, inventarioAjustes:[], invTab:"existencias", invPreset:"", regInvPreset:"",
   invFilters:{ q:"", estado:"", movArticulo:"", movTipo:"" },
@@ -463,6 +463,8 @@ var STATE = {
 /* ================= UTILS ================= */
 function esc(s){ if(s===null||s===undefined) return ""; return String(s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
 function reqLabel(text){ return esc(text)+'<span class="req-mark" title="Obligatorio">*</span>'; }
+// Texto para buscar: minúsculas y sin acentos.
+function foldText(s){ return String(s==null?"":s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase(); }
 function normKey(s){ if(!s) return ""; return String(s).trim().toUpperCase().replace(/\s+/g," ").replace(/\.+$/,""); }
 function slugify(s){ var k=normKey(s); k=k.replace(/[^A-Z0-9_.~:@+-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,""); return k||("k"+Math.random().toString(36).slice(2,8)); }
 function uid(){ return "u"+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -477,6 +479,10 @@ function fmtDateTime(iso){
   return d.getDate()+" "+meses[d.getMonth()]+" "+d.getFullYear()+", "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
 }
 function todayISO(){ var d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+// Clips de los comprobantes (fotos o PDF anexados) de una factura agrupada.
+function comprobantesClip(urls){
+  return (urls||[]).map(function(u, i){ return ' <a href="'+esc(u)+'" target="_blank" rel="noopener" class="icon-btn no-print" title="Ver foto anexada'+(urls.length>1?' '+(i+1)+' de '+urls.length:'')+'">📎</a>'; }).join("");
+}
 function comprobanteIcon(r){ return r && r.comprobanteUrl ? ' <a href="'+esc(r.comprobanteUrl)+'" target="_blank" rel="noopener" class="icon-btn" title="Ver comprobante">📎</a>' : ""; }
 function debounce(fn,ms){ var t; return function(){ var a=arguments,ctx=this; clearTimeout(t); t=setTimeout(function(){ fn.apply(ctx,a); },ms); }; }
 function byVal(a,b){ return b.value-a.value; }
@@ -2361,7 +2367,16 @@ function renderContabilidadProveedoresTab(){
   var provNames = allProveedores();
 
   var creditos = allGastos().filter(function(r){ return r.forma_pago==="credito"; });
+  // Filtro general: cada palabra debe aparecer en proveedor, factura, proyecto,
+  // descripción, SG, importe, estado, nota o referencia de pago.
+  var palabras = foldText(f.q||"").split(/\s+/).filter(Boolean);
+  function textoCredito(r){
+    var info = creditoInfo(r);
+    return foldText([r.proveedor, r.factura, proyectoNombre(r.proyecto_key), r.descripcion, r.categoria, r.capturadoPor,
+      fmtMoney(r.importe), String(r.importe), creditoEstado(r), info.nota, info.referenciaPago, fmtDate(r.fecha_factura)].join(" "));
+  }
   var filtered = creditos.filter(function(r){
+    if(palabras.length){ var t = textoCredito(r); if(!palabras.every(function(w){ return t.indexOf(w)>-1; })) return false; }
     if(f.proveedor && normKey(r.proveedor)!==normKey(f.proveedor)) return false;
     if(f.proyecto && r.proyecto_key!==f.proyecto) return false;
     if(f.estados.length && f.estados.indexOf(creditoEstado(r))===-1) return false;
@@ -2386,11 +2401,12 @@ function renderContabilidadProveedoresTab(){
   var totalPorVerificar = filtered.filter(function(r){return creditoEstado(r)==="pendiente";}).reduce(function(s,r){return s+r.importe;},0);
 
   var canVerify = can("verifyPago");
-  var filterActive = !!(f.proveedor||f.proyecto||f.estados.length||f.desde||f.hasta||f.mes||f.anio);
+  var filterActive = !!(f.q||f.proveedor||f.proyecto||f.estados.length||f.desde||f.hasta||f.mes||f.anio);
 
   var filterBar = '<div class="card" style="margin-bottom:14px">'+
     '<div class="card-head"><h3 class="card-title">Filtros</h3><span class="card-note">'+(filterActive?"Filtrado":"Todos los créditos")+'</span></div>'+
     '<div class="filters">'+
+      '<input type="text" class="q" placeholder="Buscar en todo: proveedor, factura, proyecto, descripción, importe, nota…" data-contfilter="q" value="'+esc(f.q||"")+'">'+
       '<input type="text" list="provDatalistCont" placeholder="Proveedor" data-contfilter="proveedor" value="'+esc(f.proveedor)+'">'+
       '<datalist id="provDatalistCont">'+provNames.map(function(n){return '<option value="'+esc(n)+'">';}).join("")+'</datalist>'+
       '<select data-contfilter="proyecto"><option value="">Todos los proyectos</option>'+proyOptions.map(function(p){return '<option value="'+esc(p.key)+'"'+(f.proyecto===p.key?' selected':'')+'>'+esc(p.nombre)+'</option>';}).join("")+'</select>'+
@@ -2419,7 +2435,7 @@ function renderContabilidadProveedoresTab(){
     var key = normKey(r.proveedor||"") + "||" + (facturaTrim ? facturaTrim.toUpperCase() : "SIN-FACTURA-"+r.id);
     var grp = groupsMap[key];
     if(!grp){
-      grp = groupsMap[key] = { proveedor:r.proveedor, factura:r.factura, fecha_factura:r.fecha_factura, importe:0, proyectos:[], proyectosSeen:{}, items:[], comprobanteUrl:null };
+      grp = groupsMap[key] = { proveedor:r.proveedor, factura:r.factura, fecha_factura:r.fecha_factura, importe:0, proyectos:[], proyectosSeen:{}, items:[], comprobantes:[] };
       groupOrder.push(key);
     }
     grp.importe += r.importe;
@@ -2427,7 +2443,7 @@ function renderContabilidadProveedoresTab(){
     if(r.fecha_factura && (!grp.fecha_factura || r.fecha_factura<grp.fecha_factura)) grp.fecha_factura = r.fecha_factura;
     var pName = proyectoNombre(r.proyecto_key);
     if(!grp.proyectosSeen[pName]){ grp.proyectosSeen[pName]=true; grp.proyectos.push(pName); }
-    if(!grp.comprobanteUrl && r.comprobanteUrl) grp.comprobanteUrl = r.comprobanteUrl;
+    if(r.comprobanteUrl && grp.comprobantes.indexOf(r.comprobanteUrl)<0) grp.comprobantes.push(r.comprobanteUrl);
   });
   var groups = groupOrder.map(function(k){ return groupsMap[k]; });
 
@@ -2479,11 +2495,10 @@ function renderContabilidadProveedoresTab(){
       '<td>'+esc(grp.proveedor||"—")+'</td>'+
       '<td style="white-space:nowrap">'+fmtDate(grp.fecha_factura)+'</td>'+
       '<td style="white-space:nowrap">'+propuestaHtml+'</td>'+
-      '<td>'+esc(grp.factura||"—")+'</td>'+
+      '<td style="white-space:nowrap">'+esc(grp.factura||"—")+comprobantesClip(grp.comprobantes)+'</td>'+
       '<td>'+esc(grp.proyectos.join(", ")||"—")+'</td>'+
       '<td class="num">'+fmtMoney(grp.importe)+'</td>'+
       '<td>'+(estadoBadge[estado]||"")+notaHtml+parcialHtml+pagoHtml+'</td>'+
-      '<td>'+(grp.comprobanteUrl?comprobanteIcon(grp):'<span class="hint">—</span>')+'</td>'+
       '<td>'+acciones+'</td>'+
     '</tr>';
   }).join("");
@@ -2492,9 +2507,9 @@ function renderContabilidadProveedoresTab(){
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Gastos a crédito</h3><span class="card-note">'+groups.length+' factura'+(groups.length===1?"":"s")+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SGX Traila completa: 90 días), al corte del viernes">Fecha propuesta de pago</th><th>Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th>Comprobante</th><th></th></tr></thead>'+
-        '<tbody>'+(rows||'<tr><td colspan="9" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
-        '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="3"></td></tr></tfoot>'+
+        '<thead><tr><th>Proveedor</th><th>Fecha de factura</th><th title="Viernes en que toca pagar: fecha de factura + días de crédito del proveedor (SGX Traila completa: 90 días), al corte del viernes">Fecha propuesta de pago</th><th title="📎 = foto o archivo anexado; clic para verlo">Factura</th><th>Proyecto</th><th class="num">Importe</th><th>Estado</th><th></th></tr></thead>'+
+        '<tbody>'+(rows||'<tr><td colspan="8" class="empty">Sin gastos a crédito con estos filtros.</td></tr>')+'</tbody>'+
+        '<tfoot><tr><td colspan="5">Total ('+groups.length+' factura'+(groups.length===1?"":"s")+')</td><td class="num">'+fmtMoney(totalCredito)+'</td><td colspan="2"></td></tr></tfoot>'+
       '</table></div>'+
     '</div>';
 }
@@ -2543,8 +2558,9 @@ function computePropuestaPago(viernes){
     var r = it.r, facturaTrim = (r.factura||"").trim();
     var k = normKey(r.proveedor||"")+"||"+(facturaTrim ? facturaTrim.toUpperCase() : "SIN-FACTURA-"+r.id);
     var f = facturas[k];
-    if(!f){ f = facturas[k] = { proveedor:r.proveedor||"—", factura:r.factura, fecha_factura:r.fecha_factura, dias:it.dias, vence:it.vence, viernesPago:it.viernesPago, atrasada:false, saldo:0, ids:[], proyectos:[] }; orden.push(k); }
+    if(!f){ f = facturas[k] = { proveedor:r.proveedor||"—", factura:r.factura, fecha_factura:r.fecha_factura, dias:it.dias, vence:it.vence, viernesPago:it.viernesPago, atrasada:false, saldo:0, ids:[], proyectos:[], comprobantes:[] }; orden.push(k); }
     f.saldo += it.saldo; f.ids.push(r.id);
+    if(r.comprobanteUrl && f.comprobantes.indexOf(r.comprobanteUrl)<0) f.comprobantes.push(r.comprobanteUrl);
     if(it.vence<f.vence){ f.vence = it.vence; f.viernesPago = it.viernesPago; f.fecha_factura = r.fecha_factura; }
     f.atrasada = f.atrasada || it.atrasada;
     var pn = proyectoNombre(r.proyecto_key); if(f.proyectos.indexOf(pn)<0) f.proyectos.push(pn);
@@ -2590,7 +2606,7 @@ function renderPropuestaPagoTab(){
     sub += f.saldo;
     rows.push('<tr>'+
       '<td>'+esc(f.proveedor)+'</td>'+
-      '<td>'+esc(f.factura||"—")+'</td>'+
+      '<td style="white-space:nowrap">'+esc(f.factura||"—")+comprobantesClip(f.comprobantes)+'</td>'+
       '<td>'+esc(f.proyectos.join(", ")||"—")+'</td>'+
       '<td style="white-space:nowrap">'+fmtDate(f.fecha_factura)+'</td>'+
       '<td class="num">'+f.dias+'</td>'+
@@ -4814,7 +4830,7 @@ document.addEventListener("click", function(e){
       toast("Estado actualizado"); closeModal(); renderContent();
     }).catch(function(){ toast("No se pudo actualizar.","err"); });
   }
-  else if(action==="clear-cont-filters"){ STATE.contFilters = {proveedor:"",proyecto:"",estados:[],desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
+  else if(action==="clear-cont-filters"){ STATE.contFilters = {q:"",proveedor:"",proyecto:"",estados:[],desde:"",hasta:"",mes:"",anio:""}; renderContent(); }
   else if(action==="new-proveedor") openProveedorModal(null);
   else if(action==="edit-proveedor") openProveedorModal(el.dataset.key);
   else if(action==="delete-proveedor") deleteProveedorRow(el.dataset.key, el.dataset.nombre, el.dataset.origen, el.dataset.id);
