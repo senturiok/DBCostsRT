@@ -157,6 +157,29 @@ async function datos(env, deps) {
     sinFechaFactura: prop.sinFecha.length,
   };
 
+  // D. Propuestas de los próximos 4 viernes: cada factura a crédito en el viernes en que se
+  // paga (el primero también lleva lo atrasado). Verificadas = lo que se propone pagar.
+  const viernes4 = [0, 7, 14, 21].map((d) => addDays(viernes, d));
+  const prop4 = calc.computePropuestaPago(viernes4[3]);
+  const cual = (vp) => viernes4.find((v) => vp <= v) || viernes4[3];
+  const propuestas = viernes4.map((v) => ({ viernes: v, total: 0, facturas: 0, atrasadas: 0, porVerificar: 0, porVerificarN: 0 }));
+  const idx = (vp) => viernes4.indexOf(cual(vp));
+  for (const f of prop4.facturas) {
+    const x = propuestas[idx(f.viernesPago)];
+    x.total += f.saldo;
+    x.facturas++;
+    if (f.viernesPago < viernes) x.atrasadas++;
+  }
+  for (const it of prop4.pendientes) {
+    const x = propuestas[idx(it.viernesPago)];
+    x.porVerificar += it.saldo;
+    x.porVerificarN++;
+  }
+  propuestas.forEach((x) => {
+    x.total = r2(x.total);
+    x.porVerificar = r2(x.porVerificar);
+  });
+
   const houston = calc.computeProyectosHoustonCostos().map((p) => ({
     nombre: p.nombre || p.id,
     tipo: p.tipo,
@@ -175,6 +198,7 @@ async function datos(env, deps) {
     gastosRecientesUsd: recientesUsd,
     gastoPorMes,
     propuesta,
+    propuestas,
     proyectosHouston: houston,
     indirectosPendientesMxn: r2(costo.indirectos.pendiente),
   };

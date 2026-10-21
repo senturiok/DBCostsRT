@@ -183,6 +183,8 @@ function resumenCosteo(d, hoy) {
     gastoPorMes: meses,
     mesActual: actual,
     gasto14Mxn: r2(d.gastosRecientes.reduce((a, g) => a + g.importe, 0)),
+    // Los próximos 4 viernes (MXN): verificadas por pagar y lo que falta verificar.
+    propuestas: Array.isArray(d.propuestas) ? d.propuestas : [],
     propuesta: {
       viernes: d.propuesta.viernes,
       total: d.propuesta.total,
