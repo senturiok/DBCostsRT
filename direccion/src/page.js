@@ -204,13 +204,13 @@ function steps(o) {
 const MES_LARGO = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
 const mesLargo = (ym) => { const [y, m] = ym.split("-"); return MES_LARGO[Number(m) - 1] + " " + y; };
 const TIPO_MES = { historico: ["", "Histórico"], actual: ["info", "Mes actual"], proyeccion: ["warn", "Proyección"] };
-// Cobranza por mes: lo programado (cuotas del mes) contra lo cobrado; el actual y los 2 siguientes como proyección.
+// Cobranza por mes: lo programado (cuotas del mes) contra lo cobrado de esas cuotas (eficiencia); el actual y los 2 siguientes como proyección.
 function cobranzaMeses(meses) {
   const top = Math.max(1, ...meses.map((m) => Math.max(m.programado || 0, m.cobrado || 0)));
   const bar = (v, cls) => '<span class="mbar ' + cls + '" style="width:' + Math.max(0, Math.min(100, (v || 0) / top * 100)).toFixed(1) + '%"></span>';
   const proy = meses.filter((m) => m.tipo !== "historico").reduce((s, m) => s + (m.programado || 0), 0);
   let h = '<div class="panel"><div class="panel-h"><h3>Cobranza por mes</h3><span>USD · 3 meses de histórico, el actual y 2 de proyección</span></div>';
-  h += '<div class="tbl"><table><thead><tr><th>Mes</th><th></th><th class="r">Programado</th><th class="r">Cobrado</th><th class="r">%</th><th style="min-width:160px"></th><th>Notas</th></tr></thead><tbody>';
+  h += '<div class="tbl"><table><thead><tr><th>Mes</th><th></th><th class="r">Programado</th><th class="r">Cobrado del mes</th><th class="r">Eficiencia</th><th style="min-width:160px"></th><th>Notas</th></tr></thead><tbody>';
   h += meses.map((m) => {
     const t = TIPO_MES[m.tipo] || ["", m.tipo];
     const notas = [];
@@ -219,7 +219,7 @@ function cobranzaMeses(meses) {
     if (m.clientes) notas.push(m.clientes + " clientes");
     return "<tr" + (m.tipo === "actual" ? ' style="font-weight:600"' : "") + "><td>" + esc(mesLargo(m.mes)) + "</td><td>" + pill(t[0], t[1]) + '</td><td class="r">' + usd(m.programado) + '</td><td class="r">' + (m.cobrado == null ? "—" : usd(m.cobrado)) + '</td><td class="r">' + (m.porcentaje == null ? "—" : m.porcentaje + "%") + '</td><td><div class="mbars">' + bar(m.programado, "prog") + (m.cobrado == null ? "" : bar(m.cobrado, "cob")) + '</div></td><td class="muted">' + esc(notas.join(" · ")) + "</td></tr>";
   }).join("");
-  h += '</tbody></table></div><p class="muted">Programado = las cuotas que tocan en el mes según cada contrato (respeta liquidaciones y pausas). Cobrado = lo pagado en el mes (puede incluir atrasos o adelantos, por eso a veces pasa de 100%). Proyección de este mes y los 2 siguientes: ' + usd(proy) + ' USD.</p></div>';
+  h += '</tbody></table></div><p class="muted">Programado = las cuotas que tocan en el mes según cada contrato (respeta liquidaciones y pausas). Cobrado del mes = solo lo que cada cliente pagó para su cuota de ese mes; los pagos de más (adelantos, liquidaciones o atrasos de otros meses) no cuentan. Eficiencia = cobrado del mes ÷ programado. Proyección de este mes y los 2 siguientes: ' + usd(proy) + ' USD.</p></div>';
   return h;
 }
 
