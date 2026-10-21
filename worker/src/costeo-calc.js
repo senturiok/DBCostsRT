@@ -134,11 +134,22 @@ export function makeCalc(STATE) {
   // Las notas del SGX (Traila completa) se pagan a 90 días, sin importar el crédito del proveedor.
   var DIAS_CREDITO_SGX = 90;
   function esNotaSGX(r){ return /^SGX(-|$)/.test(normKey(r.categoria||"")); }
+  // Proveedores que cobran todas sus facturas el primer viernes del mes siguiente al de la factura.
+  var PROVEEDORES_PRIMER_VIERNES = ["ELIAS RACE"];
+  function esProveedorPrimerViernes(r){ return PROVEEDORES_PRIMER_VIERNES.indexOf(normKey(r.proveedor||""))>-1; }
+  function primerViernesMesSiguiente(iso){
+    var y = +iso.slice(0,4), m = +iso.slice(5,7) + 1; if(m>12){ m = 1; y++; }
+    return viernesEnOPosterior(y+"-"+(m<10?"0":"")+m+"-01");
+  }
   function vencimientoCredito(r, diasMap){
     var dias = diasMap[normKey(r.proveedor||"")];
     if(dias===undefined) dias = DIAS_CREDITO_DEFAULT;
     if(esNotaSGX(r)) dias = DIAS_CREDITO_SGX;
     if(!r.fecha_factura || isImplausibleYear(r.fecha_factura)) return { dias:dias, vence:null, viernes:null };
+    if(esProveedorPrimerViernes(r)){
+      var pv = primerViernesMesSiguiente(r.fecha_factura);
+      return { dias:Math.round((Date.parse(pv)-Date.parse(r.fecha_factura))/86400000), vence:pv, viernes:pv };
+    }
     var vence = isoAddDays(r.fecha_factura, dias);
     return { dias:dias, vence:vence, viernes:viernesEnOPosterior(vence) };
   }
