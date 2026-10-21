@@ -32,7 +32,7 @@ const mxn = (n) => "$" + r2(n).toLocaleString("en-US", { minimumFractionDigits: 
 const uid = () => crypto.randomUUID().replace(/-/g, "");
 const INVENTARIO_KEY = "INVENTARIO";
 
-function houstonToday() {
+export function houstonToday() {
   return new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 }
 function fechaValida(s) {
@@ -100,7 +100,7 @@ export function materialPendiente(proyecto, articulos, gastosNuevos, inv) {
     .sort((x, y) => String(x.a.nombre).localeCompare(String(y.a.nombre)));
 }
 
-function gastoConsumo(id, a, cant, costoProm, proyecto, fecha, por) {
+export function gastoConsumo(id, a, cant, costoProm, proyecto, fecha, por) {
   return {
     proyecto: proyecto.nombre, proyecto_key: proyecto.key, fecha, fecha_factura: fecha, proveedor: "INVENTARIO",
     descripcion: `Consumo de inventario: ${a.nombre} × ${r3(cant)} · material estándar`, factura: null,

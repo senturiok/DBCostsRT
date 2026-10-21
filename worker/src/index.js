@@ -18,6 +18,7 @@
 import { handleBot } from "./bot.js";
 import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
+import { handleMaterialL4 } from "./material-l4.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -616,6 +617,16 @@ export default {
       if (segments[0] === "acciones" && segments.length === 1) {
         return handleAcciones(request, env, {
           buildState, getDoc, putDoc, logActivity,
+          base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
+        });
+      }
+      // Producción: una orden llegó a L4 → cargar su material estándar (INTEGRACION_TOKEN).
+      if (segments[0] === "integracion" && segments[1] === "material-l4" && method === "POST") {
+        const auth = request.headers.get("authorization") || "";
+        const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+        if (!env.INTEGRACION_TOKEN || !timingSafeEqual(token, env.INTEGRACION_TOKEN)) return errorResponse(401, "No autorizado");
+        return handleMaterialL4(request, env, {
+          buildState, putDoc, logActivity,
           base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
         });
       }
