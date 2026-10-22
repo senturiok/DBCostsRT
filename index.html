@@ -3008,6 +3008,16 @@ function submitGasto(form){
     toast(file && err && err.code ? "No se pudo subir el archivo adjunto." : "No se pudo guardar. Intenta de nuevo.","err");
   });
 }
+// Clave del proyecto que se escribió por nombre al editar un gasto. El nombre
+// visible puede ser distinto de la clave (p. ej. "Joshua" con clave JOSH), así
+// que se busca el proyecto por nombre; normKey del texto solo si no existe.
+function proyectoKeyDeNombre(nombre, keyActual){
+  var n = normKey(nombre), proys = allProyectos();
+  if(keyActual && proys[keyActual] && (normKey(proys[keyActual].nombre)===n || keyActual===n)) return keyActual;
+  var porNombre = Object.keys(proys).filter(function(k){ return normKey(proys[k].nombre)===n; });
+  if(porNombre.length) return porNombre[0];
+  return n;
+}
 function handleEditGastoSubmit(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
   var fd = new FormData(form);
@@ -3022,7 +3032,7 @@ function handleEditGastoSubmit(form){
 
   (file ? STATE.assets.upload(file) : Promise.resolve(null)).then(function(uploaded){
     var data = {
-      proyecto: (fd.get("proyecto")||"").trim(), proyecto_key: normKey(fd.get("proyecto")),
+      proyecto: (fd.get("proyecto")||"").trim(), proyecto_key: proyectoKeyDeNombre(fd.get("proyecto"), fd.get("proyecto_key_actual")),
       proveedor: (fd.get("proveedor")||"").trim(), descripcion: (fd.get("descripcion")||"").trim(),
       factura: (fd.get("factura")||"").trim()||null, fecha: fd.get("fecha")||null,
       fecha_factura: fd.get("fecha_factura")||null, importe: importe,
@@ -4672,7 +4682,7 @@ function editGastoRow(docId, origen){
     '<form id="editGastoForm">'+
       '<input type="hidden" name="gastoId" value="'+esc(docId)+'">'+
       '<input type="hidden" name="origen" value="'+(isExcel?"excel":"portal")+'">'+
-      '<div class="field"><label>Proyecto</label><div class="ac-wrap"><input name="proyecto" autocomplete="off" data-ac="edit-proyecto" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required><div class="ac-list" id="ac-edit-proyecto"></div></div></div>'+
+      '<div class="field"><label>Proyecto</label><input type="hidden" name="proyecto_key_actual" value="'+esc(g.proyecto_key||"")+'"><div class="ac-wrap"><input name="proyecto" autocomplete="off" data-ac="edit-proyecto" value="'+esc(g.proyecto||g.proyecto_raw||"")+'" required><div class="ac-list" id="ac-edit-proyecto"></div></div></div>'+
       '<div class="field"><label>Proveedor</label><div class="ac-wrap"><input name="proveedor" autocomplete="off" data-ac="edit-proveedor" value="'+esc(g.proveedor||"")+'" required><div class="ac-list" id="ac-edit-proveedor"></div></div></div>'+
       '<div class="field"><label>Descripción</label><input name="descripcion" value="'+esc(g.descripcion||"")+'" required></div>'+
       '<div class="field"><label>Factura</label><input name="factura" value="'+esc(g.factura||"")+'"></div>'+
