@@ -57,7 +57,7 @@ export function buscar(items, nombre, q, que) {
 export function resumenInventario(articulos, gastosNuevos, ajustes) {
   const por = {};
   Object.keys(articulos).forEach((id) => {
-    por[id] = { entradas: 0, entradasImporte: 0, consumos: 0, ajustes: 0 };
+    por[id] = { entradas: 0, entradasImporte: 0, consumos: 0, ajustes: 0, ultimaEntrada: null };
   });
   gastosNuevos.forEach((g) => {
     const x = g.inv_articulo && por[g.inv_articulo];
@@ -67,6 +67,8 @@ export function resumenInventario(articulos, gastosNuevos, ajustes) {
     else if ((g.proyecto_key || normKey(g.proyecto)) === INVENTARIO_KEY) {
       x.entradas += q;
       x.entradasImporte += Number(g.importe) || 0;
+      const fe = g.fecha_factura || g.fecha || "";
+      if (!x.ultimaEntrada || fe > x.ultimaEntrada) x.ultimaEntrada = fe;
     }
   });
   ajustes.forEach((j) => {
