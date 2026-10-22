@@ -19,6 +19,7 @@ import { handleBot } from "./bot.js";
 import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
 import { handleMaterialL4 } from "./material-l4.js";
+import { handleReorden } from "./reorden.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -629,6 +630,13 @@ export default {
           buildState, putDoc, logActivity,
           base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
         });
+      }
+      // Producción: artículos en punto de reorden para avisar por WhatsApp (INTEGRACION_TOKEN).
+      if (segments[0] === "integracion" && segments[1] === "reorden" && method === "GET") {
+        const auth = request.headers.get("authorization") || "";
+        const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+        if (!env.INTEGRACION_TOKEN || !timingSafeEqual(token, env.INTEGRACION_TOKEN)) return errorResponse(401, "No autorizado");
+        return handleReorden(env, { buildState });
       }
       if (segments[0] === "integracion") {
         return handleIntegracion(request, env, url, { getDoc, putDoc, listDocs, logActivity, catalogo: PROYECTOS_CAT });
