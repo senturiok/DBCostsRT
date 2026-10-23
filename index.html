@@ -471,7 +471,7 @@ var STATE = {
   gastosUsd:[], categoriasUsd:{}, proyectosUsd:{}, tiposCambio:{}, proveedoresUsd:{}, proyectosHouston:{},
   provUsdSearch:"",
   houstonTab:"gastos",
-  usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", phQ:"", phEstado:"abierto", page:1, pageSize:50 },
+  usdFilters:{ proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:"", proyEstado:"", proyArch:false, phQ:"", phEstado:"abierto", page:1, pageSize:50 },
   costoFilters:{ estados:[], q:"", orden:"total", mes:"", anio:"" },
   tcSyncing:false,
   loaded:false
@@ -5009,7 +5009,10 @@ function renderHoustonProyectosTab(){
   var f = STATE.usdFilters, q = f.proyQ.trim().toLowerCase();
   var houstonPorProy = {};
   allGastosUsd().forEach(function(g){ if(g.tipo==="proyecto") houstonPorProy[g.proyecto_key] = (houstonPorProy[g.proyecto_key]||0) + g.importe_usd; });
+  // Archivados: proyectos viejos que ya no se van a registrar; solo se ocultan de esta lista.
+  var archivados = validProyectoOptions().filter(function(p){ return !!proyectoUsdInfo(p.key).archivado; }).length;
   var list = validProyectoOptions().filter(function(p){
+    if(!!proyectoUsdInfo(p.key).archivado !== !!f.proyArch) return false;
     if(f.proyEstado && estadoHouston(p.key)!==f.proyEstado) return false;
     if(q && p.nombre.toLowerCase().indexOf(q)===-1) return false;
     return true;
@@ -5024,19 +5027,42 @@ function renderHoustonProyectosTab(){
     else if(cashPriceProyecto(p.key)) rows += '<div class="prov-contact-row"><span class="lbl">Cash price</span><span class="num">'+fmtUsd(cashPriceProyecto(p.key))+' <span class="hint">(Sales Order)</span></span></div>';
     var archivos = proyectoUsdArchivos(i);
     if(archivos.length) rows += '<div class="prov-contact-row"><span class="lbl">Archivos</span><span>'+archivosUsdLinksHTML(archivos)+'</span></div>';
+    if(i.archivado) rows += '<div class="prov-contact-row"><span class="lbl">Archivó</span><span>'+esc(fmtDate((i.archivadoEn||"").slice(0,10)))+(i.archivadoPor?' · '+esc(i.archivadoPor):'')+'</span></div>';
     return '<div class="prov-card">'+
-      '<div class="prov-card-head"><div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtUsdInt(houstonPorProy[p.key]||0)+' en Houston</div></div>'+estadoHoustonBadge(p.key)+'</div>'+
+      '<div class="prov-card-head"><div style="display:flex; gap:8px; align-items:flex-start">'+(canEdit?'<input type="checkbox" data-archsel="'+esc(p.key)+'"'+((STATE.archSel||{})[p.key]?' checked':'')+' title="Seleccionar" style="margin-top:4px">':'')+
+        '<div><div class="prov-name">'+esc(p.nombre)+'</div><div class="prov-total">'+fmtUsdInt(houstonPorProy[p.key]||0)+' en Houston</div></div></div>'+
+        (i.archivado?'<span class="badge badge-muted">Archivado</span>':estadoHoustonBadge(p.key))+'</div>'+
       '<div class="prov-contact">'+rows+'</div>'+
-      (canEdit ? '<div class="prov-actions"><button class="btn" data-action="edit-proyecto-usd" data-key="'+esc(p.key)+'">'+(i.fecha_exportacion?"Editar exportación / venta":"Registrar exportación")+'</button></div>' : '')+
+      (canEdit ? '<div class="prov-actions">'+(i.archivado?'':'<button class="btn" data-action="edit-proyecto-usd" data-key="'+esc(p.key)+'">'+(i.fecha_exportacion?"Editar exportación / venta":"Registrar exportación")+'</button> ')+
+        '<button class="btn btn-ghost" data-action="archivar-proyecto-usd" data-keys="'+esc(p.key)+'" data-arch="'+(i.archivado?"0":"1")+'">'+(i.archivado?"Desarchivar":"Archivar")+'</button></div>' : '')+
     '</div>';
   }).join("");
   return '<div class="card">'+
     '<p class="hint" style="margin-top:0">La <strong>fecha de exportación</strong> marca cuándo el remolque llega a Houston y empieza a absorber gasto general; la <strong>fecha de venta</strong> y el <strong>precio en USD</strong> cierran su costeo y calculan el margen.</p>'+
     '<div class="filters"><input type="text" class="q" placeholder="Buscar proyecto…" data-usdfilter="proyQ" value="'+esc(f.proyQ)+'">'+
       '<select data-usdfilter="proyEstado"><option value="">Todos</option>'+["mexico","exportado","vendido"].map(function(e){return '<option value="'+e+'"'+(f.proyEstado===e?' selected':'')+'>'+ESTADO_HOUSTON_LABEL[e]+'</option>';}).join("")+'</select>'+
+      '<label class="hint" style="display:flex; gap:6px; align-items:center"><input type="checkbox" data-action="usd-ver-archivados"'+(f.proyArch?' checked':'')+'> Ver archivados ('+archivados+')</label>'+
+      (canEdit && list.length ? '<button class="btn" data-action="archivar-seleccionados" data-arch="'+(f.proyArch?"0":"1")+'">'+(f.proyArch?"Desarchivar":"Archivar")+' seleccionados</button>' : '')+
     '</div>'+
+    (f.proyArch ? '<p class="hint">Proyectos archivados: no salen en la lista normal. Desarchívalos si los necesitas de nuevo.</p>' : '')+
     (cards ? '<div class="prov-grid">'+cards+'</div>' : '<div class="empty">Sin proyectos con estos filtros.</div>')+
   '</div>';
+}
+/** Archiva o desarchiva proyectos de Exportación y venta (solo los oculta de la lista). */
+function archivarProyectosUsd(keys, archivar){
+  if(!STATE.db || !keys.length) return;
+  var nombres = keys.map(proyectoNombre);
+  if(!confirm((archivar?"¿Archivar ":"¿Desarchivar ")+keys.length+" proyecto"+(keys.length>1?"s":"")+"?\n"+nombres.slice(0,12).join(", ")+(nombres.length>12?"…":"")+(archivar?"\n\nSolo se ocultan de esta lista; sus gastos y costos no cambian.":""))) return;
+  var now = new Date().toISOString(), hechos = 0;
+  keys.reduce(function(p, key){
+    return p.then(function(){
+      var slug = slugify(key), data = Object.assign({ key:key }, STATE.proyectosUsd[slug]||{}, archivar ? { archivado:true, archivadoEn:now, archivadoPor:quienSoy() } : { archivado:false });
+      return STATE.db.doc("proyectos_usd/"+slug).set(data).then(function(){ STATE.proyectosUsd[slug] = data; hechos++; });
+    });
+  }, Promise.resolve()).then(function(){
+    STATE.archSel = {};
+    toast((archivar?"Archivado":"Desarchivado")+(hechos>1?"s ":" ")+hechos+" proyecto"+(hechos>1?"s":"")+" ✓"); renderContent();
+  }).catch(function(err){ toast((hechos?hechos+" listos; ":"")+(err && err.status===403 ? "No tienes permiso del módulo Houston." : "No se pudo guardar el resto."),"err"); renderContent(); });
 }
 function proyectoUsdArchivos(i){ return Array.isArray(i && i.archivos) ? i.archivos.filter(function(a){ return a && a.url; }) : []; }
 function archivosUsdLinksHTML(archivos){
@@ -5725,6 +5751,14 @@ document.addEventListener("click", function(e){
   }
   else if(action==="modal-close") closeModal();
   else if(action==="houston-tab"){ STATE.houstonTab = el.dataset.tab; renderContent(); }
+  else if(action==="usd-ver-archivados"){ STATE.usdFilters.proyArch = !!el.checked; renderContent(); }
+  else if(action==="archivar-proyecto-usd") archivarProyectosUsd([el.dataset.keys], el.dataset.arch==="1");
+  else if(action==="archivar-seleccionados"){
+    var visibles = Array.prototype.map.call(document.querySelectorAll("[data-archsel]"), function(c){ return c.dataset.archsel; });
+    var sel = visibles.filter(function(k){ return (STATE.archSel||{})[k]; });
+    if(!sel.length){ toast("Marca la casilla de los proyectos que quieres "+(el.dataset.arch==="1"?"archivar":"desarchivar")+".","err"); return; }
+    archivarProyectosUsd(sel, el.dataset.arch==="1");
+  }
   else if(action==="usd-page-prev"){ if(STATE.usdFilters.page>1){ STATE.usdFilters.page--; renderContent(); } }
   else if(action==="usd-page-next"){ STATE.usdFilters.page++; renderContent(); }
   else if(action==="clear-usd-filters"){ STATE.usdFilters = { proyecto:"", categoria:"", mes:"", anio:"", q:"", proyQ:STATE.usdFilters.proyQ, proyEstado:STATE.usdFilters.proyEstado, page:1, pageSize:50 }; renderContent(); }
@@ -5765,6 +5799,9 @@ function renderAcList(input){
   box.style.display = "block";
 }
 document.addEventListener("input", function(e){ if(e.target && e.target.dataset && e.target.dataset.ac) renderAcList(e.target); });
+document.addEventListener("change", function(e){
+  if(e.target && e.target.dataset && e.target.dataset.archsel){ STATE.archSel = STATE.archSel || {}; STATE.archSel[e.target.dataset.archsel] = !!e.target.checked; }
+});
 document.addEventListener("input", function(e){
   if(!(e.target && e.target.dataset && e.target.dataset.telmask)) return;
   var v = nomTelFormato(e.target.value); if(v!==e.target.value) e.target.value = v;
