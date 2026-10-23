@@ -939,13 +939,13 @@ function nomMin(hhmm){ var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm||"").trim(
 /**
  * Minutos de retardo de una entrada "HH:MM": desde las 7:30, solo si pasa de
  * la tolerancia (7:45). `apertura` (minutos): si quien tiene las llaves abrió
- * tarde ese día, los demás tienen hasta 5 min después de su checada y, si
- * llegan más tarde, los minutos se cuentan desde que él abrió.
+ * tarde ese día, los demás tienen hasta 5 min después de su checada; si
+ * llegan más tarde, los minutos se cuentan igual desde las 7:30.
  */
 var NOM_TOLERANCIA_APERTURA = 5;
 function nomRetardo(entrada, apertura){
   var min = nomMin(entrada); if(min===null) return 0;
-  if(apertura){ return min > apertura + NOM_TOLERANCIA_APERTURA ? min - apertura : 0; }
+  if(apertura && min <= apertura + NOM_TOLERANCIA_APERTURA) return 0;
   min -= NOM_ENTRADA_MIN;
   return min > NOM_TOLERANCIA ? min : 0;
 }
@@ -1127,7 +1127,7 @@ function openNomEmpModal(id){
       inp("diasPenalizados", "Días penalizados (histórico)", e.diasPenalizados, ' type="number" step="1" min="0"')+
     '</div>'+
     inp("notas", "Notas", e.notas)+
-    '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="abreTaller"'+(e.abreTaller?' checked':'')+'> Tiene las llaves y abre el taller: si llega tarde, los demás cuentan a tiempo hasta 5 min después de su checada</label>'+
+    '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="abreTaller"'+(e.abreTaller?' checked':'')+'> Tiene las llaves y abre el taller: si llega tarde, los demás cuentan a tiempo hasta 5 min después de su checada (si llegan después, el retardo se cuenta desde las 7:30)</label>'+
     (id ? '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="baja"'+(e.activo?'':' checked')+'> Dado de baja (ya no sale en la nómina; se conserva su historial)</label>' : '')+
     '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
   '</form>');
@@ -1215,7 +1215,7 @@ function renderNomSemana(){
     '<div class="table-wrap"><table style="min-width:1250px"><thead><tr><th>Empleado</th>'+NOM_DIAS.map(function(d,i){ return '<th>'+d[1]+' '+(+isoAddDays(lunes,i).slice(8))+'</th>'; }).join("")+
       '<th class="num">Días</th><th class="num" title="Minutos de retardo de la semana (desde las 7:30, si entró después de las 7:45)">Retardo</th><th title="Horas extra de la semana, se pagan al doble">H. extra</th><th class="num">P.U.</th><th>Otros ing.</th><th>Deduc.</th><th class="num">Total</th><th>Observaciones</th></tr></thead>'+
     '<tbody>'+body+'</tbody><tfoot><tr><td colspan="13">Total de la semana</td><td class="num" id="nomTotal" style="font-weight:700"></td><td></td></tr></tfoot></table></div>'+
-    '<p class="hint" style="margin-top:10px">Escribe la hora de <strong>entrada</strong> de cada día (como sale en el checador). '+NOM_ST.map(function(s){ return s.c+' = '+s.l; }).join(" · ")+'. Retardo: entrada después de las 7:45, se cuentan los minutos desde las 7:30 (si quien abre el taller llegó tarde, los demás tienen hasta 5 min después de él y se cuenta desde que abrió). Horas extra: P.U. ÷ '+NOM_HORAS_JORNADA+' h × 2.</p>'+
+    '<p class="hint" style="margin-top:10px">Escribe la hora de <strong>entrada</strong> de cada día (como sale en el checador). '+NOM_ST.map(function(s){ return s.c+' = '+s.l; }).join(" · ")+'. Retardo: entrada después de las 7:45, se cuentan los minutos desde las 7:30 (si quien abre el taller llegó tarde, los demás tienen hasta 5 min después de él; si no, se cuenta desde las 7:30). Horas extra: P.U. ÷ '+NOM_HORAS_JORNADA+' h × 2.</p>'+
     '<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap"><button class="btn btn-primary" type="submit">Guardar borrador</button>'+
       '<button class="btn" type="button" data-action="nom-pagar">Guardar y marcar pagada</button></div>'+
   '</div></form>';
@@ -1243,7 +1243,7 @@ function nomValidar(form, lineas){
   var hm = function(t){ var m = /^(\d{2}):(\d{2})$/.exec(t||""); return m ? (+m[1])*60 + (+m[2]) : null; };
   var apertura = nomApertura(lineas);
   NOM_DIAS.forEach(function(d){ if(apertura[d[0]]!==null){ var h = apertura[d[0]], hh = function(m){ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); };
-    add("info", "Taller", "el "+d[1]+" se abrió tarde ("+hh(h)+"): los demás tienen hasta las "+hh(h+NOM_TOLERANCIA_APERTURA)+"; si llegan después, el retardo cuenta desde que se abrió"); } });
+    add("info", "Taller", "el "+d[1]+" se abrió tarde ("+hh(h)+"): los demás tienen hasta las "+hh(h+NOM_TOLERANCIA_APERTURA)+"; si llegan después, el retardo cuenta desde las 7:30"); } });
   form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
     var id = tr.dataset.nomrow, e = nomEmp(id), l = lineas[id]; if(!e || !l) return;
     var c = nomCalc(e, l, apertura), n = e.nombre;
