@@ -930,29 +930,47 @@ function nomEmpleados(incluirBajas){
       ingreso:e.ingreso||"", horario:e.horario==="abierto" ? "abierto" : "fijo", nombreReloj:e.nombreReloj||"", puesto:e.puesto||"",
       telefono:e.telefono||"", rfc:e.rfc||"", curp:e.curp||"", nss:e.nss||"", cuenta:e.cuenta||"", emergencia:e.emergencia||"",
       notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
-      ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", activo:e.activo!==false };
+      ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", abreTaller:!!e.abreTaller, activo:e.activo!==false };
   }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
 
-/** Minutos de retardo de una entrada "HH:MM": desde las 7:30, solo si pasa de la tolerancia (7:45). */
-function nomRetardo(entrada){
-  var m = /^(\d{1,2}):(\d{2})$/.exec(String(entrada||"").trim()); if(!m) return 0;
-  var min = (+m[1])*60 + (+m[2]) - NOM_ENTRADA_MIN;
+function nomMin(hhmm){ var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm||"").trim()); return m ? (+m[1])*60 + (+m[2]) : null; }
+/**
+ * Minutos de retardo de una entrada "HH:MM": desde las 7:30, solo si pasa de
+ * la tolerancia (7:45). `apertura` (minutos): si quien tiene las llaves abrió
+ * tarde ese día, los demás tienen hasta 5 min después de su checada y, si
+ * llegan más tarde, los minutos se cuentan desde que él abrió.
+ */
+var NOM_TOLERANCIA_APERTURA = 5;
+function nomRetardo(entrada, apertura){
+  var min = nomMin(entrada); if(min===null) return 0;
+  if(apertura){ return min > apertura + NOM_TOLERANCIA_APERTURA ? min - apertura : 0; }
+  min -= NOM_ENTRADA_MIN;
   return min > NOM_TOLERANCIA ? min : 0;
+}
+/** Por día, la hora (minutos) en que abrió tarde quien tiene las llaves; null si abrió a tiempo o no checó. */
+function nomApertura(lineas){
+  var out = {}, llaves = Object.keys(lineas||{}).filter(function(id){ var e = nomEmp(id); return e && e.abreTaller; });
+  NOM_DIAS.forEach(function(d){
+    var t = null;
+    llaves.forEach(function(id){ var x = (lineas[id].dias||{})[d[0]] || {}; var m = (x.st==="A" || x.st==="AJ") ? nomMin(x.e) : null; if(m!==null && (t===null || m < t)) t = m; });
+    out[d[0]] = t!==null && t - NOM_ENTRADA_MIN > NOM_TOLERANCIA ? t : null;
+  });
+  return out;
 }
 function nomLineaDefault(e){
   var dias = {}; NOM_DIAS.forEach(function(d){ dias[d[0]] = { st:"A", e:"", s:"" }; });
   return { dias:dias, he:0, otros:0, deduc:0, obs:"" };
 }
-/** Cálculo de una línea de nómina (pura). emp trae pu y horario. */
-function nomCalc(emp, l){
+/** Cálculo de una línea de nómina (pura). emp trae pu y horario; apertura: ver nomApertura(). */
+function nomCalc(emp, l, apertura){
   var dias = 0, retardo = 0, vac = 0;
   NOM_DIAS.forEach(function(d){
     var x = (l.dias||{})[d[0]] || { st:"A" }, s = nomSt(x.st);
     if(s.paga) dias++;
     if(s.vac) vac++;
-    if(x.st==="A" && emp.horario!=="abierto") retardo += nomRetardo(x.e);
+    if(x.st==="A" && emp.horario!=="abierto") retardo += nomRetardo(x.e, !emp.abreTaller && apertura ? apertura[d[0]] : null);
   });
   var he = Number(l.he)||0, pagoExtra = r2(he * (emp.pu/NOM_HORAS_JORNADA) * 2);
   var otros = Number(l.otros)||0, deduc = Number(l.deduc)||0;
@@ -1000,10 +1018,11 @@ function nomSemanaDoc(lunes){
 function nomFilas(doc){
   var ids = Object.keys(doc.lineas||{});
   if(doc.estado!=="pagada") nomEmpleados(false).forEach(function(e){ if(ids.indexOf(e.id)<0) ids.push(e.id); });
+  var apertura = nomApertura(doc.lineas);
   return ids.map(function(id){
     var l = (doc.lineas||{})[id] || nomLineaDefault(), e = nomEmp(id) || { id:id, nombre:id, pu:0, horario:"fijo", area:"produccion", categoria:"" };
     var emp = l.foto ? Object.assign({}, e, l.foto) : e;
-    return { emp:emp, linea:l, calc:nomCalc(emp, l) };
+    return { emp:emp, linea:l, calc:nomCalc(emp, l, apertura) };
   }).sort(function(a,b){ return a.emp.nombre.localeCompare(b.emp.nombre); });
 }
 function nomMinutosMes(empId, mes){
@@ -1011,7 +1030,7 @@ function nomMinutosMes(empId, mes){
   Object.keys(STATE.nominaSemanas).forEach(function(sid){
     var d = STATE.nominaSemanas[sid]; if(!d || (d.desde||"").slice(0,7)!==mes) return;
     var l = (d.lineas||{})[empId], e = nomEmp(empId); if(!l || !e) return;
-    t += nomCalc(l.foto ? Object.assign({}, e, l.foto) : e, l).retardo;
+    t += nomCalc(l.foto ? Object.assign({}, e, l.foto) : e, l, nomApertura(d.lineas)).retardo;
   });
   return t;
 }
@@ -1108,6 +1127,7 @@ function openNomEmpModal(id){
       inp("diasPenalizados", "Días penalizados (histórico)", e.diasPenalizados, ' type="number" step="1" min="0"')+
     '</div>'+
     inp("notas", "Notas", e.notas)+
+    '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="abreTaller"'+(e.abreTaller?' checked':'')+'> Tiene las llaves y abre el taller: si llega tarde, los demás cuentan a tiempo hasta 5 min después de su checada</label>'+
     (id ? '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="baja"'+(e.activo?'':' checked')+'> Dado de baja (ya no sale en la nómina; se conserva su historial)</label>' : '')+
     '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
   '</form>');
@@ -1130,7 +1150,7 @@ function handleNomEmpSubmit(form){
     nombre:nombre, area:fd.get("area"), categoria:t("categoria").toUpperCase(), puesto:t("puesto"), pu:r2(pu), ingreso:ingreso,
     horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:t("telefono"),
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
-    vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")),
+    vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")), abreTaller:!!fd.get("abreTaller"),
     activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
   if(!orig){
     data.creadoEn = now;
@@ -1195,7 +1215,7 @@ function renderNomSemana(){
     '<div class="table-wrap"><table style="min-width:1250px"><thead><tr><th>Empleado</th>'+NOM_DIAS.map(function(d,i){ return '<th>'+d[1]+' '+(+isoAddDays(lunes,i).slice(8))+'</th>'; }).join("")+
       '<th class="num">Días</th><th class="num" title="Minutos de retardo de la semana (desde las 7:30, si entró después de las 7:45)">Retardo</th><th title="Horas extra de la semana, se pagan al doble">H. extra</th><th class="num">P.U.</th><th>Otros ing.</th><th>Deduc.</th><th class="num">Total</th><th>Observaciones</th></tr></thead>'+
     '<tbody>'+body+'</tbody><tfoot><tr><td colspan="13">Total de la semana</td><td class="num" id="nomTotal" style="font-weight:700"></td><td></td></tr></tfoot></table></div>'+
-    '<p class="hint" style="margin-top:10px">Escribe la hora de <strong>entrada</strong> de cada día (como sale en el checador). '+NOM_ST.map(function(s){ return s.c+' = '+s.l; }).join(" · ")+'. Retardo: entrada después de las 7:45, se cuentan los minutos desde las 7:30. Horas extra: P.U. ÷ '+NOM_HORAS_JORNADA+' h × 2.</p>'+
+    '<p class="hint" style="margin-top:10px">Escribe la hora de <strong>entrada</strong> de cada día (como sale en el checador). '+NOM_ST.map(function(s){ return s.c+' = '+s.l; }).join(" · ")+'. Retardo: entrada después de las 7:45, se cuentan los minutos desde las 7:30 (si quien abre el taller llegó tarde, los demás tienen hasta 5 min después de él y se cuenta desde que abrió). Horas extra: P.U. ÷ '+NOM_HORAS_JORNADA+' h × 2.</p>'+
     '<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap"><button class="btn btn-primary" type="submit">Guardar borrador</button>'+
       '<button class="btn" type="button" data-action="nom-pagar">Guardar y marcar pagada</button></div>'+
   '</div></form>';
@@ -1221,9 +1241,12 @@ function nomValidar(form, lineas){
   var lunes = form.dataset.lunes, out = [], relojes = {};
   var add = function(nivel, quien, texto){ out.push({ nivel:nivel, quien:quien, texto:texto }); };
   var hm = function(t){ var m = /^(\d{2}):(\d{2})$/.exec(t||""); return m ? (+m[1])*60 + (+m[2]) : null; };
+  var apertura = nomApertura(lineas);
+  NOM_DIAS.forEach(function(d){ if(apertura[d[0]]!==null){ var h = apertura[d[0]], hh = function(m){ return String(Math.floor(m/60)).padStart(2,"0")+":"+String(m%60).padStart(2,"0"); };
+    add("info", "Taller", "el "+d[1]+" se abrió tarde ("+hh(h)+"): los demás tienen hasta las "+hh(h+NOM_TOLERANCIA_APERTURA)+"; si llegan después, el retardo cuenta desde que se abrió"); } });
   form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
     var id = tr.dataset.nomrow, e = nomEmp(id), l = lineas[id]; if(!e || !l) return;
-    var c = nomCalc(e, l), n = e.nombre;
+    var c = nomCalc(e, l, apertura), n = e.nombre;
     if(!e.activo) add("warn", n, "está dado de baja y sigue en esta semana");
     if(!(e.pu > 0)) add("bad", n, "no tiene pago diario (P.U.)");
     if(e.idReloj){ (relojes[e.idReloj] = relojes[e.idReloj] || []).push(n); }
@@ -1235,7 +1258,8 @@ function nomValidar(form, lineas){
       if(x.st!=="A" && x.st!=="AJ" && x.e) contra.push(d[1]+" ("+nomSt(x.st).l.toLowerCase()+" con entrada "+x.e+")");
       if(en!==null && (en < 5*60 || en >= 12*60)) raras.push(d[1]+" entrada "+x.e);
       if(en!==null && sa!==null && sa <= en) raras.push(d[1]+" sale "+x.s+" antes de entrar");
-      if(x.st==="A" && nomRetardo(x.e) > 60) tarde.push(d[1]+" "+nomRetardo(x.e)+" min");
+      var rt = nomRetardo(x.e, !e.abreTaller ? apertura[d[0]] : null);
+      if(x.st==="A" && rt > 60) tarde.push(d[1]+" "+rt+" min");
     });
     if(sinEntrada.length) add("warn", n, "asistió sin hora de entrada el "+sinEntrada.join(", ")+" (no se le cuenta retardo)");
     if(contra.length) add("bad", n, "tiene hora de entrada en un día que no asistió: "+contra.join(", "));
@@ -1264,11 +1288,11 @@ function nomPintarAlertas(form, alertas){
     '<ul style="margin:6px 0 0; padding-left:18px">'+alertas.map(function(a){ return '<li style="margin:2px 0"><span style="color:'+color[a.nivel]+'">'+icono[a.nivel]+'</span> <strong>'+esc(a.quien)+'</strong>: '+esc(a.texto)+'</li>'; }).join("")+'</ul></div>';
 }
 function nomRecalc(form){
-  var lineas = nomLeerForm(form), total = 0;
+  var lineas = nomLeerForm(form), total = 0, apertura = nomApertura(lineas);
   nomPintarAlertas(form, nomValidar(form, lineas));
   form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
     var e = nomEmp(tr.dataset.nomrow); if(!e) return;
-    var c = nomCalc(e, lineas[tr.dataset.nomrow]); total += c.total;
+    var c = nomCalc(e, lineas[tr.dataset.nomrow], apertura); total += c.total;
     tr.querySelector('[data-out="dias"]').textContent = c.dias;
     var rt = tr.querySelector('[data-out="retardo"]'); rt.textContent = c.retardo || "—"; rt.style.color = c.retardo ? "var(--critical)" : "";
     tr.querySelector('[data-out="total"]').textContent = fmtMoney(c.total);
