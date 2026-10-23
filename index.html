@@ -1113,7 +1113,9 @@ function openNomEmpModal(id){
       '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · entrada 7:30</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
       inp("nombreReloj", "Nombre en el reloj checador", e.nombreReloj, ' placeholder="Como sale en el reporte, si es distinto"')+
       inp("idReloj", "Número en el reloj checador", e.idReloj, ' inputmode="numeric" placeholder="ID del checador (se liga solo al importar)"')+
-      inp("telefono", "WhatsApp (recibe su recibo de nómina)", e.telefono, ' inputmode="tel" placeholder="10 dígitos (México) o con lada: 1 281…"')+
+      (function(){ var t = nomTelPartes(e.telefono); return '<div class="field"><label>WhatsApp (recibe su recibo de nómina)</label><div style="display:flex; gap:6px">'+
+        '<select name="telLada" style="width:auto">'+[["52","+52 México"],["1","+1 EUA"]].map(function(l){ return '<option value="'+l[0]+'"'+(t.lada===l[0]?' selected':'')+'>'+l[1]+'</option>'; }).join("")+'</select>'+
+        '<input name="telefono" data-telmask="1" value="'+esc(t.numero)+'" inputmode="numeric" placeholder="xxx-xxx-xxxx" maxlength="12" style="flex:1"></div></div>'; })()+
       inp("rfc", "RFC", e.rfc)+
       inp("curp", "CURP", e.curp)+
       inp("nss", "NSS", e.nss)+
@@ -1133,6 +1135,15 @@ function openNomEmpModal(id){
   '</form>');
   var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "760px";
 }
+/* WhatsApp del empleado: lada (+52 México por default, +1 EUA) y 10 dígitos xxx-xxx-xxxx. Se guarda "+52 818-123-4567". */
+function nomTelFormato(d){ d = String(d||"").replace(/\D/g,"").slice(0,10); return d.length>6 ? d.slice(0,3)+"-"+d.slice(3,6)+"-"+d.slice(6) : d.length>3 ? d.slice(0,3)+"-"+d.slice(3) : d; }
+function nomTelPartes(t){
+  var d = String(t||"").replace(/\D/g,""), lada = "52";
+  if(d.length===12 && d.indexOf("52")===0) d = d.slice(2);
+  else if(d.length===13 && d.indexOf("521")===0) d = d.slice(3);
+  else if(d.length===11 && d.charAt(0)==="1"){ lada = "1"; d = d.slice(1); }
+  return { lada:lada, numero:nomTelFormato(d) };
+}
 function handleNomEmpSubmit(form){
   if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
   var fd = new FormData(form), orig = fd.get("idOriginal")||"", nombre = (fd.get("nombre")||"").trim().replace(/\s+/g," ").toUpperCase();
@@ -1144,11 +1155,14 @@ function handleNomEmpSubmit(form){
   if(!/^[A-Z0-9-]+$/.test(id)){ toast("El ID solo puede tener letras, números y guiones.","err"); return; }
   var num = function(k){ var v = parseFloat(fd.get(k)); return isNaN(v) ? 0 : v; };
   var mac = Math.round(num("mac")); if(mac<0 || mac>=NOM_BLOQUE){ toast("Los minutos acumulados van de 0 a 479.","err"); return; }
+  var telDig = String(fd.get("telefono")||"").replace(/\D/g,"");
+  if(telDig && telDig.length!==10){ toast("El WhatsApp debe tener 10 dígitos (xxx-xxx-xxxx).","err"); return; }
+  var telefono = telDig ? "+"+(fd.get("telLada")==="1"?"1":"52")+" "+nomTelFormato(telDig) : "";
   var t = function(k){ return (fd.get(k)||"").trim(); };
   var now = new Date().toISOString();
   var data = Object.assign({}, STATE.nominaEmpleados[id]||{}, {
     nombre:nombre, area:fd.get("area"), categoria:t("categoria").toUpperCase(), puesto:t("puesto"), pu:r2(pu), ingreso:ingreso,
-    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:t("telefono"),
+    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:telefono,
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
     vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")), abreTaller:!!fd.get("abreTaller"),
     activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
@@ -5736,6 +5750,10 @@ function renderAcList(input){
   box.style.display = "block";
 }
 document.addEventListener("input", function(e){ if(e.target && e.target.dataset && e.target.dataset.ac) renderAcList(e.target); });
+document.addEventListener("input", function(e){
+  if(!(e.target && e.target.dataset && e.target.dataset.telmask)) return;
+  var v = nomTelFormato(e.target.value); if(v!==e.target.value) e.target.value = v;
+});
 document.addEventListener("focusin", function(e){ if(e.target && e.target.dataset && e.target.dataset.ac) renderAcList(e.target); });
 document.addEventListener("focusout", function(e){
   var ac = e.target && e.target.dataset && e.target.dataset.ac;
