@@ -20,6 +20,7 @@ import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
 import { handleMaterialL4 } from "./material-l4.js";
 import { handleReorden } from "./reorden.js";
+import { enviarRecibos, handleReciboGet } from "./recibos.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -639,9 +640,21 @@ async function handleCollectionWrite(request, env, collection, id, method) {
     return jsonResponse({ id: newId });
   }
   if (method === "PUT") {
+    // Semana de nómina que pasa a pagada: se mandan los recibos por WhatsApp.
+    const pasaAPagada = collection === "nomina_semanas" && payload && payload.estado === "pagada" &&
+      ((await getDoc(env, collection, id)) || {}).estado !== "pagada";
     await putDoc(env, collection, id, payload);
     await logActivity(env, profile, method, collection, id, payload);
     if (collection === "nomina_empleados") return jsonResponse({ ok: true, produccion: await syncProduccion(env, [empleadoParaProduccion(id, payload)]) });
+    if (pasaAPagada) {
+      let recibos;
+      try {
+        recibos = await enviarRecibos(env, id, null, { getDoc, putDoc, listDocs });
+      } catch (e) {
+        recibos = { error: String((e && e.message) || e) };
+      }
+      return jsonResponse({ ok: true, recibos });
+    }
     return jsonResponse({ ok: true });
   }
   if (method === "PATCH") {
@@ -728,6 +741,20 @@ export default {
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "me" && method === "GET") {
         const profile = await getProfileFromRequest(request, env);
         return profile ? jsonResponse({ profile }) : errorResponse(401, "Sin sesión.");
+      }
+      // Recibo de nómina en PDF con enlace firmado (lo descarga el bot de WhatsApp).
+      if (segments.length === 3 && segments[0] === "recibo" && method === "GET") {
+        return handleReciboGet(env, url, segments[1], segments[2]);
+      }
+      // Reenviar por WhatsApp los recibos de una semana pagada (o de un empleado). Módulo Nómina.
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "recibos" && method === "POST") {
+        const profile = await getProfileFromRequest(request, env);
+        if (!profile) return errorResponse(401, "No autenticado.");
+        if (!hasModule(profile, "nomina")) return errorResponse(403, "No tienes permiso del módulo Nómina.");
+        let b;
+        try { b = await request.json(); } catch (e) { return errorResponse(400, "JSON inválido."); }
+        if (!b || typeof b.semana !== "string") return errorResponse(400, "Falta la semana.");
+        return jsonResponse(await enviarRecibos(env, b.semana, typeof b.empId === "string" ? b.empId : null, { getDoc, putDoc, listDocs }));
       }
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "produccion" && (method === "GET" || method === "POST")) {
         return handleNominaProduccion(request, env, method);

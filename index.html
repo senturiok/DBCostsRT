@@ -1113,7 +1113,7 @@ function openNomEmpModal(id){
       '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · entrada 7:30</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
       inp("nombreReloj", "Nombre en el reloj checador", e.nombreReloj, ' placeholder="Como sale en el reporte, si es distinto"')+
       inp("idReloj", "Número en el reloj checador", e.idReloj, ' inputmode="numeric" placeholder="ID del checador (se liga solo al importar)"')+
-      inp("telefono", "Teléfono", e.telefono)+
+      inp("telefono", "WhatsApp (recibe su recibo de nómina)", e.telefono, ' inputmode="tel" placeholder="10 dígitos (México) o con lada: 1 281…"')+
       inp("rfc", "RFC", e.rfc)+
       inp("curp", "CURP", e.curp)+
       inp("nss", "NSS", e.nss)+
@@ -1331,13 +1331,31 @@ function nomMarcarPagada(sid){
     return p.then(function(){ return STATE.db.doc("nomina_empleados/"+c.id).update(c.data).then(function(){ Object.assign(STATE.nominaEmpleados[c.id]||{}, c.data); }); });
   }, Promise.resolve()).then(function(){
     return STATE.db.doc("nomina_semanas/"+sid).set(pagadaDoc);
-  }).then(function(){
+  }).then(function(res){
     STATE.nominaSemanas[sid] = pagadaDoc; STATE.nomVista = "nomina";
+    nomAvisoRecibos(res && res.recibos);
     var pen = filas.filter(function(f){ return lineas[f.emp.id].despues.penSemana; }).map(function(f){ return f.emp.nombre; });
     var aniv = filas.filter(function(f){ return lineas[f.emp.id].despues.vacAbonadas; }).map(function(f){ return f.emp.nombre+" +"+lineas[f.emp.id].despues.vacAbonadas; });
     toast("Semana pagada ✓"+(pen.length?" · Se descontó un día de vacaciones por retardos a: "+pen.join(", "):"")+(aniv.length?" · Vacaciones por aniversario: "+aniv.join(", "):""));
     renderContent();
   });
+}
+/** Resultado del envío de recibos por WhatsApp (al pagar o reenviar). */
+function nomAvisoRecibos(r){
+  if(!r) return;
+  if(r.error){ toast("Recibos por WhatsApp: "+r.error,"err"); return; }
+  var partes = [];
+  if(r.enviados && r.enviados.length) partes.push(r.enviados.length+" recibo"+(r.enviados.length>1?"s":"")+" en camino por WhatsApp");
+  if(r.sinTelefono && r.sinTelefono.length) partes.push("sin teléfono: "+r.sinTelefono.join(", "));
+  if(r.errores && r.errores.length) partes.push("no se pudo: "+r.errores.map(function(x){ return x.nombre+" ("+x.error+")"; }).join(", "));
+  if(partes.length) setTimeout(function(){ toast("📲 "+partes.join(" · "), r.errores && r.errores.length ? "err" : undefined); }, 2500);
+}
+function nomReenviar(semana, empId, btn){
+  if(btn) btn.disabled = true;
+  fetch("/api/nomina/recibos", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ semana:semana, empId:empId||null }) })
+    .then(function(r){ return r.json(); }).then(function(d){ nomAvisoRecibos(d); setTimeout(pollState, 1500); })
+    .catch(function(){ toast("No se pudo reenviar.","err"); })
+    .then(function(){ if(btn) btn.disabled = false; });
 }
 function nomReabrir(){
   var lunes = nomSemanaActual(), sid = nomSemanaIso(lunes).id, doc = STATE.nominaSemanas[sid];
@@ -1411,7 +1429,11 @@ function renderNomRecibos(lunes, doc, filas){
     var minMes = nomMinutosMes(e.id, mes) + (STATE.nominaSemanas[doc.semana] ? 0 : c.retardo);
     var valorHora = r2(e.pu / NOM_HORAS_JORNADA * 2);
     var tel = (STATE.nominaEmpleados[e.id]||{}).telefono || e.telefono || "";
-    return '<div class="nom-recibo">'+
+    var env = (doc.envios||{})[e.id], pagada = doc.estado==="pagada";
+    var envio = !pagada ? '' : '<div class="no-print" style="display:flex; gap:8px; align-items:center; justify-content:flex-end; margin:-8px 0 8px; font-size:12px">'+
+      (env ? (env.ok ? '<span style="color:var(--good)">📲 Enviado por WhatsApp '+esc(fmtDateTime(env.fecha))+'</span>' : '<span style="color:var(--critical)">📲 No se envió: '+esc(env.error||"")+'</span>') : '<span class="hint">📲 Sin enviar</span>')+
+      (can("editNomina") ? ' <button class="btn" data-action="nom-reenviar" data-semana="'+esc(doc.semana)+'" data-emp="'+esc(e.id)+'">'+(env && env.ok ? 'Reenviar' : 'Enviar')+' por WhatsApp</button>' : '')+'</div>';
+    return '<div class="nom-recibo">'+envio+
       '<div style="text-align:center; margin-bottom:8px"><img src="'+location.origin+'/img/aba-logo.png" alt="ABA Manufacturing LLC" style="height:62px"></div>'+
       '<div class="nom-rh">DATOS GENERALES</div>'+
       '<table class="nom-rt"><tbody>'+
@@ -1444,7 +1466,9 @@ function renderNomRecibos(lunes, doc, filas){
       '<p style="margin:6px 4px">'+esc(f.linea.obs||"—")+'</p>'+
     '</div>';
   }).join("");
-  return '<div class="card no-print" style="margin-bottom:10px; display:flex; gap:10px; align-items:center"><button class="btn" data-action="print-report">Imprimir / Guardar PDF</button><span class="hint">Un recibo por hoja, con el formato que se entrega a cada empleado.</span></div>'+
+  return '<div class="card no-print" style="margin-bottom:10px; display:flex; gap:10px; align-items:center; flex-wrap:wrap"><button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>'+
+      (doc.estado==="pagada" && can("editNomina") ? '<button class="btn" data-action="nom-reenviar" data-semana="'+esc(doc.semana)+'" data-emp="">Reenviar todos por WhatsApp</button>' : '')+
+      '<span class="hint">Un recibo por hoja. Al marcar la semana pagada, a cada empleado con teléfono le llega su recibo en PDF por WhatsApp.</span></div>'+
     '<div id="reportPrintArea">'+rec+'</div>';
 }
 
@@ -5577,6 +5601,7 @@ document.addEventListener("click", function(e){
   else if(action==="nom-bajas"){ STATE.nomBajas = !!el.checked; renderContent(); }
   else if(action==="nom-reabrir") nomReabrir();
   else if(action==="nom-sync") nomSincronizar(el);
+  else if(action==="nom-reenviar"){ if(!el.dataset.emp && !confirm("¿Reenviar por WhatsApp los recibos de todos los empleados de esta semana?")) return; nomReenviar(el.dataset.semana, el.dataset.emp, el); }
   else if(action==="nom-pagar"){
     var nf = document.getElementById("nomSemanaForm");
     var alertasPago = nf ? nomValidar(nf, nomLeerForm(nf)) : [];
