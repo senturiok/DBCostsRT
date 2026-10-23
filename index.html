@@ -407,7 +407,8 @@ var PERMS = [
   { key:"contabilidad", label:"Contabilidad" },
   { key:"houston",      label:"Houston (USD)" },
   { key:"costo_total",  label:"Costo total (USD)" },
-  { key:"inventario",   label:"Inventario" }
+  { key:"inventario",   label:"Inventario" },
+  { key:"nomina",       label:"Nómina (sueldos)" }
 ];
 
 var NAV = [
@@ -419,6 +420,7 @@ var NAV = [
   { id:"reportes",   label:"Reportes",        perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9V3h9l3 3v3"/><rect x="3" y="9" width="18" height="8" rx="1"/><path d="M6 17v4h12v-4"/></svg>' },
   { id:"contabilidad", label:"Contabilidad",  perm:"verifyPago",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>' },
   { id:"inventario", label:"Inventario",      perm:"viewInventario", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><path d="M3 8l9 5 9-5"/><line x1="12" y1="13" x2="12" y2="21"/></svg>' },
+  { id:"nomina",     label:"Nómina",          perm:"viewNomina",    icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="13" rx="2"/><circle cx="12" cy="12.5" r="2.5"/><path d="M6 6V4h12v2"/></svg>' },
   { id:"indirectos", label:"Indirectos (MX)", perm:"viewReportes", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.2 15.9A10 10 0 1 1 8 2.8"/><path d="M22 12A10 10 0 0 0 12 2v10z"/></svg>' },
   { id:"houston",    label:"Houston (USD)",   perm:"viewHouston",   icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="7" width="14" height="10" rx="1"/><path d="M15 10h4l3 3v4h-7"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="18" r="2"/></svg>' },
   { id:"costo_total", label:"Costo total (USD)", perm:"viewCostoTotal", icon:'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="2" x2="12" y2="22"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>' },
@@ -440,6 +442,7 @@ var STATE = {
   contFilters:{ q:"", proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
   inventarioArticulos:{}, inventarioAjustes:[], invTab:"existencias", invPreset:"", regInvPreset:"",
+  nominaEmpleados:{}, nominaSemanas:{}, nomTab:"semana", nomLunes:"", nomVista:"captura", nomBajas:false,
   invFilters:{ q:"", estado:"", movArticulo:"", movTipo:"" },
   indFilters:{ q:"", reparto:"", origen:"", mes:"", anio:"" },
   provSearch:"",
@@ -518,7 +521,8 @@ var PERM_MAP = {
   verifyPago:"contabilidad",
   viewHouston:"houston", editGastoUsd:"houston", manageHouston:"houston",
   viewCostoTotal:"costo_total",
-  viewInventario:"inventario", editInventario:"inventario"
+  viewInventario:"inventario", editInventario:"inventario",
+  viewNomina:"nomina", editNomina:"nomina"
 };
 function can(action){
   var p = STATE.profile;
@@ -712,6 +716,9 @@ function applyStateSnapshot(state){
   STATE.proyectosHouston = state.proyectos_houston || {};
   STATE.inventarioArticulos = state.inventario_articulos || {};
   applyList("inventarioAjustes","inventario_ajustes");
+  // Solo llegan a quien tiene el módulo Nómina (el servidor no las manda a los demás).
+  STATE.nominaEmpleados = state.nomina_empleados || {};
+  STATE.nominaSemanas = state.nomina_semanas || {};
   _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
@@ -839,9 +846,417 @@ document.addEventListener("submit", function(e){
   else if(formId === "invAjusteForm") handleInvAjusteSubmit(e.target);
   else if(formId === "invEstandarForm") handleInvEstandarSubmit(e.target);
   else if(formId === "invUsoForm") handleInvUsoSubmit(e.target);
+  else if(formId === "nomEmpForm") handleNomEmpSubmit(e.target);
+  else if(formId === "nomSemanaForm") nomGuardar(e.target, false);
   else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
+
+/* ================= NÓMINA =================
+   Empleados (nomina_empleados, id = ID de empleado ABA-XX-MMAA) y nómina
+   semanal de lunes a viernes (nomina_semanas, id = AAAA-Www, semana ISO).
+   Los sueldos solo los manda el servidor a quien tiene el módulo "nomina".
+   Retardos: entrar después de las 7:45 cuenta como retardo y se acumulan los
+   minutos desde las 7:30; cada 480 minutos acumulados se descuenta un día de
+   vacaciones (lo que sobra sigue acumulando). Horas extra al doble.
+   Al marcar la semana como pagada se aplican los retardos y las vacaciones
+   tomadas a los saldos de cada empleado; reabrirla (solo Master y solo la
+   última pagada) los regresa. */
+var NOM_EMPRESA = "ABA MANUFACTURING LLC";
+var NOM_ENTRADA_MIN = 7*60+30, NOM_TOLERANCIA = 15, NOM_BLOQUE = 480, NOM_HORAS_JORNADA = 9;
+var NOM_AREAS = { produccion:"Producción (trailas)", administracion:"Administración", otros:"Otros proyectos" };
+var NOM_CATS = ["L1","L2","L3","L4","A1","A2"];
+var NOM_DIAS = [["L","Lun"],["M","Mar"],["X","Mié"],["J","Jue"],["V","Vie"]];
+// paga: el día se paga; vac: descuenta un día del saldo de vacaciones.
+var NOM_ST = [
+  { k:"A",  l:"Asistió",          c:"A",  paga:true },
+  { k:"AJ", l:"Asistió · retardo justificado", c:"AJ", paga:true },
+  { k:"F",  l:"Falta",            c:"F",  paga:false },
+  { k:"V",  l:"Vacaciones",       c:"VAC",paga:true, vac:true },
+  { k:"FE", l:"Festivo",          c:"FES",paga:true },
+  { k:"P",  l:"Permiso con goce", c:"PCG",paga:true },
+  { k:"PS", l:"Permiso sin goce", c:"PSG",paga:false },
+  { k:"I",  l:"Incapacidad",      c:"INC",paga:false }
+];
+var NOM_MESES = ["enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"];
+function nomSt(k){ return NOM_ST.filter(function(s){ return s.k===k; })[0] || NOM_ST[0]; }
+function r2(n){ return Math.round((Number(n)||0)*100)/100; }
+
+function nomLunes(iso){ var d = new Date(iso+"T12:00:00Z"), dow = (d.getUTCDay()+6)%7; return isoAddDays(iso, -dow); }
+function nomSemanaIso(lunes){
+  var d = new Date(lunes+"T12:00:00Z"); d.setUTCDate(d.getUTCDate()+3); // jueves de esa semana
+  var y = d.getUTCFullYear(), ene4 = new Date(Date.UTC(y,0,4,12));
+  var w = 1 + Math.round(((d - ene4)/864e5 - 3 + ((ene4.getUTCDay()+6)%7))/7);
+  return { anio:y, num:w, id:y+"-W"+String(w).padStart(2,"0") };
+}
+function nomSemanaLabel(lunes){
+  var v = isoAddDays(lunes, 4), a = lunes.split("-"), b = v.split("-");
+  var cw = "CW"+nomSemanaIso(lunes).num;
+  return a[1]===b[1] ? cw+" del "+(+a[2])+" al "+(+b[2])+" de "+NOM_MESES[+a[1]-1]+" de "+a[0]
+    : cw+" del "+(+a[2])+" de "+NOM_MESES[+a[1]-1]+" al "+(+b[2])+" de "+NOM_MESES[+b[1]-1]+" de "+b[0];
+}
+function nomIniciales(nombre){
+  var w = String(nombre||"").trim().split(/\s+/).filter(Boolean);
+  if(!w.length) return "XX";
+  return (w[0][0]+(w.length>1 ? w[w.length-1][0] : (w[0][1]||"X"))).toUpperCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+}
+function nomIdSugerido(nombre, ingreso, propio){
+  var mmaa = ingreso ? ingreso.slice(5,7)+ingreso.slice(2,4) : "0000";
+  var base = "ABA-"+nomIniciales(nombre)+"-"+mmaa, id = base, n = 2;
+  while(STATE.nominaEmpleados[id] && id!==propio) id = base+"-"+(n++);
+  return id;
+}
+function nomEmpleados(incluirBajas){
+  return Object.keys(STATE.nominaEmpleados).map(function(id){
+    var e = STATE.nominaEmpleados[id] || {};
+    return { id:id, nombre:e.nombre||id, categoria:e.categoria||"", area:NOM_AREAS[e.area] ? e.area : "produccion", pu:Number(e.pu)||0,
+      ingreso:e.ingreso||"", horario:e.horario==="abierto" ? "abierto" : "fijo", nombreReloj:e.nombreReloj||"", puesto:e.puesto||"",
+      telefono:e.telefono||"", rfc:e.rfc||"", curp:e.curp||"", nss:e.nss||"", cuenta:e.cuenta||"", emergencia:e.emergencia||"",
+      notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
+      activo:e.activo!==false };
+  }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+}
+function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
+
+/** Minutos de retardo de una entrada "HH:MM": desde las 7:30, solo si pasa de la tolerancia (7:45). */
+function nomRetardo(entrada){
+  var m = /^(\d{1,2}):(\d{2})$/.exec(String(entrada||"").trim()); if(!m) return 0;
+  var min = (+m[1])*60 + (+m[2]) - NOM_ENTRADA_MIN;
+  return min > NOM_TOLERANCIA ? min : 0;
+}
+function nomLineaDefault(e){
+  var dias = {}; NOM_DIAS.forEach(function(d){ dias[d[0]] = { st:"A", e:"" }; });
+  return { dias:dias, he:0, otros:0, deduc:0, obs:"" };
+}
+/** Cálculo de una línea de nómina (pura). emp trae pu y horario. */
+function nomCalc(emp, l){
+  var dias = 0, retardo = 0, vac = 0;
+  NOM_DIAS.forEach(function(d){
+    var x = (l.dias||{})[d[0]] || { st:"A" }, s = nomSt(x.st);
+    if(s.paga) dias++;
+    if(s.vac) vac++;
+    if(x.st==="A" && emp.horario!=="abierto") retardo += nomRetardo(x.e);
+  });
+  var he = Number(l.he)||0, pagoExtra = r2(he * (emp.pu/NOM_HORAS_JORNADA) * 2);
+  var otros = Number(l.otros)||0, deduc = Number(l.deduc)||0;
+  return { dias:dias, retardo:retardo, vac:vac, he:he, pagoExtra:pagoExtra, otros:otros, deduc:deduc,
+    sueldo:r2(dias*emp.pu), total:r2(dias*emp.pu + pagoExtra + otros - deduc) };
+}
+/** Saldos después de aplicar una semana (pura): cada 480 min acumulados = 1 día de vacaciones. */
+function nomAplicar(saldo, calc){
+  var mac = saldo.mac + calc.retardo, pen = 0;
+  while(mac >= NOM_BLOQUE){ mac -= NOM_BLOQUE; pen++; }
+  return { mac:mac, vacaciones:r2(saldo.vacaciones - calc.vac - pen), diasPenalizados:saldo.diasPenalizados + pen, penSemana:pen };
+}
+function nomSemanaDoc(lunes){
+  var sid = nomSemanaIso(lunes).id, doc = STATE.nominaSemanas[sid];
+  if(doc) return doc;
+  var lineas = {};
+  nomEmpleados(false).forEach(function(e){ lineas[e.id] = nomLineaDefault(e); });
+  return { semana:sid, desde:lunes, hasta:isoAddDays(lunes,4), estado:"nuevo", lineas:lineas };
+}
+/** Empleados de la semana: los guardados en ella (con su foto al pagar) y los activos que falten. */
+function nomFilas(doc){
+  var ids = Object.keys(doc.lineas||{});
+  if(doc.estado!=="pagada") nomEmpleados(false).forEach(function(e){ if(ids.indexOf(e.id)<0) ids.push(e.id); });
+  return ids.map(function(id){
+    var l = (doc.lineas||{})[id] || nomLineaDefault(), e = nomEmp(id) || { id:id, nombre:id, pu:0, horario:"fijo", area:"produccion", categoria:"" };
+    var emp = l.foto ? Object.assign({}, e, l.foto) : e;
+    return { emp:emp, linea:l, calc:nomCalc(emp, l) };
+  }).sort(function(a,b){ return a.emp.nombre.localeCompare(b.emp.nombre); });
+}
+function nomMinutosMes(empId, mes){
+  var t = 0;
+  Object.keys(STATE.nominaSemanas).forEach(function(sid){
+    var d = STATE.nominaSemanas[sid]; if(!d || (d.desde||"").slice(0,7)!==mes) return;
+    var l = (d.lineas||{})[empId], e = nomEmp(empId); if(!l || !e) return;
+    t += nomCalc(l.foto ? Object.assign({}, e, l.foto) : e, l).retardo;
+  });
+  return t;
+}
+
+/* ---- vista ---- */
+var NOM_TABS = [["semana","Nómina semanal"],["empleados","Empleados"],["balance","Retardos y vacaciones"]];
+function renderNominaView(){
+  var t = STATE.nomTab||"semana";
+  var body = t==="empleados" ? renderNomEmpleados() : t==="balance" ? renderNomBalance() : renderNomSemana();
+  return '<div class="tabs no-print">'+NOM_TABS.map(function(x){ return '<button class="tab" data-action="nom-tab" data-tab="'+x[0]+'" aria-selected="'+(t===x[0])+'">'+x[1]+'</button>'; }).join("")+'</div>'+
+    '<div style="margin-top:14px">'+body+'</div>';
+}
+
+function renderNomEmpleados(){
+  var canEdit = can("editNomina"), lista = nomEmpleados(STATE.nomBajas);
+  var rows = lista.map(function(e){
+    return '<tr'+(e.activo?'':' style="opacity:.55"')+'><td style="white-space:nowrap">'+esc(e.id)+'</td><td><strong>'+esc(e.nombre)+'</strong>'+(e.puesto?'<div class="card-note">'+esc(e.puesto)+'</div>':'')+(e.activo?'':' <span class="badge badge-muted">Baja</span>')+'</td>'+
+      '<td>'+esc(e.categoria||"—")+'</td><td>'+esc(NOM_AREAS[e.area])+'</td>'+
+      '<td class="num">'+fmtMoney(e.pu)+'</td><td class="num">'+fmtMoney(e.pu*5)+'</td>'+
+      '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':'7:30')+'</td>'+
+      '<td class="num">'+fmtCant(e.vacaciones)+'</td><td class="num">'+e.mac+'</td>'+
+      '<td>'+(canEdit?'<button class="btn" data-action="nom-edit-emp" data-id="'+esc(e.id)+'">Editar</button>':'')+'</td></tr>';
+  }).join("");
+  return '<div class="card">'+
+    '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px">'+
+      (canEdit?'<button class="btn btn-primary" data-action="nom-new-emp">+ Nuevo empleado</button>':'')+
+      '<label class="hint" style="display:flex; gap:6px; align-items:center"><input type="checkbox" data-action="nom-bajas"'+(STATE.nomBajas?' checked':'')+'> Mostrar bajas</label>'+
+    '</div>'+
+    '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Cat.</th><th>Área</th><th class="num">P.U. diario</th><th class="num">Semanal</th><th>Ingreso</th><th>Horario</th><th class="num">Vacaciones</th><th class="num" title="Minutos de retardo acumulados (cada 480 = 1 día de vacaciones)">MAC</th><th></th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="11" class="empty">Todavía no hay empleados.</td></tr>')+'</tbody></table></div>'+
+    '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%.</p></div>';
+}
+function openNomEmpModal(id){
+  var e = id ? nomEmp(id) : { id:"", nombre:"", categoria:"", area:"produccion", pu:0, ingreso:todayISO(), horario:"fijo", nombreReloj:"", puesto:"", telefono:"", rfc:"", curp:"", nss:"", cuenta:"", emergencia:"", notas:"", vacaciones:0, mac:0, diasPenalizados:0, activo:true };
+  if(!e) return;
+  var inp = function(name, label, val, extra){ return '<div class="field"><label>'+label+'</label><input name="'+name+'" value="'+esc(val==null?"":val)+'"'+(extra||"")+'></div>'; };
+  openModal('<h3>'+(id?"Editar empleado":"Nuevo empleado")+'</h3><form id="nomEmpForm"><input type="hidden" name="idOriginal" value="'+esc(e.id)+'">'+
+    '<div class="form-grid">'+
+      inp("nombre", reqLabel("Nombre completo"), e.nombre, ' required autofocus')+
+      '<div class="field"><label>'+reqLabel("ID de empleado")+'</label><input name="id" value="'+esc(e.id)+'" placeholder="Se genera solo: ABA-XX-MMAA"'+(id?' readonly':'')+'></div>'+
+      '<div class="field"><label>'+reqLabel("Área")+'</label><select name="area">'+Object.keys(NOM_AREAS).map(function(k){ return '<option value="'+k+'"'+(e.area===k?' selected':'')+'>'+NOM_AREAS[k]+'</option>'; }).join("")+'</select></div>'+
+      '<div class="field"><label>Categoría</label><input name="categoria" list="nomCats" value="'+esc(e.categoria)+'" placeholder="L1, L2… A1"><datalist id="nomCats">'+NOM_CATS.map(function(c){ return '<option value="'+c+'">'; }).join("")+'</datalist></div>'+
+      inp("puesto", "Puesto", e.puesto, ' placeholder="Soldador, administración…"')+
+      inp("pu", reqLabel("Pago diario (P.U.)"), e.pu||"", ' type="number" step="0.01" min="0" required')+
+      inp("ingreso", reqLabel("Fecha de ingreso"), e.ingreso, ' type="date" required')+
+      '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · entrada 7:30</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
+      inp("nombreReloj", "Nombre en el reloj checador", e.nombreReloj, ' placeholder="Como sale en el reporte, si es distinto"')+
+      inp("telefono", "Teléfono", e.telefono)+
+      inp("rfc", "RFC", e.rfc)+
+      inp("curp", "CURP", e.curp)+
+      inp("nss", "NSS", e.nss)+
+      inp("cuenta", "Cuenta / forma de pago", e.cuenta)+
+      inp("emergencia", "Contacto de emergencia", e.emergencia)+
+    '</div>'+
+    '<h4 style="margin:14px 0 6px">Saldos</h4><div class="form-grid">'+
+      inp("vacaciones", "Días de vacaciones disponibles", e.vacaciones, ' type="number" step="0.5"')+
+      inp("mac", "Minutos de retardo acumulados (MAC)", e.mac, ' type="number" step="1" min="0" max="479"')+
+      inp("diasPenalizados", "Días penalizados (histórico)", e.diasPenalizados, ' type="number" step="1" min="0"')+
+    '</div>'+
+    inp("notas", "Notas", e.notas)+
+    (id ? '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="baja"'+(e.activo?'':' checked')+'> Dado de baja (ya no sale en la nómina; se conserva su historial)</label>' : '')+
+    '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
+  '</form>');
+  var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "760px";
+}
+function handleNomEmpSubmit(form){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return; }
+  var fd = new FormData(form), orig = fd.get("idOriginal")||"", nombre = (fd.get("nombre")||"").trim().replace(/\s+/g," ").toUpperCase();
+  if(!nombre){ toast("Escribe el nombre.","err"); return; }
+  var pu = parseFloat(fd.get("pu")); if(!(pu>=0)){ toast("Escribe el pago diario.","err"); return; }
+  var ingreso = fd.get("ingreso")||""; if(!ingreso){ toast("Escribe la fecha de ingreso.","err"); return; }
+  var id = orig || ((fd.get("id")||"").trim().toUpperCase() || nomIdSugerido(nombre, ingreso));
+  if(!orig && STATE.nominaEmpleados[id]){ toast("Ya existe un empleado con el ID "+id+".","err"); return; }
+  if(!/^[A-Z0-9-]+$/.test(id)){ toast("El ID solo puede tener letras, números y guiones.","err"); return; }
+  var num = function(k){ var v = parseFloat(fd.get(k)); return isNaN(v) ? 0 : v; };
+  var mac = Math.round(num("mac")); if(mac<0 || mac>=NOM_BLOQUE){ toast("Los minutos acumulados van de 0 a 479.","err"); return; }
+  var t = function(k){ return (fd.get(k)||"").trim(); };
+  var now = new Date().toISOString();
+  var data = Object.assign({}, STATE.nominaEmpleados[id]||{}, {
+    nombre:nombre, area:fd.get("area"), categoria:t("categoria").toUpperCase(), puesto:t("puesto"), pu:r2(pu), ingreso:ingreso,
+    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), telefono:t("telefono"),
+    rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
+    vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")),
+    activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
+  if(!orig) data.creadoEn = now;
+  STATE.db.doc("nomina_empleados/"+id).set(data).then(function(){
+    STATE.nominaEmpleados[id] = data; toast(orig ? "Empleado actualizado ✓" : "Empleado "+id+" creado ✓"); closeModal(); renderContent();
+  }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Nómina." : "No se pudo guardar.","err"); });
+}
+
+function nomSemanaActual(){ return STATE.nomLunes || nomLunes(todayISO()); }
+function nomUltimaPagada(){
+  return Object.keys(STATE.nominaSemanas).filter(function(k){ return STATE.nominaSemanas[k] && STATE.nominaSemanas[k].estado==="pagada"; }).sort().pop() || null;
+}
+function renderNomSemana(){
+  var lunes = nomSemanaActual(), doc = nomSemanaDoc(lunes), filas = nomFilas(doc), canEdit = can("editNomina");
+  var pagada = doc.estado==="pagada", vista = STATE.nomVista || "captura";
+  var estado = pagada ? '<span class="badge badge-good">Pagada</span>' : doc.estado==="borrador" ? '<span class="badge badge-steel">Borrador</span>' : '<span class="badge badge-muted">Sin capturar</span>';
+  var bar = '<div class="card no-print" style="margin-bottom:14px"><div class="filters" style="margin:0; align-items:center">'+
+      '<button class="btn" data-action="nom-semana" data-lunes="'+isoAddDays(lunes,-7)+'" title="Semana anterior">‹</button>'+
+      '<input type="date" data-nomsemana="1" value="'+lunes+'" title="Cualquier día de la semana">'+
+      '<button class="btn" data-action="nom-semana" data-lunes="'+isoAddDays(lunes,7)+'" title="Semana siguiente">›</button>'+
+      '<strong style="font-size:14px">'+esc(nomSemanaLabel(lunes))+'</strong> '+estado+
+      '<span style="flex:1"></span>'+
+      ['captura','nomina','recibos'].map(function(v){ var l = { captura:"Captura", nomina:"Nómina (imprimir)", recibos:"Recibos (imprimir)" }[v]; return '<button class="btn'+(vista===v?' btn-primary':'')+'" data-action="nom-vista" data-vista="'+v+'">'+l+'</button>'; }).join("")+
+    '</div>'+
+    (pagada ? '<p class="hint" style="margin:8px 0 0">Pagada'+(doc.pagadaPor?' por '+esc(doc.pagadaPor):'')+(doc.pagadaEn?' el '+esc(fmtDateTime(doc.pagadaEn)):'')+'. Los retardos y vacaciones de esta semana ya se aplicaron a los saldos.'+
+      (isMasterUser() && nomUltimaPagada()===doc.semana ? ' <a href="#" data-action="nom-reabrir">Reabrir semana</a>' : '')+'</p>' : '')+
+  '</div>';
+  if(!filas.length) return bar+'<div class="card"><div class="empty">Da de alta a los empleados en la pestaña <a href="#" data-action="nom-tab" data-tab="empleados">Empleados</a>.</div></div>';
+  if(vista==="nomina") return bar+renderNomImprimible(lunes, doc, filas);
+  if(vista==="recibos") return bar+renderNomRecibos(lunes, doc, filas);
+  if(pagada || !canEdit) return bar+renderNomImprimible(lunes, doc, filas);
+
+  var body = filas.map(function(f){
+    var e = f.emp, l = f.linea, k = esc(e.id);
+    var dias = NOM_DIAS.map(function(d){
+      var x = (l.dias||{})[d[0]] || { st:"A", e:"" };
+      return '<td style="min-width:92px"><select name="st_'+k+'_'+d[0]+'" data-nomcalc="1" style="width:100%; padding:3px">'+NOM_ST.map(function(s){ return '<option value="'+s.k+'"'+(x.st===s.k?' selected':'')+'>'+s.c+'</option>'; }).join("")+'</select>'+
+        (e.horario==="abierto" ? '' : '<input name="e_'+k+'_'+d[0]+'" data-nomcalc="1" value="'+esc(x.e||"")+'" placeholder="07:30" inputmode="numeric" maxlength="5" style="width:100%; margin-top:3px; padding:3px; text-align:center">')+'</td>';
+    }).join("");
+    return '<tr data-nomrow="'+k+'"><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+esc(e.id)+' · '+esc(e.categoria||"—")+(e.horario==="abierto"?' · horario abierto':'')+'</div></td>'+dias+
+      '<td class="num" data-out="dias"></td><td class="num" data-out="retardo"></td>'+
+      '<td><input name="he_'+k+'" data-nomcalc="1" type="number" step="0.5" min="0" value="'+(l.he||"")+'" placeholder="0" style="width:58px; padding:3px; text-align:right"></td>'+
+      '<td class="num">'+fmtMoney(e.pu)+'</td>'+
+      '<td><input name="otros_'+k+'" data-nomcalc="1" type="number" step="0.01" min="0" value="'+(l.otros||"")+'" placeholder="0" style="width:80px; padding:3px; text-align:right"></td>'+
+      '<td><input name="deduc_'+k+'" data-nomcalc="1" type="number" step="0.01" min="0" value="'+(l.deduc||"")+'" placeholder="0" style="width:80px; padding:3px; text-align:right"></td>'+
+      '<td class="num" data-out="total" style="font-weight:700"></td>'+
+      '<td><input name="obs_'+k+'" value="'+esc(l.obs||"")+'" placeholder="Observaciones" style="min-width:150px; padding:3px"></td></tr>';
+  }).join("");
+  return bar+'<form id="nomSemanaForm" data-lunes="'+lunes+'"><div class="card">'+
+    '<div class="table-wrap"><table style="min-width:1250px"><thead><tr><th>Empleado</th>'+NOM_DIAS.map(function(d,i){ return '<th>'+d[1]+' '+(+isoAddDays(lunes,i).slice(8))+'</th>'; }).join("")+
+      '<th class="num">Días</th><th class="num" title="Minutos de retardo de la semana (desde las 7:30, si entró después de las 7:45)">Retardo</th><th title="Horas extra de la semana, se pagan al doble">H. extra</th><th class="num">P.U.</th><th>Otros ing.</th><th>Deduc.</th><th class="num">Total</th><th>Observaciones</th></tr></thead>'+
+    '<tbody>'+body+'</tbody><tfoot><tr><td colspan="13">Total de la semana</td><td class="num" id="nomTotal" style="font-weight:700"></td><td></td></tr></tfoot></table></div>'+
+    '<p class="hint" style="margin-top:10px">Escribe la hora de <strong>entrada</strong> de cada día (como sale en el checador). '+NOM_ST.map(function(s){ return s.c+' = '+s.l; }).join(" · ")+'. Retardo: entrada después de las 7:45, se cuentan los minutos desde las 7:30. Horas extra: P.U. ÷ '+NOM_HORAS_JORNADA+' h × 2.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap"><button class="btn btn-primary" type="submit">Guardar borrador</button>'+
+      '<button class="btn" type="button" data-action="nom-pagar">Guardar y marcar pagada</button></div>'+
+  '</div></form>';
+}
+/** Lee la captura del formulario (sin guardar). */
+function nomLeerForm(form){
+  var fd = new FormData(form), lineas = {};
+  form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
+    var id = tr.dataset.nomrow, dias = {};
+    NOM_DIAS.forEach(function(d){
+      var e = String(fd.get("e_"+id+"_"+d[0])||"").trim().replace(/^(\d)(\d{2})$/,"0$1:$2").replace(/^(\d{2})(\d{2})$/,"$1:$2").replace(/^(\d):/,"0$1:");
+      dias[d[0]] = { st:fd.get("st_"+id+"_"+d[0])||"A", e:e };
+    });
+    var n = function(k){ var v = parseFloat(fd.get(k+"_"+id)); return isNaN(v)||v<0 ? 0 : v; };
+    lineas[id] = { dias:dias, he:n("he"), otros:n("otros"), deduc:n("deduc"), obs:String(fd.get("obs_"+id)||"").trim() };
+  });
+  return lineas;
+}
+function nomRecalc(form){
+  var lineas = nomLeerForm(form), total = 0;
+  form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
+    var e = nomEmp(tr.dataset.nomrow); if(!e) return;
+    var c = nomCalc(e, lineas[tr.dataset.nomrow]); total += c.total;
+    tr.querySelector('[data-out="dias"]').textContent = c.dias;
+    var rt = tr.querySelector('[data-out="retardo"]'); rt.textContent = c.retardo || "—"; rt.style.color = c.retardo ? "var(--critical)" : "";
+    tr.querySelector('[data-out="total"]').textContent = fmtMoney(c.total);
+  });
+  var t = document.getElementById("nomTotal"); if(t) t.textContent = fmtMoney(r2(total));
+}
+function nomGuardar(form, pagar){
+  if(!STATE.db){ toast("Sin conexión a la base compartida.","err"); return Promise.resolve(); }
+  var lunes = form.dataset.lunes, sid = nomSemanaIso(lunes).id, prev = STATE.nominaSemanas[sid] || {};
+  if(prev.estado==="pagada"){ toast("Esta semana ya está pagada.","err"); return Promise.resolve(); }
+  var lineas = nomLeerForm(form), malas = [];
+  Object.keys(lineas).forEach(function(id){ NOM_DIAS.forEach(function(d){ var x = lineas[id].dias[d[0]]; if(x.e && !/^\d{2}:\d{2}$/.test(x.e)) malas.push((nomEmp(id)||{}).nombre+" "+d[1]); }); });
+  if(malas.length){ toast("Hora inválida (usa HH:MM): "+malas.slice(0,4).join(", "),"err"); return Promise.resolve(); }
+  var doc = Object.assign({}, prev, { semana:sid, desde:lunes, hasta:isoAddDays(lunes,4), estado:"borrador", lineas:lineas, actualizadoPor:quienSoy(), actualizadoEn:new Date().toISOString() });
+  var btns = form.querySelectorAll("button"); btns.forEach(function(b){ b.disabled = true; });
+  return STATE.db.doc("nomina_semanas/"+sid).set(doc).then(function(){
+    STATE.nominaSemanas[sid] = doc;
+    if(!pagar){ toast("Borrador guardado ✓"); renderContent(); return; }
+    return nomMarcarPagada(sid);
+  }).catch(function(err){
+    btns.forEach(function(b){ b.disabled = false; });
+    toast(err && err.status===403 ? "No tienes permiso del módulo Nómina." : "No se pudo guardar.","err");
+  });
+}
+/** Aplica retardos y vacaciones a los saldos, guarda la foto de cada línea y marca la semana pagada. */
+function nomMarcarPagada(sid){
+  var doc = STATE.nominaSemanas[sid], filas = nomFilas(doc), lineas = {}, cambios = [];
+  filas.forEach(function(f){
+    var e = f.emp, antes = { mac:e.mac, vacaciones:e.vacaciones, diasPenalizados:e.diasPenalizados }, despues = nomAplicar(antes, f.calc);
+    lineas[e.id] = Object.assign({}, f.linea, { foto:{ nombre:e.nombre, categoria:e.categoria, area:e.area, pu:e.pu, horario:e.horario }, calc:f.calc, antes:antes, despues:despues });
+    cambios.push({ id:e.id, data:{ mac:despues.mac, vacaciones:despues.vacaciones, diasPenalizados:despues.diasPenalizados } });
+  });
+  var pagadaDoc = Object.assign({}, doc, { estado:"pagada", lineas:lineas, total:r2(filas.reduce(function(s,f){ return s+f.calc.total; },0)), pagadaPor:quienSoy(), pagadaEn:new Date().toISOString() });
+  return cambios.reduce(function(p, c){
+    return p.then(function(){ return STATE.db.doc("nomina_empleados/"+c.id).update(c.data).then(function(){ Object.assign(STATE.nominaEmpleados[c.id]||{}, c.data); }); });
+  }, Promise.resolve()).then(function(){
+    return STATE.db.doc("nomina_semanas/"+sid).set(pagadaDoc);
+  }).then(function(){
+    STATE.nominaSemanas[sid] = pagadaDoc; STATE.nomVista = "nomina";
+    var pen = filas.filter(function(f){ return lineas[f.emp.id].despues.penSemana; }).map(function(f){ return f.emp.nombre; });
+    toast("Semana pagada ✓"+(pen.length?" · Se descontó un día de vacaciones por retardos a: "+pen.join(", "):""));
+    renderContent();
+  });
+}
+function nomReabrir(){
+  var lunes = nomSemanaActual(), sid = nomSemanaIso(lunes).id, doc = STATE.nominaSemanas[sid];
+  if(!doc || doc.estado!=="pagada" || !isMasterUser() || nomUltimaPagada()!==sid) return;
+  if(!confirm("¿Reabrir la "+nomSemanaLabel(lunes)+"? Los saldos de retardos y vacaciones regresan a como estaban antes de pagarla.")) return;
+  var ids = Object.keys(doc.lineas||{});
+  ids.reduce(function(p, id){
+    var a = doc.lineas[id].antes; if(!a || !STATE.nominaEmpleados[id]) return p;
+    return p.then(function(){ return STATE.db.doc("nomina_empleados/"+id).update(a).then(function(){ Object.assign(STATE.nominaEmpleados[id], a); }); });
+  }, Promise.resolve()).then(function(){
+    var lineas = {}; ids.forEach(function(id){ var l = Object.assign({}, doc.lineas[id]); delete l.foto; delete l.calc; delete l.antes; delete l.despues; lineas[id] = l; });
+    var nuevo = Object.assign({}, doc, { estado:"borrador", lineas:lineas, reabiertaPor:quienSoy(), reabiertaEn:new Date().toISOString() });
+    delete nuevo.pagadaPor; delete nuevo.pagadaEn; delete nuevo.total;
+    return STATE.db.doc("nomina_semanas/"+sid).set(nuevo).then(function(){ STATE.nominaSemanas[sid] = nuevo; STATE.nomVista = "captura"; toast("Semana reabierta ✓"); renderContent(); });
+  }).catch(function(){ toast("No se pudo reabrir.","err"); });
+}
+
+/** Saldos de una fila: después de la semana (pagada = lo que se aplicó; si no, lo proyectado). */
+function nomSaldoFila(f, doc){
+  if(doc.estado==="pagada" && f.linea.despues) return f.linea.despues;
+  return nomAplicar({ mac:f.emp.mac, vacaciones:f.emp.vacaciones, diasPenalizados:f.emp.diasPenalizados }, f.calc);
+}
+function renderNomImprimible(lunes, doc, filas){
+  var mes = lunes.slice(0,7), mesNom = NOM_MESES[+mes.slice(5)-1].toUpperCase(), total = 0, pagada = doc.estado==="pagada";
+  var rows = filas.map(function(f, i){
+    total += f.calc.total;
+    return '<tr><td>'+(i+1)+'</td><td style="white-space:nowrap">'+esc(f.emp.id)+'</td><td>'+esc(f.emp.nombre)+'</td><td>'+esc(f.emp.categoria||"")+'</td><td class="num">'+f.calc.dias+'</td>'+
+      '<td class="num">'+fmtMoney(f.emp.pu)+'</td><td class="num">'+(f.calc.pagoExtra?fmtMoney(f.calc.pagoExtra)+' <span class="hint">('+f.calc.he+' h)</span>':'0.00')+'</td>'+
+      '<td class="num">'+fmtCant(f.calc.otros)+'</td><td class="num">'+fmtCant(f.calc.deduc)+'</td><td class="num"><strong>'+fmtMoney(f.calc.total)+'</strong></td><td>'+esc(f.linea.obs||"")+'</td></tr>';
+  }).join("");
+  var porArea = {}; filas.forEach(function(f){ porArea[f.emp.area] = (porArea[f.emp.area]||0) + f.calc.total; });
+  var bal = filas.map(function(f, i){
+    var s = nomSaldoFila(f, doc), minMes = nomMinutosMes(f.emp.id, mes);
+    if(!STATE.nominaSemanas[doc.semana]) minMes += f.calc.retardo;
+    return '<tr><td>'+(i+1)+'</td><td>'+esc(f.emp.nombre)+'</td><td class="num">'+minMes+'</td><td class="num">'+s.mac+'</td><td class="num">'+(NOM_BLOQUE-s.mac)+'</td>'+
+      '<td class="num">'+(s.diasPenalizados?'-'+s.diasPenalizados:'')+'</td><td class="num">'+fmtCant(s.vacaciones)+'</td></tr>';
+  }).join("");
+  return '<div class="card no-print" style="margin-bottom:10px; display:flex; gap:8px; align-items:center"><button class="btn" data-action="print-report">Imprimir / Guardar PDF</button>'+
+      (pagada?'':'<span class="hint">Borrador: el balance muestra cómo quedará al pagarla.</span>')+'</div>'+
+    '<div id="reportPrintArea"><div class="card">'+
+      '<div class="report-header" style="text-align:center"><h2 style="margin:0">'+esc(NOM_EMPRESA)+'</h2><p style="margin:4px 0 0; font-weight:700">SEMANA '+esc(nomSemanaLabel(lunes).toUpperCase())+'</p></div>'+
+      '<div class="table-wrap" style="margin-top:10px"><table><thead><tr><th></th><th>ID empleado</th><th>Nombre</th><th>Cat</th><th class="num">Días</th><th class="num">P.U.</th><th class="num">H. extra</th><th class="num">Otros ing.</th><th class="num">Deduc.</th><th class="num">Total</th><th>Observaciones</th></tr></thead>'+
+      '<tbody>'+rows+'</tbody><tfoot><tr><td colspan="9">TOTAL</td><td class="num">'+fmtMoney(r2(total))+'</td><td></td></tr></tfoot></table></div>'+
+      '<p class="hint" style="margin-top:6px">'+Object.keys(NOM_AREAS).filter(function(a){ return porArea[a]; }).map(function(a){ return NOM_AREAS[a]+': <strong>'+fmtMoney(r2(porArea[a]))+'</strong>'; }).join(" · ")+'</p>'+
+      '<h3 class="card-title" style="margin:14px 0 6px">Retardos y vacaciones</h3>'+
+      '<div class="table-wrap"><table style="max-width:640px"><thead><tr><th></th><th>Nombre</th><th class="num" title="Minutos de retardo en el mes">'+mesNom+'</th><th class="num" title="Minutos acumulados">MAC</th><th class="num" title="Minutos restantes para el siguiente día penalizado">MR</th><th class="num">Días penalizados</th><th class="num">Vacaciones</th></tr></thead><tbody>'+bal+'</tbody></table></div>'+
+      '<p class="hint" style="margin-top:6px">Retardo: entrada después de las 7:45; se cuentan los minutos desde las 7:30. Cada '+NOM_BLOQUE+' minutos acumulados se descuenta un día de vacaciones.</p>'+
+    '</div></div>';
+}
+function renderNomRecibos(lunes, doc, filas){
+  var rec = filas.map(function(f){
+    var c = f.calc, e = f.emp, s = nomSaldoFila(f, doc);
+    var dias = NOM_DIAS.map(function(d){ var x = (f.linea.dias||{})[d[0]] || { st:"A" }; return '<td style="text-align:center">'+esc(nomSt(x.st).c)+(x.e?'<div class="hint">'+esc(x.e)+'</div>':'')+'</td>'; }).join("");
+    return '<div class="card nom-recibo" style="margin-top:12px; break-inside:avoid; border:1px solid var(--line-strong)">'+
+      '<div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap"><div><strong>'+esc(NOM_EMPRESA)+'</strong><div class="hint">Recibo de nómina · '+esc(nomSemanaLabel(lunes))+'</div></div>'+
+        '<div style="text-align:right"><strong>'+esc(e.nombre)+'</strong><div class="hint">'+esc(e.id)+' · Cat. '+esc(e.categoria||"—")+(e.puesto?' · '+esc(e.puesto):'')+'</div></div></div>'+
+      '<div class="table-wrap" style="margin-top:8px"><table style="min-width:0"><thead><tr>'+NOM_DIAS.map(function(d){ return '<th style="text-align:center">'+d[1]+'</th>'; }).join("")+'</tr></thead><tbody><tr>'+dias+'</tr></tbody></table></div>'+
+      '<table style="min-width:0; margin-top:8px"><tbody>'+
+        '<tr><td>Sueldo: '+c.dias+' días × '+fmtMoney(e.pu)+'</td><td class="num">'+fmtMoney(c.sueldo)+'</td></tr>'+
+        (c.pagoExtra?'<tr><td>Horas extra: '+c.he+' h al doble</td><td class="num">'+fmtMoney(c.pagoExtra)+'</td></tr>':'')+
+        (c.otros?'<tr><td>Otros ingresos</td><td class="num">'+fmtMoney(c.otros)+'</td></tr>':'')+
+        (c.deduc?'<tr><td>Deducciones</td><td class="num">-'+fmtMoney(c.deduc)+'</td></tr>':'')+
+        '<tr><td><strong>Neto a pagar</strong></td><td class="num"><strong>'+fmtMoney(c.total)+'</strong></td></tr>'+
+      '</tbody></table>'+
+      (f.linea.obs?'<p class="hint" style="margin:6px 0 0">Obs.: '+esc(f.linea.obs)+'</p>':'')+
+      '<p class="hint" style="margin:6px 0 0">Retardo esta semana: '+c.retardo+' min · Acumulado: '+s.mac+' min (faltan '+(NOM_BLOQUE-s.mac)+') · Vacaciones disponibles: '+fmtCant(s.vacaciones)+' días</p>'+
+      '<div style="margin-top:26px; display:flex; justify-content:flex-end"><div style="border-top:1px solid #000; width:260px; text-align:center; padding-top:4px" class="hint">Recibí de conformidad · '+esc(e.nombre)+'</div></div>'+
+    '</div>';
+  }).join("");
+  return '<div class="card no-print" style="margin-bottom:10px"><button class="btn" data-action="print-report">Imprimir / Guardar PDF</button></div><div id="reportPrintArea">'+rec+'</div>';
+}
+
+function renderNomBalance(){
+  var mes = todayISO().slice(0,7), lista = nomEmpleados(false);
+  var rows = lista.map(function(e){
+    var pct = Math.round(e.mac/NOM_BLOQUE*100);
+    return '<tr><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+esc(e.id)+'</div></td><td class="num">'+nomMinutosMes(e.id, mes)+'</td>'+
+      '<td class="num">'+e.mac+'</td><td class="num">'+(NOM_BLOQUE-e.mac)+'</td>'+
+      '<td style="min-width:120px"><div class="bar-track"><div class="bar-fill" style="width:'+pct+'%; background:'+(pct>=75?'var(--critical)':pct>=50?'var(--warn)':'var(--good)')+'"></div></div></td>'+
+      '<td class="num">'+(e.diasPenalizados?'-'+e.diasPenalizados:'—')+'</td><td class="num"'+(e.vacaciones<0?' style="color:var(--critical); font-weight:700"':'')+'>'+fmtCant(e.vacaciones)+'</td></tr>';
+  }).join("");
+  return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Empleado</th><th class="num">Minutos en '+NOM_MESES[+mes.slice(5)-1]+'</th><th class="num">MAC</th><th class="num">MR</th><th>Hacia el siguiente día</th><th class="num">Días penalizados</th><th class="num">Vacaciones</th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="7" class="empty">Sin empleados.</td></tr>')+'</tbody></table></div>'+
+    '<p class="hint" style="margin-top:10px">MAC = minutos de retardo acumulados; MR = los que faltan para '+NOM_BLOQUE+'. Al llegar a '+NOM_BLOQUE+' se descuenta un día de vacaciones y el contador vuelve a empezar con lo que sobra. Los saldos se actualizan al marcar cada semana como pagada; para ajustarlos a mano, edita al empleado.</p></div>';
+}
 
 /* ================= SHELL / NAV ================= */
 function firstAllowedNav(){
@@ -931,7 +1346,7 @@ function rerenderView(){
   renderContent();
 }
 function renderContent(){
-  var titles = { inventario:["Inventario","Existencias del taller y punto de reorden"], dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre los proyectos terminados de cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
+  var titles = { inventario:["Inventario","Existencias del taller y punto de reorden"], nomina:["Nómina","Empleados, asistencia, retardos y pago semanal"], dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre los proyectos terminados de cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
@@ -962,7 +1377,9 @@ function renderContent(){
   else if(STATE.view==="costo_total") c.innerHTML = renderCostoTotalView();
   else if(STATE.view==="indirectos") c.innerHTML = renderIndirectosView();
   else if(STATE.view==="inventario") c.innerHTML = renderInventarioView();
+  else if(STATE.view==="nomina") c.innerHTML = renderNominaView();
   mountCharts();
+  var nomForm = document.getElementById("nomSemanaForm"); if(nomForm) nomRecalc(nomForm);
 
   if(activeSelector){
     var again = c.querySelector(activeSelector);
@@ -4800,6 +5217,17 @@ document.addEventListener("click", function(e){
   else if(action==="cont-tab"){ STATE.contTab = el.dataset.tab; renderContent(); }
   else if(action==="export-propuesta-csv") exportPropuestaCSV();
   else if(action==="inv-tab"){ STATE.invTab = el.dataset.tab; renderContent(); }
+  else if(action==="nom-tab"){ STATE.nomTab = el.dataset.tab; renderContent(); }
+  else if(action==="nom-semana"){ STATE.nomLunes = el.dataset.lunes; STATE.nomVista = "captura"; renderContent(); }
+  else if(action==="nom-vista"){ STATE.nomVista = el.dataset.vista; renderContent(); }
+  else if(action==="nom-new-emp") openNomEmpModal("");
+  else if(action==="nom-edit-emp") openNomEmpModal(el.dataset.id);
+  else if(action==="nom-bajas"){ STATE.nomBajas = !!el.checked; renderContent(); }
+  else if(action==="nom-reabrir") nomReabrir();
+  else if(action==="nom-pagar"){
+    var nf = document.getElementById("nomSemanaForm");
+    if(nf && confirm("¿Marcar pagada la "+nomSemanaLabel(nf.dataset.lunes)+"? Se aplican los retardos y vacaciones a los saldos y la semana ya no se puede editar.")) nomGuardar(nf, true);
+  }
   else if(action==="inv-new-articulo") openInvArticuloModal(null);
   else if(action==="inv-edit-articulo") openInvArticuloModal(el.dataset.id);
   else if(action==="inv-ajuste") openInvAjusteModal(el.dataset.id);
@@ -4969,7 +5397,11 @@ document.addEventListener("input", debounce(function(e){
     STATE.invFilters[e.target.dataset.invfilter] = e.target.value; renderContent();
   }
 }, 260));
+document.addEventListener("input", function(e){
+  if(e.target && e.target.dataset && e.target.dataset.nomcalc && e.target.form) nomRecalc(e.target.form);
+});
 document.addEventListener("change", function(e){
+  if(e.target && e.target.dataset && e.target.dataset.nomsemana && e.target.value){ STATE.nomLunes = nomLunes(e.target.value); STATE.nomVista = "captura"; renderContent(); return; }
   if(e.target && e.target.dataset && e.target.dataset.compareidx!==undefined){
     STATE.compareProjects[parseInt(e.target.dataset.compareidx,10)] = e.target.value; renderContent();
   } else if(e.target && e.target.name==="tipoPago"){

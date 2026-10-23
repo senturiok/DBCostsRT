@@ -52,7 +52,11 @@ const MAP_COLLECTIONS = [
   // Inventario de taller: catálogo de artículos (id = slug del nombre).
   "inventario_articulos",
 ];
-const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS]);
+// Nómina (sueldos): colecciones privadas. No van en buildState() (que también
+// leen el bot y las integraciones); /api/state las agrega solo a quien tiene
+// el módulo "nomina". Empleados (id = ID de empleado) y semanas (id = AAAA-Www).
+const NOMINA_COLLECTIONS = ["nomina_empleados", "nomina_semanas"];
+const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS, ...NOMINA_COLLECTIONS]);
 
 const ACCEPTED_FILE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]);
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -272,6 +276,16 @@ async function buildState(env) {
   return out;
 }
 
+async function addNomina(env, out) {
+  for (const col of NOMINA_COLLECTIONS) {
+    const rows = await listDocs(env, col);
+    const m = {};
+    rows.forEach((r) => { m[r.id] = r.data; });
+    out[col] = m;
+  }
+  return out;
+}
+
 // ----------------------------------------------------------- sessions --
 
 async function createSession(env, profileType, profileId) {
@@ -326,6 +340,8 @@ const COLLECTION_MODULE = {
   proyectos_usd: "houston",
   inventario_ajustes: "inventario",
   tipos_cambio: ["houston", "contabilidad"],
+  nomina_empleados: "nomina",
+  nomina_semanas: "nomina",
 };
 
 function authorizeWrite(profile, collection, method, payload) {
@@ -672,7 +688,8 @@ export default {
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "state" && method === "GET") {
         const profile = await getProfileFromRequest(request, env);
         if (!profile) return errorResponse(401, "No autenticado.");
-        return jsonResponse(await buildState(env));
+        const state = await buildState(env);
+        return jsonResponse(hasModule(profile, "nomina") ? await addNomina(env, state) : state);
       }
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "activity-log" && method === "GET") {
         return handleActivityLog(request, env);
