@@ -858,12 +858,14 @@ document.addEventListener("submit", function(e){
    Los sueldos solo los manda el servidor a quien tiene el módulo "nomina".
    Retardos: entrar después de las 7:45 cuenta como retardo y se acumulan los
    minutos desde las 7:30; cada 480 minutos acumulados se descuenta un día de
-   vacaciones (lo que sobra sigue acumulando). Horas extra al doble.
+   vacaciones (lo que sobra sigue acumulando; el saldo puede quedar negativo).
+   Horas extra al doble sobre una jornada de 9.5 h. Vacaciones por ley (LFT):
+   en cada aniversario se suman los días que le tocan por su antigüedad.
    Al marcar la semana como pagada se aplican los retardos y las vacaciones
    tomadas a los saldos de cada empleado; reabrirla (solo Master y solo la
    última pagada) los regresa. */
 var NOM_EMPRESA = "ABA MANUFACTURING LLC";
-var NOM_ENTRADA_MIN = 7*60+30, NOM_TOLERANCIA = 15, NOM_BLOQUE = 480, NOM_HORAS_JORNADA = 9;
+var NOM_ENTRADA_MIN = 7*60+30, NOM_TOLERANCIA = 15, NOM_BLOQUE = 480, NOM_HORAS_JORNADA = 9.5;
 var NOM_AREAS = { produccion:"Producción (trailas)", administracion:"Administración", otros:"Otros proyectos" };
 var NOM_CATS = ["L1","L2","L3","L4","A1","A2"];
 var NOM_DIAS = [["L","Lun"],["M","Mar"],["X","Mié"],["J","Jue"],["V","Vie"]];
@@ -913,7 +915,7 @@ function nomEmpleados(incluirBajas){
       ingreso:e.ingreso||"", horario:e.horario==="abierto" ? "abierto" : "fijo", nombreReloj:e.nombreReloj||"", puesto:e.puesto||"",
       telefono:e.telefono||"", rfc:e.rfc||"", curp:e.curp||"", nss:e.nss||"", cuenta:e.cuenta||"", emergencia:e.emergencia||"",
       notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
-      activo:e.activo!==false };
+      ultimoAniversario:e.ultimoAniversario||"", activo:e.activo!==false };
   }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
@@ -942,11 +944,35 @@ function nomCalc(emp, l){
   return { dias:dias, retardo:retardo, vac:vac, he:he, pagoExtra:pagoExtra, otros:otros, deduc:deduc,
     sueldo:r2(dias*emp.pu), total:r2(dias*emp.pu + pagoExtra + otros - deduc) };
 }
-/** Saldos después de aplicar una semana (pura): cada 480 min acumulados = 1 día de vacaciones. */
-function nomAplicar(saldo, calc){
-  var mac = saldo.mac + calc.retardo, pen = 0;
+/** Días de vacaciones por año según la LFT (reforma 2023): 12 el primer año, +2 por año hasta 20; luego +2 cada 5 años. */
+function nomDiasLey(anios){ if(anios<1) return 0; if(anios<=5) return 12 + 2*(anios-1); return 22 + 2*Math.floor((anios-6)/5); }
+function nomAniversario(ingreso, anios){
+  var y = +ingreso.slice(0,4) + anios, md = ingreso.slice(5);
+  if(md==="02-29" && !(y%4===0 && (y%100!==0 || y%400===0))) md = "02-28";
+  return y+"-"+md;
+}
+/** Años cumplidos a una fecha. */
+function nomAntiguedad(ingreso, fecha){
+  if(!ingreso) return 0;
+  var n = 0; while(nomAniversario(ingreso, n+1) <= fecha) n++;
+  return n;
+}
+/** Aniversarios aún no abonados hasta la fecha: días de vacaciones que se suman y el último aniversario. */
+function nomCreditoVac(emp, hasta){
+  var dias = 0, ultimo = emp.ultimoAniversario || "";
+  if(!emp.ingreso) return { dias:0, ultimo:ultimo };
+  for(var n = 1; nomAniversario(emp.ingreso, n) <= hasta; n++){
+    var a = nomAniversario(emp.ingreso, n);
+    if(a > (ultimo || emp.ingreso)){ dias += nomDiasLey(n); ultimo = a; }
+  }
+  return { dias:dias, ultimo:ultimo };
+}
+/** Saldos después de aplicar una semana (pura): cada 480 min acumulados = 1 día de vacaciones; puede quedar negativo. */
+function nomAplicar(saldo, calc, credito){
+  var mac = saldo.mac + calc.retardo, pen = 0, cr = credito || { dias:0, ultimo:saldo.ultimoAniversario||"" };
   while(mac >= NOM_BLOQUE){ mac -= NOM_BLOQUE; pen++; }
-  return { mac:mac, vacaciones:r2(saldo.vacaciones - calc.vac - pen), diasPenalizados:saldo.diasPenalizados + pen, penSemana:pen };
+  return { mac:mac, vacaciones:r2(saldo.vacaciones + cr.dias - calc.vac - pen), diasPenalizados:saldo.diasPenalizados + pen, penSemana:pen,
+    ultimoAniversario:cr.ultimo, vacAbonadas:cr.dias };
 }
 function nomSemanaDoc(lunes){
   var sid = nomSemanaIso(lunes).id, doc = STATE.nominaSemanas[sid];
@@ -991,7 +1017,8 @@ function renderNomEmpleados(){
       '<td>'+esc(e.categoria||"—")+'</td><td>'+esc(NOM_AREAS[e.area])+'</td>'+
       '<td class="num">'+fmtMoney(e.pu)+'</td><td class="num">'+fmtMoney(e.pu*5)+'</td>'+
       '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':'7:30')+'</td>'+
-      '<td class="num">'+fmtCant(e.vacaciones)+'</td><td class="num">'+e.mac+'</td>'+
+      '<td class="num" style="white-space:nowrap">'+(function(){ var n = nomAntiguedad(e.ingreso, todayISO()); return n+' año'+(n===1?'':'s')+' <span class="hint">('+nomDiasLey(Math.max(1,n+1))+' d al cumplir '+(n+1)+')</span>'; })()+'</td>'+
+      '<td class="num"'+(e.vacaciones<0?' style="color:var(--critical); font-weight:700"':'')+'>'+fmtCant(e.vacaciones)+'</td><td class="num">'+e.mac+'</td>'+
       '<td>'+(canEdit?'<button class="btn" data-action="nom-edit-emp" data-id="'+esc(e.id)+'">Editar</button>':'')+'</td></tr>';
   }).join("");
   return '<div class="card">'+
@@ -999,9 +1026,9 @@ function renderNomEmpleados(){
       (canEdit?'<button class="btn btn-primary" data-action="nom-new-emp">+ Nuevo empleado</button>':'')+
       '<label class="hint" style="display:flex; gap:6px; align-items:center"><input type="checkbox" data-action="nom-bajas"'+(STATE.nomBajas?' checked':'')+'> Mostrar bajas</label>'+
     '</div>'+
-    '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Cat.</th><th>Área</th><th class="num">P.U. diario</th><th class="num">Semanal</th><th>Ingreso</th><th>Horario</th><th class="num">Vacaciones</th><th class="num" title="Minutos de retardo acumulados (cada 480 = 1 día de vacaciones)">MAC</th><th></th></tr></thead>'+
-    '<tbody>'+(rows||'<tr><td colspan="11" class="empty">Todavía no hay empleados.</td></tr>')+'</tbody></table></div>'+
-    '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%.</p></div>';
+    '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Cat.</th><th>Área</th><th class="num">P.U. diario</th><th class="num">Semanal</th><th>Ingreso</th><th>Horario</th><th class="num" title="Años cumplidos y días de vacaciones que le tocan por año según la ley">Antigüedad</th><th class="num">Vacaciones</th><th class="num" title="Minutos de retardo acumulados (cada 480 = 1 día de vacaciones)">MAC</th><th></th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="12" class="empty">Todavía no hay empleados.</td></tr>')+'</tbody></table></div>'+
+    '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%. Vacaciones por ley: al cumplir cada aniversario se suman solas los días que le tocan (12 el primer año, 14, 16, 18, 20; luego 22 de 6 a 10 años, 24 de 11 a 15…) al pagar la semana en que cae.</p></div>';
 }
 function openNomEmpModal(id){
   var e = id ? nomEmp(id) : { id:"", nombre:"", categoria:"", area:"produccion", pu:0, ingreso:todayISO(), horario:"fijo", nombreReloj:"", puesto:"", telefono:"", rfc:"", curp:"", nss:"", cuenta:"", emergencia:"", notas:"", vacaciones:0, mac:0, diasPenalizados:0, activo:true };
@@ -1027,6 +1054,7 @@ function openNomEmpModal(id){
     '</div>'+
     '<h4 style="margin:14px 0 6px">Saldos</h4><div class="form-grid">'+
       inp("vacaciones", "Días de vacaciones disponibles", e.vacaciones, ' type="number" step="0.5"')+
+      (id ? '' : '<div class="field"><label>&nbsp;</label><span class="hint">Escribe lo que tiene hoy (lo de su último aniversario menos lo que ya tomó). Los siguientes aniversarios se suman solos.</span></div>')+
       inp("mac", "Minutos de retardo acumulados (MAC)", e.mac, ' type="number" step="1" min="0" max="479"')+
       inp("diasPenalizados", "Días penalizados (histórico)", e.diasPenalizados, ' type="number" step="1" min="0"')+
     '</div>'+
@@ -1055,7 +1083,11 @@ function handleNomEmpSubmit(form){
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
     vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")),
     activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
-  if(!orig) data.creadoEn = now;
+  if(!orig){
+    data.creadoEn = now;
+    // El saldo capturado ya incluye los aniversarios cumplidos: solo se abonan los siguientes.
+    var n = nomAntiguedad(ingreso, todayISO()); data.ultimoAniversario = n ? nomAniversario(ingreso, n) : "";
+  }
   STATE.db.doc("nomina_empleados/"+id).set(data).then(function(){
     STATE.nominaEmpleados[id] = data; toast(orig ? "Empleado actualizado ✓" : "Empleado "+id+" creado ✓"); closeModal(); renderContent();
   }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Nómina." : "No se pudo guardar.","err"); });
@@ -1157,9 +1189,10 @@ function nomGuardar(form, pagar){
 function nomMarcarPagada(sid){
   var doc = STATE.nominaSemanas[sid], filas = nomFilas(doc), lineas = {}, cambios = [];
   filas.forEach(function(f){
-    var e = f.emp, antes = { mac:e.mac, vacaciones:e.vacaciones, diasPenalizados:e.diasPenalizados }, despues = nomAplicar(antes, f.calc);
+    var e = f.emp, antes = { mac:e.mac, vacaciones:e.vacaciones, diasPenalizados:e.diasPenalizados, ultimoAniversario:e.ultimoAniversario||"" };
+    var despues = nomAplicar(antes, f.calc, nomCreditoVac(e, doc.hasta));
     lineas[e.id] = Object.assign({}, f.linea, { foto:{ nombre:e.nombre, categoria:e.categoria, area:e.area, pu:e.pu, horario:e.horario }, calc:f.calc, antes:antes, despues:despues });
-    cambios.push({ id:e.id, data:{ mac:despues.mac, vacaciones:despues.vacaciones, diasPenalizados:despues.diasPenalizados } });
+    cambios.push({ id:e.id, data:{ mac:despues.mac, vacaciones:despues.vacaciones, diasPenalizados:despues.diasPenalizados, ultimoAniversario:despues.ultimoAniversario } });
   });
   var pagadaDoc = Object.assign({}, doc, { estado:"pagada", lineas:lineas, total:r2(filas.reduce(function(s,f){ return s+f.calc.total; },0)), pagadaPor:quienSoy(), pagadaEn:new Date().toISOString() });
   return cambios.reduce(function(p, c){
@@ -1169,7 +1202,8 @@ function nomMarcarPagada(sid){
   }).then(function(){
     STATE.nominaSemanas[sid] = pagadaDoc; STATE.nomVista = "nomina";
     var pen = filas.filter(function(f){ return lineas[f.emp.id].despues.penSemana; }).map(function(f){ return f.emp.nombre; });
-    toast("Semana pagada ✓"+(pen.length?" · Se descontó un día de vacaciones por retardos a: "+pen.join(", "):""));
+    var aniv = filas.filter(function(f){ return lineas[f.emp.id].despues.vacAbonadas; }).map(function(f){ return f.emp.nombre+" +"+lineas[f.emp.id].despues.vacAbonadas; });
+    toast("Semana pagada ✓"+(pen.length?" · Se descontó un día de vacaciones por retardos a: "+pen.join(", "):"")+(aniv.length?" · Vacaciones por aniversario: "+aniv.join(", "):""));
     renderContent();
   });
 }
@@ -1192,7 +1226,7 @@ function nomReabrir(){
 /** Saldos de una fila: después de la semana (pagada = lo que se aplicó; si no, lo proyectado). */
 function nomSaldoFila(f, doc){
   if(doc.estado==="pagada" && f.linea.despues) return f.linea.despues;
-  return nomAplicar({ mac:f.emp.mac, vacaciones:f.emp.vacaciones, diasPenalizados:f.emp.diasPenalizados }, f.calc);
+  return nomAplicar({ mac:f.emp.mac, vacaciones:f.emp.vacaciones, diasPenalizados:f.emp.diasPenalizados, ultimoAniversario:f.emp.ultimoAniversario }, f.calc, nomCreditoVac(f.emp, doc.hasta));
 }
 function renderNomImprimible(lunes, doc, filas){
   var mes = lunes.slice(0,7), mesNom = NOM_MESES[+mes.slice(5)-1].toUpperCase(), total = 0, pagada = doc.estado==="pagada";
