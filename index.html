@@ -5355,7 +5355,10 @@ function handleTcManualSubmit(form){
 function filteredCostoRows(){
   var f = STATE.costoFilters, q = f.q.trim().toLowerCase();
   var ct = computeCostoTotal();
+  // Los archivados en Houston → Exportación y venta tampoco salen aquí (ni en totales ni en el CSV).
+  var archivados = ct.rows.filter(function(r){ return !!proyectoUsdInfo(r.key).archivado; }).length;
   var rows = ct.rows.filter(function(r){
+    if(proyectoUsdInfo(r.key).archivado) return false;
     if(f.estados.length && f.estados.indexOf(r.estado)===-1) return false;
     if(f.anio && (!r.fecha_exportacion || r.fecha_exportacion.slice(0,4)!==f.anio)) return false;
     if(f.mes && (!r.fecha_exportacion || r.fecha_exportacion.slice(5,7)!==f.mes)) return false;
@@ -5368,7 +5371,7 @@ function filteredCostoRows(){
     margen: function(a,b){ return (a.margenPct===null?1e9:a.margenPct)-(b.margenPct===null?1e9:b.margenPct); }
   };
   rows.sort(sorters[f.orden]||sorters.total);
-  return { rows:rows, prorrateo:ct.prorrateo, indirectos:ct.indirectos };
+  return { rows:rows, prorrateo:ct.prorrateo, indirectos:ct.indirectos, archivados:archivados };
 }
 function renderCostoTotalView(){
   var f = STATE.costoFilters;
@@ -5387,6 +5390,7 @@ function renderCostoTotalView(){
   if(ind.sinTc>0.004) avisos.push(fmtMoneyInt(ind.sinTc)+' MXN de indirectos no se incluyen en USD porque el proyecto se terminó antes del primer FIX cargado.');
   if(pr.sinAsignar>0) avisos.push('Hay '+fmtUsdInt(pr.sinAsignar)+' de gasto general sin asignar ('+pr.sinAsignarMeses.map(monthLabel).join(", ")+'): en esos meses no se importó ningún remolque a Houston ni se inició ningún proyecto Houston.');
   var ohHouston = Object.keys(pr.porProyecto).filter(function(k){ return k.indexOf("H:")===0; }).reduce(function(s,k){ return s+pr.porProyecto[k]; },0);
+  if(res.archivados) avisos.push(res.archivados+' proyecto'+(res.archivados>1?'s archivados no se muestran':' archivado no se muestra')+' (Houston → Exportación y venta → Ver archivados).');
   if(ohHouston>0.004) avisos.push(fmtUsdInt(ohHouston)+' de gasto general de Houston se asignó a proyectos Houston (reparaciones, mejoras, servicios…), que no aparecen en esta tabla. '+(firstAllowedNavHas("houston")?'<a href="#" data-action="goto-houston-tab" data-tab="proyectos_houston">Ver proyectos Houston →</a>':''));
 
   var body = rows.map(function(r){
