@@ -442,7 +442,7 @@ var STATE = {
   contFilters:{ q:"", proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
   inventarioArticulos:{}, inventarioAjustes:[], invTab:"existencias", invPreset:"", regInvPreset:"",
-  nominaEmpleados:{}, nominaSemanas:{}, nomTab:"semana", nomLunes:"", nomVista:"captura", nomBajas:false,
+  nominaEmpleados:{}, nominaSemanas:{}, nomProd:null, nomTab:"semana", nomLunes:"", nomVista:"captura", nomBajas:false,
   invFilters:{ q:"", estado:"", movArticulo:"", movTipo:"" },
   indFilters:{ q:"", reparto:"", origen:"", mes:"", anio:"" },
   provSearch:"",
@@ -1010,11 +1010,44 @@ function renderNominaView(){
     '<div style="margin-top:14px">'+body+'</div>';
 }
 
+/* Integrantes de Producción ligados a Nómina (equipo asignado por Producción). */
+function nomCargarProduccion(forzar){
+  if(STATE.nomProd && !forzar && (STATE.nomProd.cargando || Date.now()-STATE.nomProd.t < 60000)) return;
+  STATE.nomProd = Object.assign({}, STATE.nomProd||{}, { cargando:true, t:Date.now() });
+  fetch("/api/nomina/produccion", { credentials:"same-origin" }).then(function(r){ return r.json(); }).then(function(d){
+    var porId = {}; ((d && d.empleados)||[]).forEach(function(x){ porId[x.nominaId] = x; });
+    STATE.nomProd = { cargando:false, t:Date.now(), ok:!!(d && d.ok), error:d && d.error, porId:porId };
+  }).catch(function(e){ STATE.nomProd = { cargando:false, t:Date.now(), ok:false, error:String(e.message||e), porId:{} }; })
+    .then(function(){ if(STATE.view==="nomina" && STATE.nomTab==="empleados") renderContent(); });
+}
+function nomEquipoHTML(e){
+  if(e.area==="administracion") return '<span class="hint">Administración</span>';
+  var p = STATE.nomProd;
+  if(!p || p.cargando && !p.porId) return '<span class="hint">…</span>';
+  if(!p.ok) return '<span class="hint" title="'+esc(p.error||"")+'">Sin conexión</span>';
+  var x = (p.porId||{})[e.id];
+  if(!x) return '<span class="hint" style="color:var(--warn)">No está en Producción</span>';
+  return x.equipos && x.equipos.length ? '<strong>'+esc(x.equipos.join(", "))+'</strong>' : '<span class="hint">Sin equipo · otros proyectos</span>';
+}
+function nomSincronizar(btn){
+  if(btn) btn.disabled = true;
+  fetch("/api/nomina/produccion", { method:"POST", credentials:"same-origin" }).then(function(r){ return r.json(); }).then(function(d){
+    if(!d || !d.ok){ toast("No se pudo sincronizar con Producción"+(d && d.error ? ": "+d.error : "")+".","err"); return; }
+    var partes = [];
+    if(d.ligados && d.ligados.length) partes.push("ligados: "+d.ligados.join(", "));
+    if(d.creados && d.creados.length) partes.push("creados: "+d.creados.join(", "));
+    if(d.actualizados && d.actualizados.length) partes.push("actualizados: "+d.actualizados.join(", "));
+    toast("Producción sincronizada ✓"+(partes.length ? " · "+partes.join(" · ") : " · sin cambios"));
+  }).catch(function(){ toast("No se pudo sincronizar con Producción.","err"); })
+    .then(function(){ if(btn) btn.disabled = false; nomCargarProduccion(true); });
+}
 function renderNomEmpleados(){
   var canEdit = can("editNomina"), lista = nomEmpleados(STATE.nomBajas);
+  nomCargarProduccion(false);
   var rows = lista.map(function(e){
     return '<tr'+(e.activo?'':' style="opacity:.55"')+'><td style="white-space:nowrap">'+esc(e.id)+'</td><td><strong>'+esc(e.nombre)+'</strong>'+(e.puesto?'<div class="card-note">'+esc(e.puesto)+'</div>':'')+(e.activo?'':' <span class="badge badge-muted">Baja</span>')+'</td>'+
       '<td>'+esc(e.categoria||"—")+'</td><td>'+esc(NOM_AREAS[e.area])+'</td>'+
+      '<td>'+nomEquipoHTML(e)+'</td>'+
       '<td class="num">'+fmtMoney(e.pu)+'</td><td class="num">'+fmtMoney(e.pu*5)+'</td>'+
       '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':'7:30')+'</td>'+
       '<td class="num" style="white-space:nowrap">'+(function(){ var n = nomAntiguedad(e.ingreso, todayISO()); return n+' año'+(n===1?'':'s')+' <span class="hint">('+nomDiasLey(Math.max(1,n+1))+' d al cumplir '+(n+1)+')</span>'; })()+'</td>'+
@@ -1023,12 +1056,12 @@ function renderNomEmpleados(){
   }).join("");
   return '<div class="card">'+
     '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px">'+
-      (canEdit?'<button class="btn btn-primary" data-action="nom-new-emp">+ Nuevo empleado</button>':'')+
+      (canEdit?'<button class="btn btn-primary" data-action="nom-new-emp">+ Nuevo empleado</button> <button class="btn" data-action="nom-sync" title="Manda a Producción a todos los empleados (nombre, ID y si está activo) para asignarles equipo">Sincronizar con Producción</button>':'')+
       '<label class="hint" style="display:flex; gap:6px; align-items:center"><input type="checkbox" data-action="nom-bajas"'+(STATE.nomBajas?' checked':'')+'> Mostrar bajas</label>'+
     '</div>'+
-    '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Cat.</th><th>Área</th><th class="num">P.U. diario</th><th class="num">Semanal</th><th>Ingreso</th><th>Horario</th><th class="num" title="Años cumplidos y días de vacaciones que le tocan por año según la ley">Antigüedad</th><th class="num">Vacaciones</th><th class="num" title="Minutos de retardo acumulados (cada 480 = 1 día de vacaciones)">MAC</th><th></th></tr></thead>'+
-    '<tbody>'+(rows||'<tr><td colspan="12" class="empty">Todavía no hay empleados.</td></tr>')+'</tbody></table></div>'+
-    '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%. Vacaciones por ley: al cumplir cada aniversario se suman solas los días que le tocan (12 el primer año, 14, 16, 18, 20; luego 22 de 6 a 10 años, 24 de 11 a 15…) al pagar la semana en que cae.</p></div>';
+    '<div class="table-wrap"><table><thead><tr><th>ID</th><th>Nombre</th><th>Cat.</th><th>Área</th><th title="Equipo que le asignó Producción (Equipos → Integrantes)">Equipo (Producción)</th><th class="num">P.U. diario</th><th class="num">Semanal</th><th>Ingreso</th><th>Horario</th><th class="num" title="Años cumplidos y días de vacaciones que le tocan por año según la ley">Antigüedad</th><th class="num">Vacaciones</th><th class="num" title="Minutos de retardo acumulados (cada 480 = 1 día de vacaciones)">MAC</th><th></th></tr></thead>'+
+    '<tbody>'+(rows||'<tr><td colspan="13" class="empty">Todavía no hay empleados.</td></tr>')+'</tbody></table></div>'+
+    '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%. Al guardar un empleado (que no sea de Administración) aparece solo en Producción → Equipos → Integrantes, donde Karen le asigna equipo; sin equipo es de otros proyectos. A Producción solo va su nombre e ID, nunca el sueldo. Vacaciones por ley: al cumplir cada aniversario se suman solas los días que le tocan (12 el primer año, 14, 16, 18, 20; luego 22 de 6 a 10 años, 24 de 11 a 15…) al pagar la semana en que cae.</p></div>';
 }
 function openNomEmpModal(id){
   var e = id ? nomEmp(id) : { id:"", nombre:"", categoria:"", area:"produccion", pu:0, ingreso:todayISO(), horario:"fijo", nombreReloj:"", puesto:"", telefono:"", rfc:"", curp:"", nss:"", cuenta:"", emergencia:"", notas:"", vacaciones:0, mac:0, diasPenalizados:0, activo:true };
@@ -1088,8 +1121,13 @@ function handleNomEmpSubmit(form){
     // El saldo capturado ya incluye los aniversarios cumplidos: solo se abonan los siguientes.
     var n = nomAntiguedad(ingreso, todayISO()); data.ultimoAniversario = n ? nomAniversario(ingreso, n) : "";
   }
-  STATE.db.doc("nomina_empleados/"+id).set(data).then(function(){
-    STATE.nominaEmpleados[id] = data; toast(orig ? "Empleado actualizado ✓" : "Empleado "+id+" creado ✓"); closeModal(); renderContent();
+  STATE.db.doc("nomina_empleados/"+id).set(data).then(function(res){
+    STATE.nominaEmpleados[id] = data;
+    var pr = res && res.produccion, enProd = data.area!=="administracion" && data.activo;
+    var aviso = !pr ? "" : !pr.ok ? " · No se pudo mandar a Producción ("+(pr.error||"error")+"); usa Sincronizar con Producción." :
+      (pr.creados && pr.creados.length) ? " · Ya está en Producción para asignarle equipo." : (pr.ligados && pr.ligados.length) ? " · Ligado con su integrante de Producción." : "";
+    toast((orig ? "Empleado actualizado ✓" : "Empleado "+id+" creado ✓")+aviso, pr && !pr.ok && enProd ? "err" : undefined);
+    closeModal(); nomCargarProduccion(true); renderContent();
   }).catch(function(err){ toast(err && err.status===403 ? "No tienes permiso del módulo Nómina." : "No se pudo guardar.","err"); });
 }
 
@@ -5258,6 +5296,7 @@ document.addEventListener("click", function(e){
   else if(action==="nom-edit-emp") openNomEmpModal(el.dataset.id);
   else if(action==="nom-bajas"){ STATE.nomBajas = !!el.checked; renderContent(); }
   else if(action==="nom-reabrir") nomReabrir();
+  else if(action==="nom-sync") nomSincronizar(el);
   else if(action==="nom-pagar"){
     var nf = document.getElementById("nomSemanaForm");
     if(nf && confirm("¿Marcar pagada la "+nomSemanaLabel(nf.dataset.lunes)+"? Se aplican los retardos y vacaciones a los saldos y la semana ya no se puede editar.")) nomGuardar(nf, true);

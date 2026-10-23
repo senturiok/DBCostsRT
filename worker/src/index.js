@@ -276,6 +276,46 @@ async function buildState(env) {
   return out;
 }
 
+// Nómina → Producción: el empleado aparece como integrante para asignarle
+// equipo. Solo viaja nombre, ID y si está activo (nunca el sueldo).
+const PRODUCCION_URL = "https://produccion.serviceranchotrailers.org";
+function empleadoParaProduccion(id, e) {
+  return { nominaId: id, nombre: (e && e.nombre) || id, activo: !!e && e.activo !== false, area: (e && e.area) || "produccion" };
+}
+async function syncProduccion(env, empleados) {
+  if (!env.INTEGRACION_TOKEN || !empleados.length) return { ok: false, error: "Sin INTEGRACION_TOKEN" };
+  try {
+    const res = await fetch(`${PRODUCCION_URL}/api/integracion/empleados`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${env.INTEGRACION_TOKEN}` },
+      body: JSON.stringify({ empleados }),
+      signal: AbortSignal.timeout(20000),
+    });
+    return (await res.json().catch(() => null)) || { ok: false, error: `Producción respondió ${res.status}` };
+  } catch (e) {
+    return { ok: false, error: String((e && e.message) || e) };
+  }
+}
+/** GET: integrantes ligados con su equipo · POST: manda todos los empleados de Nómina. Requiere el módulo Nómina. */
+async function handleNominaProduccion(request, env, method) {
+  const profile = await getProfileFromRequest(request, env);
+  if (!profile) return errorResponse(401, "No autenticado.");
+  if (!hasModule(profile, "nomina")) return errorResponse(403, "No tienes permiso del módulo Nómina.");
+  if (method === "POST") {
+    const rows = await listDocs(env, "nomina_empleados");
+    return jsonResponse(await syncProduccion(env, rows.map((r) => empleadoParaProduccion(r.id, r.data))));
+  }
+  try {
+    const res = await fetch(`${PRODUCCION_URL}/api/integracion/empleados`, {
+      headers: { authorization: `Bearer ${env.INTEGRACION_TOKEN}` },
+      signal: AbortSignal.timeout(20000),
+    });
+    return jsonResponse((await res.json().catch(() => null)) || { ok: false, error: `Producción respondió ${res.status}` });
+  } catch (e) {
+    return jsonResponse({ ok: false, error: String((e && e.message) || e) });
+  }
+}
+
 async function addNomina(env, out) {
   for (const col of NOMINA_COLLECTIONS) {
     const rows = await listDocs(env, col);
@@ -601,6 +641,7 @@ async function handleCollectionWrite(request, env, collection, id, method) {
   if (method === "PUT") {
     await putDoc(env, collection, id, payload);
     await logActivity(env, profile, method, collection, id, payload);
+    if (collection === "nomina_empleados") return jsonResponse({ ok: true, produccion: await syncProduccion(env, [empleadoParaProduccion(id, payload)]) });
     return jsonResponse({ ok: true });
   }
   if (method === "PATCH") {
@@ -608,6 +649,9 @@ async function handleCollectionWrite(request, env, collection, id, method) {
     const merged = Object.assign({}, existing, payload);
     await putDoc(env, collection, id, merged);
     await logActivity(env, profile, method, collection, id, merged);
+    // Los saldos (al pagar la semana) se guardan con PATCH: no cambian nada en Producción.
+    if (collection === "nomina_empleados" && ("nombre" in payload || "activo" in payload || "area" in payload))
+      return jsonResponse({ ok: true, produccion: await syncProduccion(env, [empleadoParaProduccion(id, merged)]) });
     return jsonResponse({ ok: true });
   }
   if (method === "DELETE") {
@@ -684,6 +728,9 @@ export default {
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "me" && method === "GET") {
         const profile = await getProfileFromRequest(request, env);
         return profile ? jsonResponse({ profile }) : errorResponse(401, "Sin sesión.");
+      }
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "produccion" && (method === "GET" || method === "POST")) {
+        return handleNominaProduccion(request, env, method);
       }
       if (segments.length === 2 && segments[0] === "api" && segments[1] === "state" && method === "GET") {
         const profile = await getProfileFromRequest(request, env);
