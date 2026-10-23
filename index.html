@@ -1442,7 +1442,6 @@ function renderNomRecibos(lunes, doc, filas){
       '</tbody></table>'+
       '<div class="nom-rh" style="margin-top:12px">NOTAS GENERALES DE NOMINA</div>'+
       '<p style="margin:6px 4px">'+esc(f.linea.obs||"—")+'</p>'+
-      '<div style="margin-top:40px; display:flex; justify-content:flex-end"><div style="border-top:1px solid #000; width:260px; text-align:center; padding-top:4px; font-size:11px">Recibí de conformidad · '+esc(e.nombre)+'</div></div>'+
     '</div>';
   }).join("");
   return '<div class="card no-print" style="margin-bottom:10px; display:flex; gap:10px; align-items:center"><button class="btn" data-action="print-report">Imprimir / Guardar PDF</button><span class="hint">Un recibo por hoja, con el formato que se entrega a cada empleado.</span></div>'+
