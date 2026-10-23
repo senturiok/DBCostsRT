@@ -848,6 +848,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "invUsoForm") handleInvUsoSubmit(e.target);
   else if(formId === "nomEmpForm") handleNomEmpSubmit(e.target);
   else if(formId === "nomSemanaForm") nomGuardar(e.target, false);
+  else if(formId === "nomChecadorForm") handleNomChecadorSubmit(e.target);
   else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
@@ -915,7 +916,7 @@ function nomEmpleados(incluirBajas){
       ingreso:e.ingreso||"", horario:e.horario==="abierto" ? "abierto" : "fijo", nombreReloj:e.nombreReloj||"", puesto:e.puesto||"",
       telefono:e.telefono||"", rfc:e.rfc||"", curp:e.curp||"", nss:e.nss||"", cuenta:e.cuenta||"", emergencia:e.emergencia||"",
       notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
-      ultimoAniversario:e.ultimoAniversario||"", activo:e.activo!==false };
+      ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", activo:e.activo!==false };
   }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
@@ -927,7 +928,7 @@ function nomRetardo(entrada){
   return min > NOM_TOLERANCIA ? min : 0;
 }
 function nomLineaDefault(e){
-  var dias = {}; NOM_DIAS.forEach(function(d){ dias[d[0]] = { st:"A", e:"" }; });
+  var dias = {}; NOM_DIAS.forEach(function(d){ dias[d[0]] = { st:"A", e:"", s:"" }; });
   return { dias:dias, he:0, otros:0, deduc:0, obs:"" };
 }
 /** Cálculo de una línea de nómina (pura). emp trae pu y horario. */
@@ -1078,6 +1079,7 @@ function openNomEmpModal(id){
       inp("ingreso", reqLabel("Fecha de ingreso"), e.ingreso, ' type="date" required')+
       '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · entrada 7:30</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
       inp("nombreReloj", "Nombre en el reloj checador", e.nombreReloj, ' placeholder="Como sale en el reporte, si es distinto"')+
+      inp("idReloj", "Número en el reloj checador", e.idReloj, ' inputmode="numeric" placeholder="ID del checador (se liga solo al importar)"')+
       inp("telefono", "Teléfono", e.telefono)+
       inp("rfc", "RFC", e.rfc)+
       inp("curp", "CURP", e.curp)+
@@ -1112,7 +1114,7 @@ function handleNomEmpSubmit(form){
   var now = new Date().toISOString();
   var data = Object.assign({}, STATE.nominaEmpleados[id]||{}, {
     nombre:nombre, area:fd.get("area"), categoria:t("categoria").toUpperCase(), puesto:t("puesto"), pu:r2(pu), ingreso:ingreso,
-    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), telefono:t("telefono"),
+    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:t("telefono"),
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
     vacaciones:num("vacaciones"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")),
     activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
@@ -1160,7 +1162,8 @@ function renderNomSemana(){
     var dias = NOM_DIAS.map(function(d){
       var x = (l.dias||{})[d[0]] || { st:"A", e:"" };
       return '<td style="min-width:92px"><select name="st_'+k+'_'+d[0]+'" data-nomcalc="1" style="width:100%; padding:3px">'+NOM_ST.map(function(s){ return '<option value="'+s.k+'"'+(x.st===s.k?' selected':'')+'>'+s.c+'</option>'; }).join("")+'</select>'+
-        (e.horario==="abierto" ? '' : '<input name="e_'+k+'_'+d[0]+'" data-nomcalc="1" value="'+esc(x.e||"")+'" placeholder="07:30" inputmode="numeric" maxlength="5" style="width:100%; margin-top:3px; padding:3px; text-align:center">')+'</td>';
+        (e.horario==="abierto" ? '' : '<input name="e_'+k+'_'+d[0]+'" data-nomcalc="1" value="'+esc(x.e||"")+'" placeholder="07:30" inputmode="numeric" maxlength="5" style="width:100%; margin-top:3px; padding:3px; text-align:center" title="Entrada">'+
+          '<input type="hidden" name="s_'+k+'_'+d[0]+'" value="'+esc(x.s||"")+'">'+(x.s?'<div class="hint" style="text-align:center; font-size:10.5px" title="Salida">sale '+esc(x.s)+'</div>':''))+'</td>';
     }).join("");
     return '<tr data-nomrow="'+k+'"><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+esc(e.id)+' · '+esc(e.categoria||"—")+(e.horario==="abierto"?' · horario abierto':'')+'</div></td>'+dias+
       '<td class="num" data-out="dias"></td><td class="num" data-out="retardo"></td>'+
@@ -1172,6 +1175,8 @@ function renderNomSemana(){
       '<td><input name="obs_'+k+'" value="'+esc(l.obs||"")+'" placeholder="Observaciones" style="min-width:150px; padding:3px"></td></tr>';
   }).join("");
   return bar+'<form id="nomSemanaForm" data-lunes="'+lunes+'"><div class="card">'+
+    '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:12px"><label class="btn" style="cursor:pointer">Subir Excel del checador<input type="file" accept=".xls,.xlsx" data-nomxls="1" style="display:none"></label>'+
+      '<span class="hint">El archivo "Todos los informes" del reloj, pestaña <strong>Registro asistencia</strong>. Llena las entradas de la semana; revisa y guarda.</span></div>'+
     '<div class="table-wrap"><table style="min-width:1250px"><thead><tr><th>Empleado</th>'+NOM_DIAS.map(function(d,i){ return '<th>'+d[1]+' '+(+isoAddDays(lunes,i).slice(8))+'</th>'; }).join("")+
       '<th class="num">Días</th><th class="num" title="Minutos de retardo de la semana (desde las 7:30, si entró después de las 7:45)">Retardo</th><th title="Horas extra de la semana, se pagan al doble">H. extra</th><th class="num">P.U.</th><th>Otros ing.</th><th>Deduc.</th><th class="num">Total</th><th>Observaciones</th></tr></thead>'+
     '<tbody>'+body+'</tbody><tfoot><tr><td colspan="13">Total de la semana</td><td class="num" id="nomTotal" style="font-weight:700"></td><td></td></tr></tfoot></table></div>'+
@@ -1187,7 +1192,7 @@ function nomLeerForm(form){
     var id = tr.dataset.nomrow, dias = {};
     NOM_DIAS.forEach(function(d){
       var e = String(fd.get("e_"+id+"_"+d[0])||"").trim().replace(/^(\d)(\d{2})$/,"0$1:$2").replace(/^(\d{2})(\d{2})$/,"$1:$2").replace(/^(\d):/,"0$1:");
-      dias[d[0]] = { st:fd.get("st_"+id+"_"+d[0])||"A", e:e };
+      dias[d[0]] = { st:fd.get("st_"+id+"_"+d[0])||"A", e:e, s:String(fd.get("s_"+id+"_"+d[0])||"") };
     });
     var n = function(k){ var v = parseFloat(fd.get(k+"_"+id)); return isNaN(v)||v<0 ? 0 : v; };
     lineas[id] = { dias:dias, he:n("he"), otros:n("otros"), deduc:n("deduc"), obs:String(fd.get("obs_"+id)||"").trim() };
@@ -1296,7 +1301,7 @@ function renderNomImprimible(lunes, doc, filas){
 function renderNomRecibos(lunes, doc, filas){
   var rec = filas.map(function(f){
     var c = f.calc, e = f.emp, s = nomSaldoFila(f, doc);
-    var dias = NOM_DIAS.map(function(d){ var x = (f.linea.dias||{})[d[0]] || { st:"A" }; return '<td style="text-align:center">'+esc(nomSt(x.st).c)+(x.e?'<div class="hint">'+esc(x.e)+'</div>':'')+'</td>'; }).join("");
+    var dias = NOM_DIAS.map(function(d){ var x = (f.linea.dias||{})[d[0]] || { st:"A" }; return '<td style="text-align:center">'+esc(nomSt(x.st).c)+(x.e?'<div class="hint">'+esc(x.e)+(x.s?' – '+esc(x.s):'')+'</div>':'')+'</td>'; }).join("");
     return '<div class="card nom-recibo" style="margin-top:12px; break-inside:avoid; border:1px solid var(--line-strong)">'+
       '<div style="display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap"><div><strong>'+esc(NOM_EMPRESA)+'</strong><div class="hint">Recibo de nómina · '+esc(nomSemanaLabel(lunes))+'</div></div>'+
         '<div style="text-align:right"><strong>'+esc(e.nombre)+'</strong><div class="hint">'+esc(e.id)+' · Cat. '+esc(e.categoria||"—")+(e.puesto?' · '+esc(e.puesto):'')+'</div></div></div>'+
@@ -1328,6 +1333,145 @@ function renderNomBalance(){
   return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Empleado</th><th class="num">Minutos en '+NOM_MESES[+mes.slice(5)-1]+'</th><th class="num">MAC</th><th class="num">MR</th><th>Hacia el siguiente día</th><th class="num">Días penalizados</th><th class="num">Vacaciones</th></tr></thead>'+
     '<tbody>'+(rows||'<tr><td colspan="7" class="empty">Sin empleados.</td></tr>')+'</tbody></table></div>'+
     '<p class="hint" style="margin-top:10px">MAC = minutos de retardo acumulados; MR = los que faltan para '+NOM_BLOQUE+'. Al llegar a '+NOM_BLOQUE+' se descuenta un día de vacaciones y el contador vuelve a empezar con lo que sobra. Los saldos se actualizan al marcar cada semana como pagada; para ajustarlos a mano, edita al empleado.</p></div>';
+}
+
+/* ---- Importar el Excel del checador (pestaña "Registro asistencia") ----
+   Arriba trae "Date : dd/mm/aaaa ~ dd/mm/aaaa"; por persona, una fila con los
+   números de día, otra con "ID :" (número del reloj) y "Nombre :" y otra con
+   una celda por día con todas las checadas ("07:42\n13:00\n14:01\n18:00").
+   Entrada = primera checada antes de las 12:00; salida = la última. Los
+   viernes la nómina corta a las 2 pm y no hay salida: se toma 18:00. Cada
+   empleado se liga a su número del reloj (idReloj) la primera vez. */
+var NOM_SALIDA_VIERNES = "18:00";
+var _xlsxLib = null;
+function nomCargarXlsx(){
+  if(window.XLSX) return Promise.resolve(window.XLSX);
+  if(_xlsxLib) return _xlsxLib;
+  _xlsxLib = new Promise(function(res, rej){
+    var s = document.createElement("script"); s.src = "/vendor/xlsx-0.18.5.full.min.js";
+    s.onload = function(){ res(window.XLSX); }; s.onerror = function(){ _xlsxLib = null; rej(new Error("No se pudo cargar el lector de Excel.")); };
+    document.head.appendChild(s);
+  });
+  return _xlsxLib;
+}
+function nomFoldNombre(s){ return String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").toLowerCase().replace(/[^a-z0-9 ]+/g," ").replace(/\s+/g," ").trim(); }
+/** Lee las filas de "Registro asistencia" (pura). → { desde, hasta, personas:[{ id, nombre, dias:{ "AAAA-MM-DD":["07:42",…] } }] } */
+function nomParseChecador(rows){
+  var desde = "", hasta = "", personas = [], cols = [];
+  var aIso = function(d){ var m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(d.trim()); return m ? m[3]+"-"+m[2].padStart(2,"0")+"-"+m[1].padStart(2,"0") : ""; };
+  for(var i=0; i<rows.length; i++){
+    var r = rows[i].map(function(x){ return String(x==null?"":x).trim(); });
+    var rango = r.filter(function(x){ return /\d{1,2}\/\d{1,2}\/\d{4}\s*~\s*\d{1,2}\/\d{1,2}\/\d{4}/.test(x); })[0];
+    if(r[0].indexOf("Date")===0 && rango){ var p = rango.split("~"); desde = aIso(p[0]); hasta = aIso(p[1]); continue; }
+    if(/^\d{1,2}$/.test(r[0]) && desde){
+      // Fila de días: cada columna es una fecha del rango, en orden.
+      cols = [];
+      r.forEach(function(x, j){ if(/^\d{1,2}$/.test(x)){
+        var iso = isoAddDays(desde, j);
+        if(+iso.slice(8) !== +x){ for(var k=0; k<40; k++){ var c = isoAddDays(desde, k); if(c > hasta) break; if(+c.slice(8) === +x){ iso = c; break; } } }
+        cols[j] = iso;
+      } });
+      continue;
+    }
+    if(r[0].indexOf("ID")===0 && r.indexOf("Nombre :")>-1){
+      var nombre = r[r.indexOf("Nombre :")+2] || r[r.indexOf("Nombre :")+1] || "";
+      var sig = (rows[i+1]||[]).map(function(x){ return String(x==null?"":x); }), dias = {};
+      var esMarcas = sig.length && String(sig[0]).trim().indexOf("ID")!==0 && !/^\d{1,2}$/.test(String(sig[0]).trim());
+      if(esMarcas) cols.forEach(function(iso, j){
+        if(!iso) return;
+        var t = String(sig[j]||"").split(/\s+/).filter(function(x){ return /^\d{1,2}:\d{2}$/.test(x); }).map(function(x){ return x.padStart(5,"0"); }).sort();
+        if(t.length) dias[iso] = t;
+      });
+      personas.push({ id:String(r[2]||"").trim(), nombre:nombre.trim(), dias:dias });
+    }
+  }
+  return { desde:desde, hasta:hasta, personas:personas };
+}
+function nomChecadasSemana(p, lunes){ var n = 0; NOM_DIAS.forEach(function(d, i){ n += ((p.dias||{})[isoAddDays(lunes,i)]||[]).length; }); return n; }
+/** Persona del reloj que corresponde al empleado: su número guardado o, si no, por nombre (prefiere a quien sí checó). */
+function nomSugerirReloj(e, personas, lunes){
+  if(e.idReloj){ var fija = personas.filter(function(p){ return p.id===String(e.idReloj); })[0]; if(fija) return fija; }
+  var nombres = [nomFoldNombre(e.nombreReloj), nomFoldNombre(e.nombre)].filter(Boolean);
+  var cands = personas.map(function(p){
+    var pn = nomFoldNombre(p.nombre), pt = pn.split(" "), score = 0;
+    nombres.forEach(function(n){
+      var nt = n.split(" ");
+      if(pn===n) score = Math.max(score, 3);
+      else if(pt.every(function(t){ return nt.indexOf(t)>-1; })) score = Math.max(score, 2);
+    });
+    return { p:p, score:score, marcas:nomChecadasSemana(p, lunes) };
+  }).filter(function(c){ return c.score>0; });
+  if(!cands.length) return null;
+  cands.sort(function(a,b){ return (b.marcas>0)-(a.marcas>0) || b.score-a.score; });
+  var top = cands[0], empate = cands.filter(function(c){ return (c.marcas>0)===(top.marcas>0) && c.score===top.score; });
+  return empate.length===1 ? top.p : null;
+}
+var _nomChecador = null;
+function nomImportarXls(file){
+  var form = document.getElementById("nomSemanaForm");
+  if(!form){ toast("Abre la captura de una semana sin pagar para importar el checador.","err"); return; }
+  var lunes = form.dataset.lunes, viernes = isoAddDays(lunes, 4);
+  nomCargarXlsx().then(function(XLSX){
+    return file.arrayBuffer().then(function(buf){
+      var wb = XLSX.read(buf, { type:"array" });
+      var hoja = wb.SheetNames.filter(function(n){ return /registro/i.test(n) && /asist/i.test(n); })[0];
+      if(!hoja) throw new Error("El archivo no tiene la pestaña \"Registro asistencia\".");
+      var data = nomParseChecador(XLSX.utils.sheet_to_json(wb.Sheets[hoja], { header:1, raw:false, defval:"" }));
+      if(!data.desde || !data.personas.length) throw new Error("No encontré el rango de fechas ni las checadas en \"Registro asistencia\".");
+      if(data.hasta < lunes || data.desde > viernes) throw new Error("El archivo es del "+fmtDate(data.desde)+" al "+fmtDate(data.hasta)+"; cambia a esa semana antes de importarlo.");
+      _nomChecador = data; openNomChecadorModal(lunes);
+    });
+  }).catch(function(err){ toast(err.message || "No se pudo leer el archivo.","err"); });
+}
+function openNomChecadorModal(lunes){
+  var data = _nomChecador, form = document.getElementById("nomSemanaForm"); if(!data || !form) return;
+  var ids = Array.prototype.map.call(form.querySelectorAll("tr[data-nomrow]"), function(tr){ return tr.dataset.nomrow; });
+  var emps = ids.map(nomEmp).filter(function(e){ return e && e.horario!=="abierto"; });
+  var opts = function(sel){ return '<option value="">— No checa —</option>'+data.personas.map(function(p){ var n = nomChecadasSemana(p, lunes); return '<option value="'+esc(p.id)+'"'+(sel===p.id?' selected':'')+'>#'+esc(p.id)+' · '+esc(p.nombre)+(n?' · '+n+' checadas':' · sin checadas')+'</option>'; }).join(""); };
+  var rows = emps.map(function(e){
+    var s = nomSugerirReloj(e, data.personas, lunes);
+    return '<tr><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+esc(e.id)+(e.idReloj?' · reloj #'+esc(e.idReloj):'')+'</div></td>'+
+      '<td><select name="rel_'+esc(e.id)+'" style="min-width:230px">'+opts(s ? s.id : "")+'</select>'+(s ? '' : ' <span class="hint" style="color:var(--warn)">elige</span>')+'</td></tr>';
+  }).join("");
+  openModal('<h3>Importar checador</h3>'+
+    '<p class="hint" style="margin-top:0">Archivo del '+esc(fmtDate(data.desde))+' al '+esc(fmtDate(data.hasta))+' · se llenan las entradas del '+esc(nomSemanaLabel(lunes))+'. Revisa que cada empleado esté ligado a su número del reloj; se guarda para las siguientes semanas.</p>'+
+    '<form id="nomChecadorForm"><div class="table-wrap" style="max-height:55vh"><table style="min-width:0"><thead><tr><th>Empleado</th><th>En el checador</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
+    '<p class="hint">Día sin checadas = Falta (puedes cambiarlo antes de guardar). Si alguien no checó en toda la semana no se le cambia nada. Los viernes sin salida se toman a las '+NOM_SALIDA_VIERNES+'. Los de horario abierto no se tocan.</p>'+
+    '<div style="display:flex; gap:8px; margin-top:12px"><button class="btn btn-primary" type="submit">Llenar la semana</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div></form>');
+  var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "680px";
+}
+function handleNomChecadorSubmit(mform){
+  var data = _nomChecador, form = document.getElementById("nomSemanaForm"); if(!data || !form){ closeModal(); return; }
+  var lunes = form.dataset.lunes, fd = new FormData(mform), porId = {}, ligar = [], llenos = [], sinMarcas = [];
+  data.personas.forEach(function(p){ porId[p.id] = p; });
+  form.querySelectorAll("tr[data-nomrow]").forEach(function(tr){
+    var id = tr.dataset.nomrow, e = nomEmp(id), sel = fd.get("rel_"+id);
+    if(!e || sel===null) return;
+    if(sel && String(e.idReloj||"")!==sel) ligar.push({ id:id, idReloj:sel });
+    var p = porId[sel]; if(!p) return;
+    if(!nomChecadasSemana(p, lunes)){ sinMarcas.push(e.nombre); return; }
+    NOM_DIAS.forEach(function(d, i){
+      var iso = isoAddDays(lunes, i); if(iso < data.desde || iso > data.hasta) return;
+      var t = (p.dias||{})[iso] || [], st = form.querySelector('[name="st_'+CSS.escape(id)+'_'+d[0]+'"]'), en = form.querySelector('[name="e_'+CSS.escape(id)+'_'+d[0]+'"]'), sa = form.querySelector('[name="s_'+CSS.escape(id)+'_'+d[0]+'"]');
+      if(!st) return;
+      if(t.length){
+        var entrada = t[0] < "12:00" ? t[0] : "", salida = t.length>1 && t[t.length-1] >= "12:00" ? t[t.length-1] : "";
+        if(!salida && d[0]==="V") salida = NOM_SALIDA_VIERNES;
+        if(st.value==="F") st.value = "A";
+        if(en) en.value = entrada;
+        if(sa) sa.value = salida;
+      } else {
+        if(st.value==="A" || st.value==="AJ") st.value = "F";
+        if(en) en.value = ""; if(sa) sa.value = "";
+      }
+    });
+    llenos.push(e.nombre);
+  });
+  nomRecalc(form); closeModal();
+  // El número del reloj se guarda en el empleado para las siguientes semanas (no cambia nada en Producción).
+  ligar.reduce(function(pr, x){ return pr.then(function(){ return STATE.db.doc("nomina_empleados/"+x.id).update({ idReloj:x.idReloj }).then(function(){ if(STATE.nominaEmpleados[x.id]) STATE.nominaEmpleados[x.id].idReloj = x.idReloj; }); }); }, Promise.resolve())
+    .catch(function(){ toast("No se pudo guardar el número del reloj de algunos empleados.","err"); });
+  toast("Checador cargado: "+llenos.length+" empleados"+(sinMarcas.length?" · sin checadas en la semana (no se cambiaron): "+sinMarcas.join(", "):"")+". Revisa y guarda el borrador.");
 }
 
 /* ================= SHELL / NAV ================= */
@@ -5474,6 +5618,7 @@ document.addEventListener("input", function(e){
   if(e.target && e.target.dataset && e.target.dataset.nomcalc && e.target.form) nomRecalc(e.target.form);
 });
 document.addEventListener("change", function(e){
+  if(e.target && e.target.dataset && e.target.dataset.nomxls){ var fx = e.target.files && e.target.files[0]; if(fx) nomImportarXls(fx); e.target.value = ""; return; }
   if(e.target && e.target.dataset && e.target.dataset.nomsemana && e.target.value){ STATE.nomLunes = nomLunes(e.target.value); STATE.nomVista = "captura"; renderContent(); return; }
   if(e.target && e.target.dataset && e.target.dataset.compareidx!==undefined){
     STATE.compareProjects[parseInt(e.target.dataset.compareidx,10)] = e.target.value; renderContent();
