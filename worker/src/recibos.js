@@ -65,8 +65,8 @@ export function datosRecibo(semanaId, doc, empId, emp, semanas) {
     categoria: foto.categoria || "",
     telefono: (emp && emp.telefono) || "",
     ingreso: (emp && emp.ingreso) || "",
-    vacAsignadas: r2(s.vacaciones + usadas),
-    vacUsadas: r2(usadas),
+    vacAsignadas: s.vacAsignadas != null ? r2(s.vacAsignadas) : r2(s.vacaciones + usadas),
+    vacUsadas: s.vacAsignadas != null ? r2(s.vacAsignadas - s.vacaciones) : r2(usadas),
     vacDisponibles: r2(s.vacaciones),
     dias: c.dias, pu, sueldo: c.sueldo, he: c.he || 0, valorHora: r2((pu / NOM_HORAS_JORNADA) * 2), pagoExtra: c.pagoExtra || 0,
     otros: c.otros || 0, deduc: c.deduc || 0, total: c.total,
@@ -275,7 +275,7 @@ export async function enviarReciboPrueba(env, empId, deps) {
     const pu = Number(emp.pu) || 0, mac = Number(emp.mac) || 0, vac = Number(emp.vacaciones) || 0;
     r = {
       id: empId, nombre: emp.nombre || empId, categoria: emp.categoria || "", telefono: emp.telefono || "", ingreso: emp.ingreso || "",
-      vacAsignadas: vac, vacUsadas: 0, vacDisponibles: vac,
+      vacAsignadas: Number(emp.vacAsignadas) || 0, vacUsadas: r2((Number(emp.vacAsignadas) || 0) - vac), vacDisponibles: vac,
       dias: 5, pu, sueldo: r2(pu * 5), he: 0, valorHora: r2((pu / NOM_HORAS_JORNADA) * 2), pagoExtra: 0, otros: 0, deduc: 0, total: r2(pu * 5),
       cw: "cw" + cw, inicio: iso(lunes), termino: iso(new Date(lunes.getTime() + 4 * 864e5)),
       minMes: 0, mac, mr: NOM_BLOQUE - mac, diasPenalizados: Number(emp.diasPenalizados) || 0,
