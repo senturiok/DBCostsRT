@@ -1086,7 +1086,8 @@ function renderNomEmpleados(){
       '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':'7:30')+'</td>'+
       '<td class="num" style="white-space:nowrap">'+(function(){ var n = nomAntiguedad(e.ingreso, todayISO()); return n+' año'+(n===1?'':'s')+' <span class="hint">('+nomDiasLey(Math.max(1,n+1))+' d al cumplir '+(n+1)+')</span>'; })()+'</td>'+
       '<td class="num"'+(e.vacaciones<0?' style="color:var(--critical); font-weight:700"':'')+'>'+fmtCant(e.vacaciones)+'</td><td class="num">'+e.mac+'</td>'+
-      '<td>'+(canEdit?'<button class="btn" data-action="nom-edit-emp" data-id="'+esc(e.id)+'">Editar</button>':'')+'</td></tr>';
+      '<td style="white-space:nowrap">'+(canEdit?'<button class="btn" data-action="nom-edit-emp" data-id="'+esc(e.id)+'">Editar</button>'+
+        (e.telefono ? ' <button class="btn btn-ghost" data-action="nom-prueba" data-id="'+esc(e.id)+'" title="Manda por WhatsApp un recibo marcado PRUEBA a '+esc(e.telefono)+' (no paga nada ni mueve saldos)">📲 Prueba</button>' : ''):'')+'</td></tr>';
   }).join("");
   return '<div class="card">'+
     '<div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:14px">'+
@@ -5615,6 +5616,15 @@ document.addEventListener("click", function(e){
   else if(action==="nom-bajas"){ STATE.nomBajas = !!el.checked; renderContent(); }
   else if(action==="nom-reabrir") nomReabrir();
   else if(action==="nom-sync") nomSincronizar(el);
+  else if(action==="nom-prueba"){
+    var ep = nomEmp(el.dataset.id);
+    if(ep && confirm("¿Mandar un recibo de PRUEBA por WhatsApp a "+ep.nombre+" ("+ep.telefono+")? No paga nada ni mueve saldos.")){
+      el.disabled = true;
+      fetch("/api/nomina/recibo-prueba", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ empId:ep.id }) })
+        .then(function(r){ return r.json(); }).then(function(d){ toast(d && d.ok ? "📲 Recibo de prueba en camino a "+ep.nombre+" ("+ep.telefono+"). Llega en 1–2 minutos." : "No se pudo: "+((d && d.error)||"error"), d && d.ok ? undefined : "err"); })
+        .catch(function(){ toast("No se pudo mandar la prueba.","err"); }).then(function(){ el.disabled = false; });
+    }
+  }
   else if(action==="nom-reenviar"){ if(!el.dataset.emp && !confirm("¿Reenviar por WhatsApp los recibos de todos los empleados de esta semana?")) return; nomReenviar(el.dataset.semana, el.dataset.emp, el); }
   else if(action==="nom-pagar"){
     var nf = document.getElementById("nomSemanaForm");
