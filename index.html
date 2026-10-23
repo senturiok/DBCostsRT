@@ -1415,7 +1415,7 @@ function renderNomRecibos(lunes, doc, filas){
       '<div style="text-align:center; margin-bottom:8px"><img src="'+location.origin+'/img/aba-logo.png" alt="ABA Manufacturing LLC" style="height:62px"></div>'+
       '<div class="nom-rh">DATOS GENERALES</div>'+
       '<table class="nom-rt"><tbody>'+
-        '<tr><td>ID EMPLEADO</td><td><strong style="border:1.5px solid #000; padding:1px 4px">'+esc(e.id)+'</strong></td><td>FECHA DE INGRESO</td><td><strong>'+esc(nomFechaCorta(e.ingreso))+'</strong></td></tr>'+
+        '<tr><td>ID EMPLEADO</td><td><strong>'+esc(e.id)+'</strong></td><td>FECHA DE INGRESO</td><td><strong>'+esc(nomFechaCorta(e.ingreso))+'</strong></td></tr>'+
         '<tr><td>NOMBRE DE EMPLEADO</td><td><strong>'+esc(e.nombre)+'</strong></td><td>VACACIONES ASIGNADAS</td><td><strong>'+fmtCant(asignadas)+'</strong></td></tr>'+
         '<tr><td>CATEGORIA</td><td><strong>'+esc(e.categoria||"")+'</strong></td><td>VACACIONES UTILIZADAS</td><td><strong>'+fmtCant(utilizadas)+'</strong></td></tr>'+
         '<tr><td>TELEFONO EMPLEADO</td><td><strong>'+esc(tel)+'</strong></td><td>VACACIONES DISPONIBLES</td><td><strong>'+fmtCant(disponibles)+'</strong></td></tr>'+
