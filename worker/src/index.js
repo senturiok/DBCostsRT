@@ -20,7 +20,7 @@ import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
 import { handleMaterialL4 } from "./material-l4.js";
 import { handleReorden } from "./reorden.js";
-import { enviarReciboPrueba, enviarRecibos, handleReciboGet } from "./recibos.js";
+import { enviarRecibos, handleReciboGet } from "./recibos.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -747,18 +747,6 @@ export default {
         return handleReciboGet(env, url, segments[1], segments[2]);
       }
       // Reenviar por WhatsApp los recibos de una semana pagada (o de un empleado). Módulo Nómina.
-      // Recibo de PRUEBA a un empleado (comprueba su WhatsApp sin pagar nada). Módulo Nómina.
-      if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "recibo-prueba" && method === "POST") {
-        const profile = await getProfileFromRequest(request, env);
-        if (!profile) return errorResponse(401, "No autenticado.");
-        if (!hasModule(profile, "nomina")) return errorResponse(403, "No tienes permiso del módulo Nómina.");
-        let b;
-        try { b = await request.json(); } catch (e) { return errorResponse(400, "JSON inválido."); }
-        if (!b || typeof b.empId !== "string") return errorResponse(400, "Falta el empleado.");
-        const r = await enviarReciboPrueba(env, b.empId, { getDoc, listDocs });
-        await logActivity(env, profile, "POST", "nomina_empleados", b.empId, { reciboPrueba: r.ok ? "enviado" : r.error });
-        return jsonResponse(r);
-      }
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "recibos" && method === "POST") {
         const profile = await getProfileFromRequest(request, env);
         if (!profile) return errorResponse(401, "No autenticado.");
