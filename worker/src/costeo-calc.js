@@ -278,9 +278,13 @@ export function makeCalc(STATE) {
     return { porMes:porMes, porProyecto:porProyecto, detalle:detalle, sinAsignar:sinAsignar, sinAsignarMeses:sinAsignarMeses };
   }
 
-  var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G"];
+  // Igual que la pestaña "Indirectos (MX)" de la página (index.html, computeIndirectosMx).
+  var INDIRECTO_PROYECTO_KEYS = ["GASTO GENERAL", "CONSUMIBLES G", "GASTOS INDIRECTOS", "CONSUMIBLES"];
+  // Lo sin asignar antes de este mes se reparte una vez entre los remolques del Excel terminados.
+  var INDIRECTO_CORTE_DESDE = "2026-08";
 
   function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
+  function excelRecibeIndirectos(key){ var e = STATE.proyectoEstado[slugify(key)]; return !!(e && e.incluir_indirectos); }
 
   function computeIndirectosMx(){
     var porMes = {}, sinFecha = { n:0, mxn:0 }, directo = {}, nGastos = 0;
@@ -295,37 +299,50 @@ export function makeCalc(STATE) {
         directo[r.proyecto_key] = (directo[r.proyecto_key]||0) + v;
       }
     });
-    var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [];
+    var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelHistorico = [];
     Object.keys(proyMap).forEach(function(k){
       if(!proyMap[k].es_valido || esProyectoIndirecto(k) || estadoDeProyecto(k)!=="terminado") return;
+      if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
       var f = fechaTerminado(k);
       if(!f){ terminadosSinFecha.push(k); return; }
       (terminadosPorMes[f.slice(0,7)] = terminadosPorMes[f.slice(0,7)]||[]).push({ key:k, fecha:f });
     });
     var meses = Object.keys(porMes).concat(Object.keys(terminadosPorMes))
       .filter(function(ym,i,a){ return a.indexOf(ym)===i; }).sort();
-    var arrastre = 0, filas = [], porProyecto = {};
+    var sinAsignar = 0, filas = [], porProyecto = {};
     meses.forEach(function(ym){
-      var delMes = porMes[ym]||0, disponible = arrastre + delMes, terms = terminadosPorMes[ym]||[];
-      var fila = { ym:ym, indirecto:delMes, arrastre:arrastre, disponible:disponible, proyectos:[], asignado:0, pasa:0 };
-      if(terms.length && disponible>0){
+      var delMes = porMes[ym]||0, terms = terminadosPorMes[ym]||[];
+      var fila = { ym:ym, indirecto:delMes, proyectos:[], asignado:0, sinAsignar:0 };
+      if(terms.length && delMes>0){
         var pesoTotal = terms.reduce(function(s,t){ return s+Math.max(0, directo[t.key]||0); },0);
         terms.forEach(function(t){
           var share = pesoTotal>0 ? Math.max(0, directo[t.key]||0)/pesoTotal : 1/terms.length;
-          var monto = disponible*share;
+          var monto = delMes*share;
           fila.proyectos.push({ key:t.key, fecha:t.fecha, directo:directo[t.key]||0, share:share, monto:monto });
-          porProyecto[t.key] = { ym:ym, fecha:t.fecha, directo:directo[t.key]||0, share:share, monto:monto, indirectoMes:delMes, arrastre:arrastre };
+          porProyecto[t.key] = { ym:ym, fecha:t.fecha, directo:directo[t.key]||0, share:share, monto:monto, indirectoMes:delMes };
         });
-        fila.asignado = disponible; arrastre = 0;
+        fila.asignado = delMes;
       } else {
         terms.forEach(function(t){ fila.proyectos.push({ key:t.key, fecha:t.fecha, directo:directo[t.key]||0, share:0, monto:0 }); });
-        arrastre = disponible; fila.pasa = disponible;
+        fila.sinAsignar = delMes; sinAsignar += delMes;
       }
       filas.push(fila);
     });
+    var histFilas = filas.filter(function(f){ return f.ym<INDIRECTO_CORTE_DESDE && f.sinAsignar>0.004; });
+    var historico = histFilas.reduce(function(s,f){ return s+f.sinAsignar; },0);
+    if(historico>0.004 && excelHistorico.length){
+      var pesoHist = excelHistorico.reduce(function(s,t){ return s+Math.max(0, directo[t.key]||0); },0);
+      excelHistorico.forEach(function(t){
+        var share = pesoHist>0 ? Math.max(0, directo[t.key]||0)/pesoHist : 1/excelHistorico.length;
+        porProyecto[t.key] = { ym:"historico", historico:true, fecha:t.fecha, directo:directo[t.key]||0, share:share, monto:historico*share, indirectoMes:historico };
+      });
+      histFilas.forEach(function(f){ f.historico = true; f.asignado = f.sinAsignar; f.sinAsignar = 0; });
+      sinAsignar -= historico;
+    } else { historico = 0; }
     var total = Object.keys(porMes).reduce(function(s,k){ return s+porMes[k]; },0);
-    return { filas:filas, porProyecto:porProyecto, total:total, asignado:total-arrastre, pendiente:arrastre,
-      sinFecha:sinFecha, terminadosSinFecha:terminadosSinFecha, directo:directo, nGastos:nGastos };
+    sinAsignar = Math.max(0, sinAsignar);
+    return { filas:filas, porProyecto:porProyecto, total:total, asignado:Math.max(0, total-sinAsignar), sinAsignar:sinAsignar, pendiente:sinAsignar,
+      historico:historico, excelHistorico:excelHistorico.length, sinFecha:sinFecha, terminadosSinFecha:terminadosSinFecha, directo:directo, nGastos:nGastos };
   }
 
   function computeCostoTotal(){

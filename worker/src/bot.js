@@ -95,6 +95,11 @@ async function datos(env, deps) {
       totalUsd: r2(x.total),
       mexicoUsd: r2(x.usdMx),
       indirectoUsd: r2(x.indirectoUsd),
+      // Indirecto de México repartido a este proyecto, aparte del costo directo.
+      indirectoMxn: r2(x.indirectoMxn),
+      indirectoMes: x.indirectoInfo ? x.indirectoInfo.ym : null,
+      indirectoPct: x.indirectoInfo ? r2(x.indirectoInfo.share * 100) : null,
+      indirectoDelMesMxn: x.indirectoInfo ? r2(x.indirectoInfo.indirectoMes) : null,
       houstonUsd: r2(x.houston),
       overheadUsd: r2(x.overhead),
       tcPromedio: x.tcProm ? r2(x.tcProm) : null,

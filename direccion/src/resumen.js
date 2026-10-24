@@ -212,7 +212,7 @@ function ligarProyectos({ costeo, produccion, cotizaciones, cobranza }, crudos) 
       // Solo proyectos vivos o que siguen en producción: lo terminado hace tiempo no aporta.
       if (p.estado !== "activo" && !filas[normKey(p.nombre)] && !filas[normKey(p.key)]) continue;
       const f = filas[normKey(p.key)] || fila(p.nombre);
-      if (f) f.costeo = { mxn: p.mxn, totalUsd: p.costo ? p.costo.totalUsd : null, ventaUsd: p.costo ? p.costo.ventaUsd : null, margenPct: p.costo ? p.costo.margenPct : null, estado: p.estado, ultimoGasto: p.ultimoGasto ? p.ultimoGasto.fecha : null };
+      if (f) f.costeo = { mxn: p.mxn, totalUsd: p.costo ? p.costo.totalUsd : null, ventaUsd: p.costo ? p.costo.ventaUsd : null, margenPct: p.costo ? p.costo.margenPct : null, indirectoMxn: p.costo ? p.costo.indirectoMxn || 0 : 0, indirectoMes: p.costo ? p.costo.indirectoMes || null : null, estado: p.estado, ultimoGasto: p.ultimoGasto ? p.ultimoGasto.fecha : null };
     }
   }
   if (cotizaciones) {
@@ -292,7 +292,7 @@ export function armarResumen(crudos, hoy) {
     for (const o of r.produccion.ordenes) {
       const k = normKey(o.nombre);
       const c = porNombre[k] || porPrimera[k.split(/[\s\-]+/)[0]] || null;
-      o.costo = c ? { mxn: c.mxn, totalUsd: c.totalUsd } : null;
+      o.costo = c ? { mxn: c.mxn, indirectoMxn: c.indirectoMxn, indirectoMes: c.indirectoMes, totalUsd: c.totalUsd } : null;
     }
   }
   const out = { hoy, ...r, proyectos, alertas: alertas(r, proyectos) };
