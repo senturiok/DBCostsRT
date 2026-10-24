@@ -238,10 +238,16 @@ function propuestasViernes(list) {
     '</tbody></table></div><p class="muted">Facturas a crédito ya verificadas, en el viernes en que se pagan según los días de crédito del proveedor; el primer viernes incluye lo vencido. Total 4 viernes: ' + mxn(total) + " MXN.</p>";
 }
 
+// Indirecto MX repartido al proyecto (aparte del costo directo; el total USD ya lo incluye).
+function indirectoTxt(c) {
+  if (!c || !c.indirectoMxn) return "";
+  const mes = c.indirectoMes === "historico" ? "histórico" : c.indirectoMes ? mesCorto(c.indirectoMes) : "";
+  return " + indirecto " + mxn(c.indirectoMxn) + (mes ? " (" + mes + ")" : "");
+}
 // Costo registrado en el Portal de Compras (gastos en MXN; total en USD con indirectos y Houston si ya lo hay).
 function costoOrden(o) {
   if (!o.costo) return '<span class="sub">Costo: sin gastos ligados en Compras</span>';
-  return '<span class="sub">Costo: <b>' + mxn(o.costo.mxn) + " MXN</b>" + (o.costo.totalUsd ? " · total " + usd(o.costo.totalUsd) + " USD" : "") + "</span>";
+  return '<span class="sub">Costo: <b>' + mxn(o.costo.mxn) + " MXN</b>" + indirectoTxt(o.costo) + (o.costo.totalUsd ? " · total " + usd(o.costo.totalUsd) + " USD" : "") + "</span>";
 }
 
 function renderHoy() {
@@ -302,14 +308,14 @@ function renderProy() {
   const rows = DATA.proyectos.filter((p) => filtro === "all" || (filtro === "risk" && conAlerta(p)) || (filtro === "prod" && p.produccion && p.produccion.estado !== "terminada"));
   let h = '<div class="panel"><div class="panel-h"><h3>Cada remolque en todos los portales</h3><span>' + rows.length + " proyectos</span></div>";
   h += '<div class="filters" role="group"><button class="btn" type="button" data-f="all" aria-pressed="' + (filtro === "all") + '">Todos</button><button class="btn" type="button" data-f="risk" aria-pressed="' + (filtro === "risk") + '">Con alerta</button><button class="btn" type="button" data-f="prod" aria-pressed="' + (filtro === "prod") + '">En producción</button></div>';
-  h += '<div class="tbl wide"><table><thead><tr><th>Proyecto</th><th>Nivel</th><th>Entrega</th><th class="r">Costo MXN</th><th class="r">Costo total USD</th><th class="r">Venta USD</th><th class="r">Margen</th><th>Cobranza</th></tr></thead><tbody>';
+  h += '<div class="tbl wide"><table><thead><tr><th>Proyecto</th><th>Nivel</th><th>Entrega</th><th class="r">Costo directo MXN</th><th class="r">Costo total USD</th><th class="r">Venta USD</th><th class="r">Margen</th><th>Cobranza</th></tr></thead><tbody>';
   h += rows.map((p) => {
     const c = p.costeo, o = p.produccion, cb = p.cobranza;
     const venta = (c && c.ventaUsd) || (p.venta && p.venta.total) || null;
     const m = margenDe(p);
     const e = o ? ESTADO_PROD[o.estado] || ["", o.estado] : null;
     const ce = cb ? ESTADO_COB[cb.estado] || ["", cb.estado] : null;
-    return "<tr><td><b>" + esc(p.nombre) + '</b><span class="sub">' + esc([c ? c.estado : "", p.venta ? p.venta.vendedor : ""].filter(Boolean).join(" · ")) + "</span></td><td>" + steps(o) + "</td><td>" + (o ? (o.estado === "terminada" ? "Terminada " + fecha(o.terminada) : fecha(o.entrega)) + (e && o.estado !== "terminada" ? " " + pill(e[0], e[1]) : "") : "—") + '</td><td class="r">' + (c ? mxn(c.mxn) : "—") + '</td><td class="r">' + (c && c.totalUsd != null ? usd(c.totalUsd) : "—") + '</td><td class="r">' + (venta ? usd(venta) : "—") + '</td><td class="r">' + (m == null ? "—" : pill(m < 5 ? "bad" : m < 15 ? "warn" : "good", Math.round(m) + "%")) + "</td><td>" + (ce ? pill(ce[0], ce[1] + (cb.diasAtraso ? " · " + cb.diasAtraso + " d" : "")) : '<span class="muted">—</span>') + "</td></tr>";
+    return "<tr><td><b>" + esc(p.nombre) + '</b><span class="sub">' + esc([c ? c.estado : "", p.venta ? p.venta.vendedor : ""].filter(Boolean).join(" · ")) + "</span></td><td>" + steps(o) + "</td><td>" + (o ? (o.estado === "terminada" ? "Terminada " + fecha(o.terminada) : fecha(o.entrega)) + (e && o.estado !== "terminada" ? " " + pill(e[0], e[1]) : "") : "—") + '</td><td class="r">' + (c ? mxn(c.mxn) + (c.indirectoMxn ? '<span class="sub">' + esc(indirectoTxt(c).slice(3)) + "</span>" : "") : "—") + '</td><td class="r">' + (c && c.totalUsd != null ? usd(c.totalUsd) : "—") + '</td><td class="r">' + (venta ? usd(venta) : "—") + '</td><td class="r">' + (m == null ? "—" : pill(m < 5 ? "bad" : m < 15 ? "warn" : "good", Math.round(m) + "%")) + "</td><td>" + (ce ? pill(ce[0], ce[1] + (cb.diasAtraso ? " · " + cb.diasAtraso + " d" : "")) : '<span class="muted">—</span>') + "</td></tr>";
   }).join("");
   h += '</tbody></table></div><p class="muted">Los portales se ligan por nombre del proyecto. Si un remolque se llama distinto en un portal, sus datos de ese portal salen con guion.</p></div>';
   $("proy").innerHTML = h;
