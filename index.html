@@ -925,8 +925,8 @@ function nomIdSugerido(nombre, ingreso, propio){
   while(STATE.nominaEmpleados[id] && id!==propio) id = base+"-"+(n++);
   return id;
 }
-/* Lo que no es carga fija, en Carga a proyectos: por horas de su equipo, igual entre las trailas de la semana o no se carga. */
-var NOM_RESTO = { horas:"Por las horas de su equipo", igual:"Igual entre las trailas en producción de la semana", no:"No se carga a proyectos" };
+/* Lo que no es carga fija, en Carga a proyectos: por horas de su equipo, proporcional o igual entre las trailas de la semana, o no se carga. */
+var NOM_RESTO = { horas:"Por las horas de su equipo", planta:"Proporcional a las horas de las trailas de la semana", igual:"Igual entre las trailas en producción de la semana", no:"No se carga a proyectos" };
 function nomEmpleados(incluirBajas){
   return Object.keys(STATE.nominaEmpleados).map(function(id){
     var e = STATE.nominaEmpleados[id] || {};
@@ -1589,7 +1589,7 @@ function nomCargaBase(sid){
     return { id:id, nombre:f.nombre||e.nombre||id, area:f.area||e.area||"produccion", total:r2((l.calc||{}).total), cf:e.cargaFija||null, resto:e.cargaResto||((f.area||e.area)==="administracion"?"no":"horas") };
   }).filter(function(e){ return e.total>0; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
   // Carga fija (en el empleado): ese % va siempre a su proyecto. El resto: por horas de su equipo,
-  // igual entre las trailas que se trabajaron esa semana, o no se carga.
+  // proporcional a las horas o igual entre las trailas que se trabajaron esa semana, o no se carga.
   var prod = emps.filter(function(e){ return e.cf || e.resto!=="no"; }), admin = emps.filter(function(e){ return !e.cf && e.resto==="no"; });
   var iguales = {}; Object.keys(planta).forEach(function(k){ iguales[k] = 1; });
   var propuesta = {};
@@ -1597,8 +1597,8 @@ function nomCargaBase(sid){
     var fijo = e.cf ? r2(e.total*e.cf.pct/100) : 0;
     e.cargar = e.resto==="no" ? fijo : e.total;
     var resto = r2(e.cargar - fijo), propias = horasEmp[e.id] || {}, conHoras = Object.keys(propias).some(function(k){ return propias[k]>0; });
-    e.fuente = !resto ? "fijo" : !Object.keys(planta).length ? "sin" : e.resto==="igual" ? "igual" : conHoras ? "equipo" : "planta";
-    var m = resto>0 ? nomCargaReparte(resto, e.resto==="igual" ? iguales : conHoras ? propias : planta) : {};
+    e.fuente = !resto ? "fijo" : !Object.keys(planta).length ? "sin" : e.resto==="igual" ? "igual" : e.resto==="planta" ? "proporcional" : conHoras ? "equipo" : "planta";
+    var m = resto>0 ? nomCargaReparte(resto, e.resto==="igual" ? iguales : (e.resto==="horas" && conHoras) ? propias : planta) : {};
     if(fijo) m[e.cf.proyecto] = r2((m[e.cf.proyecto]||0) + fijo);
     propuesta[e.id] = m;
   });
@@ -1647,7 +1647,7 @@ function renderNomCarga(){
       '<td><select data-nomliga="'+esc(o.id)+'" style="width:auto; min-width:220px">'+opcionesProy(o.proyecto, "— No cargar —")+'</select>'+(o.proyecto ? '' : ' <span class="hint" style="color:var(--warn)">elige</span>')+'</td></tr>'; }).join("")+
     '</tbody></table></div><p class="hint">Las horas de las órdenes sin proyecto no se usan para repartir. La liga se guarda para las siguientes semanas.</p></div>' : '';
 
-  var FUENTE = { equipo:"por horas de su equipo", planta:"sin horas: como toda la planta", igual:"igual entre las trailas de la semana", sin:"sin horas: captúralo", fijo:"" };
+  var FUENTE = { equipo:"por horas de su equipo", planta:"sin horas: como toda la planta", igual:"igual entre las trailas de la semana", proporcional:"proporcional a las horas de las trailas de la semana", sin:"sin horas: captúralo", fijo:"" };
   var fuenteTxt = function(e){
     if(!e.cf) return FUENTE[e.fuente];
     var fijo = e.cf.pct+"% fijo a "+proyectoNombre(e.cf.proyecto);
