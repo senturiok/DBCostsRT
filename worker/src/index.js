@@ -21,6 +21,7 @@ import { handleAcciones } from "./acciones.js";
 import { handleMaterialL4 } from "./material-l4.js";
 import { handleReorden } from "./reorden.js";
 import { enviarRecibos, handleReciboGet } from "./recibos.js";
+import { cargarNomina, horasProduccion } from "./nomina-carga.js";
 // Datos base que vinieron de Excel. Ya no se sirven como archivos públicos
 // (ver .assetsignore): solo con sesión iniciada (serveBaseFile) y al bot.
 import GASTOS_BASE from "../../gastos.json";
@@ -56,7 +57,8 @@ const MAP_COLLECTIONS = [
 // Nómina (sueldos): colecciones privadas. No van en buildState() (que también
 // leen el bot y las integraciones); /api/state las agrega solo a quien tiene
 // el módulo "nomina". Empleados (id = ID de empleado) y semanas (id = AAAA-Www).
-const NOMINA_COLLECTIONS = ["nomina_empleados", "nomina_semanas"];
+// nomina_cargas (id = AAAA-Www): reparto de la semana a proyectos (borrador y carga).
+const NOMINA_COLLECTIONS = ["nomina_empleados", "nomina_semanas", "nomina_cargas"];
 const ALL_COLLECTIONS = new Set([...LIST_COLLECTIONS, ...MAP_COLLECTIONS, ...NOMINA_COLLECTIONS]);
 
 const ACCEPTED_FILE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp", "application/pdf"]);
@@ -169,6 +171,7 @@ const COLLECTION_LABELS = {
   proyectos_houston: "Proyecto Houston",
   inventario_articulos: "Artículo de inventario",
   inventario_ajustes: "Ajuste de inventario",
+  nomina_cargas: "Carga de nómina a proyectos",
 };
 
 function summarizeForLog(collection, data) {
@@ -383,6 +386,7 @@ const COLLECTION_MODULE = {
   tipos_cambio: ["houston", "contabilidad"],
   nomina_empleados: "nomina",
   nomina_semanas: "nomina",
+  nomina_cargas: "nomina",
 };
 
 function authorizeWrite(profile, collection, method, payload) {
@@ -755,6 +759,19 @@ export default {
         try { b = await request.json(); } catch (e) { return errorResponse(400, "JSON inválido."); }
         if (!b || typeof b.semana !== "string") return errorResponse(400, "Falta la semana.");
         return jsonResponse(await enviarRecibos(env, b.semana, typeof b.empId === "string" ? b.empId : null, { getDoc, putDoc, listDocs }));
+      }
+      // Carga a proyectos: horas de Producción de la semana y alta de los gastos de nómina. Módulo Nómina.
+      if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && (segments[2] === "horas" || segments[2] === "cargar")) {
+        const profile = await getProfileFromRequest(request, env);
+        if (!profile) return errorResponse(401, "No autenticado.");
+        if (!hasModule(profile, "nomina")) return errorResponse(403, "No tienes permiso del módulo Nómina.");
+        if (segments[2] === "horas" && method === "GET") return jsonResponse(await horasProduccion(env, url));
+        if (segments[2] === "cargar" && method === "POST") {
+          let b;
+          try { b = await request.json(); } catch (e) { return errorResponse(400, "JSON inválido."); }
+          return jsonResponse(await cargarNomina(env, profile, b, { getDoc, putDoc, deleteDoc, listDocs, randomHex, logActivity }));
+        }
+        return errorResponse(405, "Método no soportado.");
       }
       if (segments.length === 3 && segments[0] === "api" && segments[1] === "nomina" && segments[2] === "produccion" && (method === "GET" || method === "POST")) {
         return handleNominaProduccion(request, env, method);
