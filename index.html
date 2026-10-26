@@ -456,7 +456,7 @@ var STATE = {
   contFilters:{ q:"", proveedor:"", proyecto:"", estados:[], desde:"", hasta:"", mes:"", anio:"" },
   propViernes:"",
   inventarioArticulos:{}, inventarioAjustes:[], invTab:"existencias", invPreset:"", regInvPreset:"",
-  nominaEmpleados:{}, nominaSemanas:{}, nomProd:null, nomTab:"semana", nomLunes:"", nomVista:"captura", nomBajas:false,
+  nominaEmpleados:{}, nominaSemanas:{}, nominaCargas:{}, nomHoras:{}, nomCargaEdit:{}, nomCargaSem:"", nomProd:null, nomTab:"semana", nomLunes:"", nomVista:"captura", nomBajas:false,
   invFilters:{ q:"", estado:"", movArticulo:"", movTipo:"" },
   indFilters:{ q:"", reparto:"", origen:"", mes:"", anio:"" },
   provSearch:"",
@@ -733,12 +733,13 @@ function applyStateSnapshot(state){
   // Solo llegan a quien tiene el módulo Nómina (el servidor no las manda a los demás).
   STATE.nominaEmpleados = state.nomina_empleados || {};
   STATE.nominaSemanas = state.nomina_semanas || {};
+  STATE.nominaCargas = state.nomina_cargas || {};
   _tcCache = null;
   renderGateUserOptions();
   if(STATE.loaded) rerenderView();
 }
 function pollState(){
-  fetch("/api/state", {credentials:"same-origin"}).then(function(r){
+  return fetch("/api/state", {credentials:"same-origin"}).then(function(r){
     if(r.status===401) return null; // sesión cerrada en otra pestaña, etc.
     if(!r.ok) throw new Error("state "+r.status);
     return r.json();
@@ -863,6 +864,7 @@ document.addEventListener("submit", function(e){
   else if(formId === "nomEmpForm") handleNomEmpSubmit(e.target);
   else if(formId === "nomSemanaForm") nomGuardar(e.target, false);
   else if(formId === "nomChecadorForm") handleNomChecadorSubmit(e.target);
+  else if(formId === "nomCargaForm") handleNomCargaSubmit(e.target);
   else if(formId === "fechaTerminadoForm") handleFechaTerminadoSubmit(e.target);
   else if(formId === "tcManualForm") handleTcManualSubmit(e.target);
 });
@@ -1039,10 +1041,10 @@ function nomMinutosMes(empId, mes){
 }
 
 /* ---- vista ---- */
-var NOM_TABS = [["semana","Nómina semanal"],["empleados","Empleados"],["balance","Retardos y vacaciones"]];
+var NOM_TABS = [["semana","Nómina semanal"],["empleados","Empleados"],["balance","Retardos y vacaciones"],["carga","Carga a proyectos"]];
 function renderNominaView(){
   var t = STATE.nomTab||"semana";
-  var body = t==="empleados" ? renderNomEmpleados() : t==="balance" ? renderNomBalance() : renderNomSemana();
+  var body = t==="empleados" ? renderNomEmpleados() : t==="balance" ? renderNomBalance() : t==="carga" ? renderNomCarga() : renderNomSemana();
   return '<div class="tabs no-print">'+NOM_TABS.map(function(x){ return '<button class="tab" data-action="nom-tab" data-tab="'+x[0]+'" aria-selected="'+(t===x[0])+'">'+x[1]+'</button>'; }).join("")+'</div>'+
     '<div style="margin-top:14px">'+body+'</div>';
 }
@@ -1503,6 +1505,197 @@ function renderNomBalance(){
   return '<div class="card"><div class="table-wrap"><table><thead><tr><th>Empleado</th><th class="num">Minutos en '+NOM_MESES[+mes.slice(5)-1]+'</th><th class="num">MAC</th><th class="num">MR</th><th>Hacia el siguiente día</th><th class="num">Días penalizados</th><th class="num">Vacaciones</th></tr></thead>'+
     '<tbody>'+(rows||'<tr><td colspan="7" class="empty">Sin empleados.</td></tr>')+'</tbody></table></div>'+
     '<p class="hint" style="margin-top:10px">MAC = minutos de retardo acumulados; MR = los que faltan para '+NOM_BLOQUE+'. Al llegar a '+NOM_BLOQUE+' se descuenta un día de vacaciones y el contador vuelve a empezar con lo que sobra. Los saldos se actualizan al marcar cada semana como pagada; para ajustarlos a mano, edita al empleado.</p></div>';
+}
+
+/* ---- Carga a proyectos ----
+   La nómina pagada de la semana se reparte entre los proyectos con las horas
+   que capturó Producción: cada empleado de producción va a las órdenes en que
+   trabajó su equipo, en proporción a las horas; quien no tiene horas se
+   reparte como toda la planta. Karen ajusta los importes y al cargar se crea
+   un gasto SGA-Payroll por proyecto (proveedor NOMINA). Administración no se
+   carga. El borrador y la carga se guardan en nomina_cargas/<AAAA-Www>; la
+   liga orden de Producción → proyecto, en nomina_cargas/ligas. */
+function nomSemanasPagadas(){
+  return Object.keys(STATE.nominaSemanas).filter(function(k){ var s = STATE.nominaSemanas[k]; return /^\d{4}-W\d{2}$/.test(k) && s && s.estado==="pagada"; }).sort().reverse();
+}
+function nomHorasCargar(sid, forzar){
+  var sem = STATE.nominaSemanas[sid]; if(!sem || !sem.desde) return;
+  var h = STATE.nomHoras[sid];
+  if(h && !forzar && (h.cargando || h.ok)) return;
+  STATE.nomHoras[sid] = { cargando:true };
+  fetch("/api/nomina/horas?desde="+sem.desde+"&hasta="+(sem.hasta||isoAddDays(sem.desde,4)), { credentials:"same-origin" })
+    .then(function(r){ return r.json(); })
+    .then(function(d){ STATE.nomHoras[sid] = { ok:!!(d && d.ok), error:d && d.error, data:d }; })
+    .catch(function(e){ STATE.nomHoras[sid] = { ok:false, error:String(e.message||e) }; })
+    .then(function(){ if(STATE.view==="nomina" && STATE.nomTab==="carga") renderContent(); });
+}
+function nomCargaLigas(){ return ((STATE.nominaCargas||{}).ligas||{}).ordenes || {}; }
+/** Proyecto de Compras que corresponde a una orden de Producción: Sales Order, nombre o primera palabra. */
+function nomCargaLigaAuto(o){
+  var proys = allProyectos();
+  if(o.salesFolio){ var pf = STATE.proyectosNuevos.filter(function(p){ return p.salesFolio===o.salesFolio && proys[p.key]; })[0]; if(pf) return pf.key; }
+  var porNombre = {}; Object.keys(proys).forEach(function(k){ porNombre[normKey(proys[k].nombre)] = k; });
+  var cands = [o.nombre, o.cliente].map(normKey).filter(Boolean);
+  for(var i=0; i<cands.length; i++){
+    var c = cands[i], w = c.split(/[\s\-–,\/]+/)[0];
+    if(proys[c]) return c; if(porNombre[c]) return porNombre[c];
+    if(w && proys[w]) return w; if(w && porNombre[w]) return porNombre[w];
+  }
+  return "";
+}
+function nomCargaReparte(total, pesos){
+  var keys = Object.keys(pesos).filter(function(k){ return pesos[k]>0; }).sort(function(a,b){ return pesos[b]-pesos[a]; });
+  var suma = keys.reduce(function(s,k){ return s+pesos[k]; },0), out = {}, asignado = 0;
+  if(!suma) return out;
+  keys.forEach(function(k){ out[k] = r2(total*pesos[k]/suma); asignado += out[k]; });
+  out[keys[0]] = r2(out[keys[0]] + total - asignado);
+  return out;
+}
+/** Empleados de la semana, horas por proyecto y el reparto propuesto. */
+function nomCargaBase(sid){
+  var sem = STATE.nominaSemanas[sid] || {}, h = STATE.nomHoras[sid], d = h && h.ok ? h.data : null;
+  var ligasG = nomCargaLigas(), equipos = {}, ligas = {}, ordenes = [];
+  if(d){
+    (d.equipos||[]).forEach(function(t){ equipos[t.id] = t; });
+    var horasOrden = {};
+    (d.horas||[]).forEach(function(x){ horasOrden[x.ordenId] = (horasOrden[x.ordenId]||0) + x.horas; });
+    ordenes = (d.ordenes||[]).map(function(o){
+      var pk = Object.prototype.hasOwnProperty.call(ligasG, o.id) ? ligasG[o.id] : nomCargaLigaAuto(o);
+      ligas[o.id] = pk;
+      return Object.assign({}, o, { proyecto:pk, horas:r2(horasOrden[o.id]||0), guardada:Object.prototype.hasOwnProperty.call(ligasG, o.id) });
+    }).sort(function(a,b){ return b.horas-a.horas; });
+  }
+  var horasEmp = {}, planta = {};
+  if(d) (d.horas||[]).forEach(function(x){
+    var pk = ligas[x.ordenId]; if(!pk) return;
+    planta[pk] = (planta[pk]||0) + x.horas;
+    ((equipos[x.equipoId]||{}).integrantes||[]).forEach(function(n){ var m = horasEmp[n] = horasEmp[n]||{}; m[pk] = (m[pk]||0) + x.horas; });
+  });
+  var emps = Object.keys(sem.lineas||{}).map(function(id){
+    var l = sem.lineas[id] || {}, f = l.foto || {}, e = nomEmp(id) || {};
+    return { id:id, nombre:f.nombre||e.nombre||id, area:f.area||e.area||"produccion", total:r2((l.calc||{}).total) };
+  }).filter(function(e){ return e.total>0; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
+  var prod = emps.filter(function(e){ return e.area!=="administracion"; }), admin = emps.filter(function(e){ return e.area==="administracion"; });
+  var propuesta = {};
+  prod.forEach(function(e){
+    var propias = horasEmp[e.id] || {}, conHoras = Object.keys(propias).some(function(k){ return propias[k]>0; });
+    e.fuente = conHoras ? "equipo" : Object.keys(planta).length ? "planta" : "sin";
+    propuesta[e.id] = nomCargaReparte(e.total, conHoras ? propias : planta);
+  });
+  return { sem:sem, horas:h, ordenes:ordenes, prod:prod, admin:admin, propuesta:propuesta };
+}
+/** Lo que se está editando: borrador guardado o la propuesta. */
+function nomCargaEdit(sid, base){
+  if(!STATE.nomCargaEdit[sid]){
+    var c = STATE.nominaCargas[sid] || {};
+    var celdas = c.celdas ? JSON.parse(JSON.stringify(c.celdas)) : JSON.parse(JSON.stringify(base.propuesta));
+    STATE.nomCargaEdit[sid] = { celdas:celdas, extra:[], fecha:c.fecha || (base.sem.hasta||"") };
+  }
+  return STATE.nomCargaEdit[sid];
+}
+function nomCargaColumnas(ed){
+  var tot = {};
+  Object.keys(ed.celdas).forEach(function(emp){ var m = ed.celdas[emp]||{}; Object.keys(m).forEach(function(k){ tot[k] = (tot[k]||0) + (Number(m[k])||0); }); });
+  ed.extra.forEach(function(k){ if(!(k in tot)) tot[k] = 0; });
+  return Object.keys(tot).sort(function(a,b){ return tot[b]-tot[a] || proyectoNombre(a).localeCompare(proyectoNombre(b)); });
+}
+function renderNomCarga(){
+  var semanas = nomSemanasPagadas();
+  if(!semanas.length) return '<div class="card"><div class="empty">Todavía no hay semanas pagadas. Al marcar una semana como pagada aparece aquí su reparto a proyectos.</div></div>';
+  var sid = semanas.indexOf(STATE.nomCargaSem)>-1 ? STATE.nomCargaSem : semanas[0]; STATE.nomCargaSem = sid;
+  nomHorasCargar(sid, false);
+  var base = nomCargaBase(sid), sem = base.sem, carga = STATE.nominaCargas[sid] || {}, h = base.horas || {};
+  var sel = '<select data-nomcargasem style="width:auto; min-width:300px">'+semanas.map(function(k){ var c = STATE.nominaCargas[k]||{}; return '<option value="'+k+'"'+(k===sid?' selected':'')+'>'+esc(nomSemanaLabel(STATE.nominaSemanas[k].desde))+(c.estado==="cargada"?' · cargada':' · pendiente')+'</option>'; }).join("")+'</select>';
+  var bar = '<div class="card no-print" style="display:flex; gap:10px; align-items:center; flex-wrap:wrap">'+sel+
+    '<span class="hint">Nómina pagada: <strong>'+fmtMoney(sem.total)+'</strong></span></div>';
+  if(h.cargando || !STATE.nomHoras[sid]) return bar+'<div class="card"><div class="empty">Cargando las horas de Producción…</div></div>';
+  var ed = nomCargaEdit(sid, base), cols = nomCargaColumnas(ed), proys = allProyectos();
+  var estado = carga.estado==="cargada"
+    ? '<div class="card" style="border-left:4px solid var(--good)"><strong>✓ Cargada a proyectos</strong> el '+esc(fmtDateTime(carga.cargadaEn))+' por '+esc(carga.cargadaPor||"—")+': '+((carga.gastoIds||[]).length)+' gastos por '+fmtMoney(carga.total)+' con fecha '+esc(fmtDate(carga.fecha))+'.'+
+      (Math.abs((carga.totalSemana||0)-(Number(sem.total)||0))>0.5 ? '<div style="color:var(--warn); margin-top:6px">⚠️ La nómina de la semana cambió después de cargarla ('+fmtMoney(carga.totalSemana)+' → '+fmtMoney(sem.total)+'). Revisa y vuelve a cargar.</div>' : '')+
+      '<div class="hint" style="margin-top:6px">Si cambias algo, "Volver a cargar" reemplaza los gastos de esta semana.</div></div>'
+    : '<div class="card" style="border-left:4px solid var(--warn)"><strong>Pendiente de cargar.</strong> Revisa el reparto, ajusta lo que haga falta y da clic en "Cargar a proyectos". Se crea un gasto de Nómina (SGA-Payroll) por proyecto.</div>';
+  var avisoHoras = h.ok ? '' : '<div class="card" style="color:var(--warn)">⚠️ No se pudieron traer las horas de Producción ('+esc(h.error||"error")+'). Puedes capturar el reparto a mano. <button class="btn btn-ghost" type="button" data-action="nom-carga-horas">Reintentar</button></div>';
+
+  var opcionesProy = function(selKey, vacio){
+    var keys = Object.keys(proys).filter(function(k){ return proys[k].es_valido!==false && (estadoDeProyecto(k)!=="terminado" || k===selKey); })
+      .sort(function(a,b){ return proys[a].nombre.localeCompare(proys[b].nombre); });
+    return '<option value="">'+esc(vacio)+'</option>'+keys.map(function(k){ return '<option value="'+esc(k)+'"'+(k===selKey?' selected':'')+'>'+esc(proys[k].nombre)+'</option>'; }).join("");
+  };
+  var ordenesHTML = base.ordenes.length ? '<div class="card"><h3 style="margin-top:0">Órdenes que trabajó Producción</h3><div class="table-wrap"><table style="min-width:0"><thead><tr><th>Orden</th><th class="num">Horas</th><th>Proyecto en Compras</th></tr></thead><tbody>'+
+    base.ordenes.map(function(o){ return '<tr><td><strong>'+esc(o.nombre)+'</strong><div class="card-note">'+esc([o.cliente!==o.nombre?o.cliente:"", o.salesFolio?"SO "+o.salesFolio:""].filter(Boolean).join(" · "))+'</div></td><td class="num">'+o.horas.toFixed(1)+'</td>'+
+      '<td><select data-nomliga="'+esc(o.id)+'" style="width:auto; min-width:220px">'+opcionesProy(o.proyecto, "— No cargar —")+'</select>'+(o.proyecto ? '' : ' <span class="hint" style="color:var(--warn)">elige</span>')+'</td></tr>'; }).join("")+
+    '</tbody></table></div><p class="hint">Las horas de las órdenes sin proyecto no se usan para repartir. La liga se guarda para las siguientes semanas.</p></div>' : '';
+
+  var FUENTE = { equipo:"por horas de su equipo", planta:"sin horas: como toda la planta", sin:"sin horas: captúralo" };
+  var colTot = {};
+  var filas = base.prod.map(function(e){
+    var m = ed.celdas[e.id] || {}, suma = 0;
+    var celdas = cols.map(function(k){ var v = Number(m[k])||0; suma += v; colTot[k] = (colTot[k]||0)+v;
+      return '<td class="num"><input type="number" step="0.01" min="0" data-nomcarga="'+esc(e.id)+'" data-pk="'+esc(k)+'" value="'+(v ? r2(v) : "")+'" style="width:96px; text-align:right"></td>'; }).join("");
+    var dif = r2(e.total - suma);
+    return '<tr><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+FUENTE[e.fuente]+'</div></td><td class="num">'+fmtMoney(e.total)+'</td>'+celdas+
+      '<td class="num" data-nomdif="'+esc(e.id)+'" style="'+(Math.abs(dif)>0.5?'color:var(--critical); font-weight:700':'color:var(--good)')+'">'+(Math.abs(dif)>0.5?fmtMoney(dif):'✓')+'</td></tr>';
+  }).join("");
+  var totalProd = r2(base.prod.reduce(function(s,e){ return s+e.total; },0));
+  var cabeza = '<tr><th>Empleado</th><th class="num">Nómina</th>'+cols.map(function(k){ var ok = !!proys[k]; return '<th class="num" style="white-space:nowrap'+(ok?'':'; color:var(--critical)')+'">'+esc(proyectoNombre(k))+(ok?'':' ⚠️')+'</th>'; }).join("")+'<th class="num">Diferencia</th></tr>';
+  var pie = '<tr><th>Total por proyecto</th><th class="num">'+fmtMoney(totalProd)+'</th>'+cols.map(function(k){ return '<th class="num" data-nomcol="'+esc(k)+'">'+fmtMoney(colTot[k]||0)+'</th>'; }).join("")+'<th></th></tr>';
+  var agregar = '<select data-nomcargacol style="width:auto; min-width:220px">'+opcionesProy("", "+ Agregar proyecto…")+'</select>';
+  var adminHTML = base.admin.length ? '<p class="hint">No se cargan a proyectos (Administración): '+base.admin.map(function(e){ return esc(e.nombre); }).join(", ")+' · '+fmtMoney(base.admin.reduce(function(s,e){ return s+e.total; },0))+'.</p>' : '';
+  return bar+estado+avisoHoras+ordenesHTML+
+    '<form id="nomCargaForm" data-sem="'+sid+'"><div class="card"><div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:10px"><h3 style="margin:0">Reparto por empleado (MXN)</h3>'+agregar+
+    '<label class="hint" style="margin-left:auto">Fecha del gasto <input type="date" name="fecha" value="'+esc(ed.fecha)+'" data-nomcargafecha></label></div>'+
+    '<div class="table-wrap"><table><thead>'+cabeza+'</thead><tbody>'+(filas||'<tr><td colspan="'+(cols.length+3)+'" class="empty">No hay empleados de producción en esta semana.</td></tr>')+'</tbody><tfoot>'+pie+'</tfoot></table></div>'+adminHTML+
+    '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px"><button class="btn btn-primary" type="submit">'+(carga.estado==="cargada"?'Volver a cargar':'Cargar a proyectos')+'</button>'+
+    '<button class="btn" type="button" data-action="nom-carga-guardar">Guardar borrador</button>'+
+    '<button class="btn btn-ghost" type="button" data-action="nom-carga-propuesta">Volver a la propuesta</button></div>'+
+    '<p class="hint">Cada renglón debe sumar la nómina del empleado (Diferencia ✓). Se crea un gasto por proyecto con proveedor NOMINA, categoría Nómina (SGA-Payroll) y los nombres en la descripción; los sueldos individuales no se ven en los gastos.</p></div></form>';
+}
+function nomCargaTotales(form){
+  var sid = form.dataset.sem, ed = STATE.nomCargaEdit[sid]; if(!ed) return;
+  var base = nomCargaBase(sid), col = {};
+  base.prod.forEach(function(e){
+    var m = ed.celdas[e.id] || {}, suma = 0;
+    Object.keys(m).forEach(function(k){ var v = Number(m[k])||0; suma += v; col[k] = (col[k]||0)+v; });
+    var td = form.querySelector('[data-nomdif="'+CSS.escape(e.id)+'"]'), dif = r2(e.total - suma);
+    if(td){ td.textContent = Math.abs(dif)>0.5 ? fmtMoney(dif) : "✓"; td.style.color = Math.abs(dif)>0.5 ? "var(--critical)" : "var(--good)"; td.style.fontWeight = Math.abs(dif)>0.5 ? "700" : ""; }
+  });
+  form.querySelectorAll("[data-nomcol]").forEach(function(th){ th.textContent = fmtMoney(col[th.dataset.nomcol]||0); });
+}
+function nomCargaGuardar(sid, aviso){
+  var ed = STATE.nomCargaEdit[sid]; if(!ed) return Promise.resolve();
+  var data = { celdas:ed.celdas, fecha:ed.fecha, actualizadoPor:(STATE.profile||{}).nombre||"", actualizadoEn:new Date().toISOString() };
+  if(!(STATE.nominaCargas[sid]||{}).estado) data.estado = "borrador";
+  return STATE.db.doc("nomina_cargas/"+sid).update(data).then(function(){
+    STATE.nominaCargas[sid] = Object.assign({}, STATE.nominaCargas[sid]||{}, data);
+    if(aviso) toast("Borrador guardado ✓");
+  });
+}
+function handleNomCargaSubmit(form){
+  var sid = form.dataset.sem, ed = STATE.nomCargaEdit[sid], base = nomCargaBase(sid), proys = allProyectos();
+  if(!ed) return;
+  ed.fecha = (form.querySelector('[name="fecha"]')||{}).value || ed.fecha;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(ed.fecha||"")){ toast("Elige la fecha del gasto.","err"); return; }
+  var mal = base.prod.filter(function(e){ var m = ed.celdas[e.id]||{}; var s = Object.keys(m).reduce(function(t,k){ return t+(Number(m[k])||0); },0); return Math.abs(e.total-s)>0.5; });
+  if(mal.length){ toast("Estos renglones no suman su nómina: "+mal.map(function(e){ return e.nombre; }).join(", "),"err"); return; }
+  var porProy = {};
+  base.prod.forEach(function(e){ var m = ed.celdas[e.id]||{}; Object.keys(m).forEach(function(k){ var v = Number(m[k])||0; if(v<=0) return;
+    var g = porProy[k] = porProy[k] || { proyecto_key:k, proyecto:proyectoNombre(k), importe:0, empleados:[] }; g.importe = r2(g.importe+v); g.empleados.push(e.nombre); }); });
+  var sinProy = Object.keys(porProy).filter(function(k){ return !proys[k]; });
+  if(sinProy.length){ toast("Estos proyectos ya no existen en Compras: "+sinProy.join(", "),"err"); return; }
+  var gastos = Object.keys(porProy).map(function(k){ return porProy[k]; }), total = r2(gastos.reduce(function(s,g){ return s+g.importe; },0));
+  var cargada = (STATE.nominaCargas[sid]||{}).estado==="cargada";
+  if(!confirm((cargada?"Se reemplazan los gastos de nómina de esta semana.\n\n":"")+"¿Cargar "+fmtMoney(total)+" de la "+nomSemanaLabel(base.sem.desde)+" a "+gastos.length+" proyecto(s)?\n\n"+gastos.map(function(g){ return "• "+g.proyecto+": "+fmtMoney(g.importe); }).join("\n"))) return;
+  var btn = form.querySelector('button[type=submit]'); if(btn) btn.disabled = true;
+  nomCargaGuardar(sid, false).then(function(){
+    return fetch("/api/nomina/cargar", { method:"POST", credentials:"same-origin", headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ semana:sid, fecha:ed.fecha, gastos:gastos }) }).then(function(r){ return r.json(); });
+  }).then(function(d){
+    if(!d || !d.ok) throw new Error((d && d.error) || "No se pudo cargar.");
+    toast("✓ Nómina cargada: "+d.gastos+" gastos por "+fmtMoney(d.total)+(d.reemplazados?" (reemplazó "+d.reemplazados+")":""));
+    delete STATE.nomCargaEdit[sid];
+    return pollState();
+  }).catch(function(err){ toast(err.message || "No se pudo cargar.","err"); })
+    .then(function(){ if(btn) btn.disabled = false; renderContent(); });
 }
 
 /* ---- Importar el Excel del checador (pestaña "Registro asistencia") ----
@@ -5650,6 +5843,13 @@ document.addEventListener("click", function(e){
   else if(action==="nom-bajas"){ STATE.nomBajas = !!el.checked; renderContent(); }
   else if(action==="nom-reabrir") nomReabrir();
   else if(action==="nom-sync") nomSincronizar(el);
+  else if(action==="nom-carga-horas"){ if(!(STATE.nominaCargas[STATE.nomCargaSem]||{}).celdas) delete STATE.nomCargaEdit[STATE.nomCargaSem]; nomHorasCargar(STATE.nomCargaSem, true); renderContent(); }
+  else if(action==="nom-carga-guardar") nomCargaGuardar(STATE.nomCargaSem, true).catch(function(){ toast("No se pudo guardar el borrador.","err"); });
+  else if(action==="nom-carga-propuesta"){
+    var sidP = STATE.nomCargaSem; delete STATE.nomCargaEdit[sidP];
+    var cP = STATE.nominaCargas[sidP]; if(cP) cP.celdas = null;
+    nomCargaEdit(sidP, nomCargaBase(sidP)); nomCargaGuardar(sidP, false).catch(function(){}); renderContent();
+  }
   else if(action==="nom-reenviar"){ if(!el.dataset.emp && !confirm("¿Reenviar por WhatsApp los recibos de todos los empleados de esta semana?")) return; nomReenviar(el.dataset.semana, el.dataset.emp, el); }
   else if(action==="nom-pagar"){
     var nf = document.getElementById("nomSemanaForm");
@@ -5843,6 +6043,30 @@ document.addEventListener("input", debounce(function(e){
 }, 260));
 document.addEventListener("input", function(e){
   if(e.target && e.target.dataset && e.target.dataset.nomcalc && e.target.form) nomRecalc(e.target.form);
+});
+// Carga a proyectos: importes, fecha, proyecto agregado y liga de órdenes.
+document.addEventListener("input", function(e){
+  var t = e.target, ds = t && t.dataset; if(!ds) return;
+  if(ds.nomcarga!==undefined && t.form){
+    var ed = STATE.nomCargaEdit[t.form.dataset.sem]; if(!ed) return;
+    var m = ed.celdas[ds.nomcarga] = ed.celdas[ds.nomcarga] || {}, v = parseFloat(t.value);
+    if(v>0) m[ds.pk] = r2(v); else delete m[ds.pk];
+    nomCargaTotales(t.form);
+  } else if(ds.nomcargafecha!==undefined && t.form){ var ef = STATE.nomCargaEdit[t.form.dataset.sem]; if(ef) ef.fecha = t.value; }
+});
+document.addEventListener("change", function(e){
+  var t = e.target, ds = t && t.dataset; if(!ds) return;
+  if(ds.nomcargasem!==undefined){ STATE.nomCargaSem = t.value; renderContent(); }
+  else if(ds.nomcargacol!==undefined && t.value){ var ed = STATE.nomCargaEdit[STATE.nomCargaSem]; if(ed && ed.extra.indexOf(t.value)<0) ed.extra.push(t.value); renderContent(); }
+  else if(ds.nomliga!==undefined){
+    var ordenes = Object.assign({}, nomCargaLigas()); ordenes[ds.nomliga] = t.value;
+    STATE.db.doc("nomina_cargas/ligas").update({ ordenes:ordenes }).then(function(){
+      STATE.nominaCargas.ligas = Object.assign({}, STATE.nominaCargas.ligas||{}, { ordenes:ordenes });
+      delete STATE.nomCargaEdit[STATE.nomCargaSem];
+      var c = STATE.nominaCargas[STATE.nomCargaSem]; if(c && c.celdas){ c.celdas = null; STATE.db.doc("nomina_cargas/"+STATE.nomCargaSem).update({ celdas:null }).catch(function(){}); }
+      toast("Liga guardada · reparto recalculado"); renderContent();
+    }).catch(function(){ toast("No se pudo guardar la liga.","err"); });
+  }
 });
 document.addEventListener("change", function(e){
   if(e.target && e.target.dataset && e.target.dataset.nomxls){ var fx = e.target.files && e.target.files[0]; if(fx) nomImportarXls(fx); e.target.value = ""; return; }
