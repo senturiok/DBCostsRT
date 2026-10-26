@@ -932,7 +932,8 @@ function nomEmpleados(incluirBajas){
       ingreso:e.ingreso||"", horario:e.horario==="abierto" ? "abierto" : "fijo", nombreReloj:e.nombreReloj||"", puesto:e.puesto||"",
       telefono:e.telefono||"", rfc:e.rfc||"", curp:e.curp||"", nss:e.nss||"", cuenta:e.cuenta||"", emergencia:e.emergencia||"",
       notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, vacAsignadas:Number(e.vacAsignadas)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
-      ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", abreTaller:!!e.abreTaller, activo:e.activo!==false };
+      ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", abreTaller:!!e.abreTaller, activo:e.activo!==false,
+      cargaFija:(e.cargaFija && e.cargaFija.proyecto && Number(e.cargaFija.pct)>0) ? { proyecto:e.cargaFija.proyecto, pct:Math.min(100, Number(e.cargaFija.pct)) } : null };
   }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
@@ -1135,6 +1136,12 @@ function openNomEmpModal(id){
       inp("diasPenalizados", "Días penalizados (histórico)", e.diasPenalizados, ' type="number" step="1" min="0"')+
     '</div>'+
     inp("notas", "Notas", e.notas)+
+    (function(){ var cf = e.cargaFija || {}, proys = allProyectos();
+      var keys = Object.keys(proys).filter(function(k){ return proys[k].es_valido!==false && (estadoDeProyecto(k)!=="terminado" || k===cf.proyecto); }).sort(function(a,b){ return proys[a].nombre.localeCompare(proys[b].nombre); });
+      return '<div class="field"><label>Carga fija a un proyecto (Carga a proyectos)</label><div style="display:flex; gap:6px">'+
+        '<select name="cfProyecto" style="flex:1"><option value="">— Ninguna: según las horas de su equipo —</option>'+keys.map(function(k){ return '<option value="'+esc(k)+'"'+(k===cf.proyecto?' selected':'')+'>'+esc(proys[k].nombre)+'</option>'; }).join("")+'</select>'+
+        '<input name="cfPct" type="number" min="0" max="100" step="1" value="'+(cf.pct||"")+'" placeholder="%" style="width:80px"></div>'+
+        '<div class="hint">Ese % de su nómina se carga siempre a ese proyecto; el resto, según las horas de su equipo (Administración: el resto no se carga).</div></div>'; })()+
     '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="abreTaller"'+(e.abreTaller?' checked':'')+'> Tiene las llaves y abre el taller: si llega tarde, los demás cuentan a tiempo hasta 5 min después de su checada (si llegan después, el retardo se cuenta desde las 7:30)</label>'+
     (id ? '<label class="hint" style="display:flex; gap:6px; align-items:center; margin-top:8px"><input type="checkbox" name="baja"'+(e.activo?'':' checked')+'> Dado de baja (ya no sale en la nómina; se conserva su historial)</label>' : '')+
     '<div style="display:flex; gap:8px; margin-top:14px"><button class="btn btn-primary" type="submit">Guardar</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div>'+
@@ -1171,6 +1178,7 @@ function handleNomEmpSubmit(form){
     horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:telefono,
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
     vacaciones:num("vacaciones"), vacAsignadas:num("vacAsignadas"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")), abreTaller:!!fd.get("abreTaller"),
+    cargaFija:(fd.get("cfProyecto") && num("cfPct")>0) ? { proyecto:fd.get("cfProyecto"), pct:Math.min(100, num("cfPct")) } : null,
     activo: orig ? !fd.get("baja") : true, actualizadoPor:quienSoy(), actualizadoEn:now });
   if(!orig){
     data.creadoEn = now;
@@ -1573,14 +1581,19 @@ function nomCargaBase(sid){
   });
   var emps = Object.keys(sem.lineas||{}).map(function(id){
     var l = sem.lineas[id] || {}, f = l.foto || {}, e = nomEmp(id) || {};
-    return { id:id, nombre:f.nombre||e.nombre||id, area:f.area||e.area||"produccion", total:r2((l.calc||{}).total) };
+    return { id:id, nombre:f.nombre||e.nombre||id, area:f.area||e.area||"produccion", total:r2((l.calc||{}).total), cf:e.cargaFija||null };
   }).filter(function(e){ return e.total>0; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
-  var prod = emps.filter(function(e){ return e.area!=="administracion"; }), admin = emps.filter(function(e){ return e.area==="administracion"; });
+  // Carga fija (en el empleado): ese % va siempre a su proyecto; el resto, por horas. De Administración solo se carga la parte fija.
+  var prod = emps.filter(function(e){ return e.area!=="administracion" || e.cf; }), admin = emps.filter(function(e){ return e.area==="administracion" && !e.cf; });
   var propuesta = {};
   prod.forEach(function(e){
-    var propias = horasEmp[e.id] || {}, conHoras = Object.keys(propias).some(function(k){ return propias[k]>0; });
-    e.fuente = conHoras ? "equipo" : Object.keys(planta).length ? "planta" : "sin";
-    propuesta[e.id] = nomCargaReparte(e.total, conHoras ? propias : planta);
+    var fijo = e.cf ? r2(e.total*e.cf.pct/100) : 0;
+    e.cargar = e.area==="administracion" ? fijo : e.total;
+    var resto = r2(e.cargar - fijo), propias = horasEmp[e.id] || {}, conHoras = Object.keys(propias).some(function(k){ return propias[k]>0; });
+    e.fuente = !resto ? "fijo" : conHoras ? "equipo" : Object.keys(planta).length ? "planta" : "sin";
+    var m = resto>0 ? nomCargaReparte(resto, conHoras ? propias : planta) : {};
+    if(fijo) m[e.cf.proyecto] = r2((m[e.cf.proyecto]||0) + fijo);
+    propuesta[e.id] = m;
   });
   return { sem:sem, horas:h, ordenes:ordenes, prod:prod, admin:admin, propuesta:propuesta };
 }
@@ -1627,17 +1640,22 @@ function renderNomCarga(){
       '<td><select data-nomliga="'+esc(o.id)+'" style="width:auto; min-width:220px">'+opcionesProy(o.proyecto, "— No cargar —")+'</select>'+(o.proyecto ? '' : ' <span class="hint" style="color:var(--warn)">elige</span>')+'</td></tr>'; }).join("")+
     '</tbody></table></div><p class="hint">Las horas de las órdenes sin proyecto no se usan para repartir. La liga se guarda para las siguientes semanas.</p></div>' : '';
 
-  var FUENTE = { equipo:"por horas de su equipo", planta:"sin horas: como toda la planta", sin:"sin horas: captúralo" };
+  var FUENTE = { equipo:"por horas de su equipo", planta:"sin horas: como toda la planta", sin:"sin horas: captúralo", fijo:"" };
+  var fuenteTxt = function(e){
+    if(!e.cf) return FUENTE[e.fuente];
+    var fijo = e.cf.pct+"% fijo a "+proyectoNombre(e.cf.proyecto);
+    return e.area==="administracion" ? fijo+" (Administración: el resto no se carga)" : e.fuente==="fijo" ? fijo : fijo+" · resto "+FUENTE[e.fuente];
+  };
   var colTot = {};
   var filas = base.prod.map(function(e){
     var m = ed.celdas[e.id] || {}, suma = 0;
     var celdas = cols.map(function(k){ var v = Number(m[k])||0; suma += v; colTot[k] = (colTot[k]||0)+v;
       return '<td class="num"><input type="number" step="0.01" min="0" data-nomcarga="'+esc(e.id)+'" data-pk="'+esc(k)+'" value="'+(v ? r2(v) : "")+'" style="width:96px; text-align:right"></td>'; }).join("");
-    var dif = r2(e.total - suma);
-    return '<tr><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+FUENTE[e.fuente]+'</div></td><td class="num">'+fmtMoney(e.total)+'</td>'+celdas+
+    var dif = r2(e.cargar - suma);
+    return '<tr><td><strong>'+esc(e.nombre)+'</strong><div class="card-note">'+esc(fuenteTxt(e))+'</div></td><td class="num">'+fmtMoney(e.cargar)+(e.cargar!==e.total?'<div class="card-note">de '+fmtMoney(e.total)+'</div>':'')+'</td>'+celdas+
       '<td class="num" data-nomdif="'+esc(e.id)+'" style="'+(Math.abs(dif)>0.5?'color:var(--critical); font-weight:700':'color:var(--good)')+'">'+(Math.abs(dif)>0.5?fmtMoney(dif):'✓')+'</td></tr>';
   }).join("");
-  var totalProd = r2(base.prod.reduce(function(s,e){ return s+e.total; },0));
+  var totalProd = r2(base.prod.reduce(function(s,e){ return s+e.cargar; },0));
   var cabeza = '<tr><th>Empleado</th><th class="num">Nómina</th>'+cols.map(function(k){ var ok = !!proys[k]; return '<th class="num" style="white-space:nowrap'+(ok?'':'; color:var(--critical)')+'">'+esc(proyectoNombre(k))+(ok?'':' ⚠️')+'</th>'; }).join("")+'<th class="num">Diferencia</th></tr>';
   var pie = '<tr><th>Total por proyecto</th><th class="num">'+fmtMoney(totalProd)+'</th>'+cols.map(function(k){ return '<th class="num" data-nomcol="'+esc(k)+'">'+fmtMoney(colTot[k]||0)+'</th>'; }).join("")+'<th></th></tr>';
   var agregar = '<select data-nomcargacol style="width:auto; min-width:220px">'+opcionesProy("", "+ Agregar proyecto…")+'</select>';
@@ -1649,7 +1667,7 @@ function renderNomCarga(){
     '<div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px"><button class="btn btn-primary" type="submit">'+(carga.estado==="cargada"?'Volver a cargar':'Cargar a proyectos')+'</button>'+
     '<button class="btn" type="button" data-action="nom-carga-guardar">Guardar borrador</button>'+
     '<button class="btn btn-ghost" type="button" data-action="nom-carga-propuesta">Volver a la propuesta</button></div>'+
-    '<p class="hint">Cada renglón debe sumar la nómina del empleado (Diferencia ✓). Se crea un gasto por proyecto con proveedor NOMINA, categoría Nómina (SGA-Payroll) y los nombres en la descripción; los sueldos individuales no se ven en los gastos.</p></div></form>';
+    '<p class="hint">Cada renglón debe sumar lo que se carga del empleado (Diferencia ✓). La carga fija a un proyecto se configura en Empleados → Editar. Se crea un gasto por proyecto con proveedor NOMINA, categoría Nómina (SGA-Payroll) y los nombres en la descripción; los sueldos individuales no se ven en los gastos.</p></div></form>';
 }
 function nomCargaTotales(form){
   var sid = form.dataset.sem, ed = STATE.nomCargaEdit[sid]; if(!ed) return;
@@ -1657,7 +1675,7 @@ function nomCargaTotales(form){
   base.prod.forEach(function(e){
     var m = ed.celdas[e.id] || {}, suma = 0;
     Object.keys(m).forEach(function(k){ var v = Number(m[k])||0; suma += v; col[k] = (col[k]||0)+v; });
-    var td = form.querySelector('[data-nomdif="'+CSS.escape(e.id)+'"]'), dif = r2(e.total - suma);
+    var td = form.querySelector('[data-nomdif="'+CSS.escape(e.id)+'"]'), dif = r2(e.cargar - suma);
     if(td){ td.textContent = Math.abs(dif)>0.5 ? fmtMoney(dif) : "✓"; td.style.color = Math.abs(dif)>0.5 ? "var(--critical)" : "var(--good)"; td.style.fontWeight = Math.abs(dif)>0.5 ? "700" : ""; }
   });
   form.querySelectorAll("[data-nomcol]").forEach(function(th){ th.textContent = fmtMoney(col[th.dataset.nomcol]||0); });
@@ -1676,7 +1694,7 @@ function handleNomCargaSubmit(form){
   if(!ed) return;
   ed.fecha = (form.querySelector('[name="fecha"]')||{}).value || ed.fecha;
   if(!/^\d{4}-\d{2}-\d{2}$/.test(ed.fecha||"")){ toast("Elige la fecha del gasto.","err"); return; }
-  var mal = base.prod.filter(function(e){ var m = ed.celdas[e.id]||{}; var s = Object.keys(m).reduce(function(t,k){ return t+(Number(m[k])||0); },0); return Math.abs(e.total-s)>0.5; });
+  var mal = base.prod.filter(function(e){ var m = ed.celdas[e.id]||{}; var s = Object.keys(m).reduce(function(t,k){ return t+(Number(m[k])||0); },0); return Math.abs(e.cargar-s)>0.5; });
   if(mal.length){ toast("Estos renglones no suman su nómina: "+mal.map(function(e){ return e.nombre; }).join(", "),"err"); return; }
   var porProy = {};
   base.prod.forEach(function(e){ var m = ed.celdas[e.id]||{}; Object.keys(m).forEach(function(k){ var v = Number(m[k])||0; if(v<=0) return;
