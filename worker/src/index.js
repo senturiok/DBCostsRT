@@ -18,7 +18,7 @@
 import { handleBot } from "./bot.js";
 import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
-import { handleMaterialL4 } from "./material-l4.js";
+import { handleMaterialL4, surtirFaltantes } from "./material-l4.js";
 import { handleReorden } from "./reorden.js";
 import { enviarRecibos, handleReciboGet } from "./recibos.js";
 import { cargarNomina, horasProduccion } from "./nomina-carga.js";
@@ -53,6 +53,9 @@ const MAP_COLLECTIONS = [
   "proyectos_houston",
   // Inventario de taller: catálogo de artículos (id = slug del nombre).
   "inventario_articulos",
+  // Material estándar que le faltó a un proyecto por falta de existencia (id = proyecto|nivel);
+  // se carga solo cuando entra el artículo (material-l4.js → surtirFaltantes). Solo lo escribe el servidor.
+  "inventario_faltantes",
 ];
 // Nómina (sueldos): colecciones privadas. No van en buildState() (que también
 // leen el bot y las integraciones); /api/state las agrega solo a quien tiene
@@ -373,7 +376,7 @@ function hasModule(profile, moduleKey) {
   return !!(profile.permisos && profile.permisos[moduleKey]);
 }
 
-const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "gastos_edits"]);
+const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "gastos_edits", "inventario_faltantes"]);
 const COLLECTION_MODULE = {
   gastos_contabilidad: "contabilidad",
   proyecto_estado: "catalogos",
@@ -619,6 +622,27 @@ async function handleFileDelete(request, env, id) {
   return jsonResponse({ deleted: true });
 }
 
+// Entró material al inventario (compra a INVENTARIO o ajuste positivo): se surte lo que les faltó a los proyectos.
+const SURTIR_DEPS = () => ({
+  buildState, putDoc, getDoc, deleteDoc, listDocs, logActivity,
+  base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
+});
+function entraInventario(collection, payload) {
+  if (!payload) return null;
+  if (collection === "gastos_nuevos" && payload.inv_articulo && !payload.consumo_inventario && Number(payload.inv_cantidad) > 0) return payload.inv_articulo;
+  if (collection === "inventario_ajustes" && payload.articulo && Number(payload.cantidad) > 0) return payload.articulo;
+  return null;
+}
+async function surtirTrasEntrada(env, articulo) {
+  try {
+    const r = await surtirFaltantes(env, SURTIR_DEPS(), articulo);
+    return r.cargados.length ? r.cargados : undefined;
+  } catch (e) {
+    console.error("surtir faltantes", e);
+    return undefined;
+  }
+}
+
 async function handleCollectionWrite(request, env, collection, id, method) {
   const profile = await getProfileFromRequest(request, env);
   let payload = null;
@@ -641,7 +665,9 @@ async function handleCollectionWrite(request, env, collection, id, method) {
     const newId = randomHex(16);
     await putDoc(env, collection, newId, payload);
     await logActivity(env, profile, method, collection, newId, payload);
-    return jsonResponse({ id: newId });
+    const articulo = entraInventario(collection, payload);
+    const surtidos = articulo ? await surtirTrasEntrada(env, articulo) : undefined;
+    return jsonResponse(surtidos ? { id: newId, surtidos } : { id: newId });
   }
   if (method === "PUT") {
     // Semana de nómina que pasa a pagada: se mandan los recibos por WhatsApp.
@@ -704,7 +730,7 @@ export default {
         const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
         if (!env.INTEGRACION_TOKEN || !timingSafeEqual(token, env.INTEGRACION_TOKEN)) return errorResponse(401, "No autorizado");
         return handleMaterialL4(request, env, {
-          buildState, putDoc, logActivity,
+          buildState, putDoc, getDoc, deleteDoc, logActivity,
           base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
         });
       }
@@ -812,7 +838,8 @@ export default {
     }
   },
 
-  // Cron (ver [triggers] en wrangler.toml): trae el FIX del día de Banxico.
+  // Cron (ver [triggers] en wrangler.toml): trae el FIX del día de Banxico y,
+  // de respaldo, surte los faltantes de material que ya tengan existencia.
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       syncTiposCambio(env, null).then(
@@ -820,5 +847,9 @@ export default {
         (err) => console.error("tipos_cambio sync failed", err)
       )
     );
+    ctx.waitUntil(surtirFaltantes(env, SURTIR_DEPS(), null).then(
+      (res) => console.log("surtir faltantes", JSON.stringify(res)),
+      (err) => console.error("surtir faltantes failed", err)
+    ));
   },
 };
