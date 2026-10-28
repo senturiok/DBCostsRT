@@ -729,6 +729,7 @@ function applyStateSnapshot(state){
   STATE.proveedoresUsd = state.proveedores_usd || {};
   STATE.proyectosHouston = state.proyectos_houston || {};
   STATE.inventarioArticulos = state.inventario_articulos || {};
+  STATE.inventarioFaltantes = state.inventario_faltantes || {};
   applyList("inventarioAjustes","inventario_ajustes");
   // Solo llegan a quien tiene el módulo Nómina (el servidor no las manda a los demás).
   STATE.nominaEmpleados = state.nomina_empleados || {};
@@ -2108,6 +2109,23 @@ function renderInventarioView(){
   return '<div class="tabs">'+INV_TABS.map(function(x){ return '<button class="tab" data-action="inv-tab" data-tab="'+x+'" aria-selected="'+(t===x)+'">'+INV_TAB_LABELS[x]+'</button>'; }).join("")+'</div>'+
     '<div style="margin-top:14px">'+body+'</div>';
 }
+/* Faltantes de material estándar (inventario_faltantes, los escribe el servidor): al entrar el
+   artículo al inventario se cargan solos al proyecto que lo esperaba, del más antiguo al más nuevo. */
+function avisarSurtidos(res){
+  var s = res && res.surtidos; if(!s || !s.length) return;
+  toast("📦 Faltante surtido: "+s.map(function(c){ return c.proyecto+" – "+c.articulo+" × "+fmtCant(c.cantidad)+" ("+fmtMoney(c.importe)+")"; }).join(" · "));
+  pollState();
+}
+function renderInvFaltantes(){
+  var fs = Object.keys(STATE.inventarioFaltantes||{}).map(function(k){ return STATE.inventarioFaltantes[k]; }).filter(function(f){ return f && (f.articulos||[]).length; })
+    .sort(function(a,b){ return String(a.creadoEn||"").localeCompare(String(b.creadoEn||"")); });
+  if(!fs.length) return "";
+  var filas = fs.map(function(f){ return (f.articulos||[]).map(function(x){
+    return '<tr><td><strong>'+esc(f.proyecto||f.proyecto_key)+'</strong>'+(f.orden && f.orden!==f.proyecto?'<div class="card-note">'+esc(f.orden)+'</div>':'')+'</td><td>'+esc(f.nivel)+'</td><td>'+esc(x.nombre)+'</td><td class="num">'+fmtCant(x.falta)+' '+esc(x.unidad||"")+'</td><td>'+esc(fmtDate(String(f.creadoEn||"").slice(0,10)))+'</td></tr>'; }).join(""); }).join("");
+  return '<div class="card" style="border-left:4px solid var(--warn)"><h3 style="margin-top:0">Material pendiente de surtir a proyectos</h3>'+
+    '<div class="table-wrap"><table style="min-width:0"><thead><tr><th>Proyecto</th><th>Nivel</th><th>Artículo</th><th class="num">Falta</th><th>Desde</th></tr></thead><tbody>'+filas+'</tbody></table></div>'+
+    '<p class="hint">Les faltó al cargar su material estándar porque no había existencia. Cuando entre el artículo (compra a INVENTARIO o conteo), se descuenta y se carga solo a estos proyectos, del más antiguo al más nuevo.</p></div>';
+}
 function renderInvExistenciasTab(){
   var res = inventarioResumen(), F = STATE.invFilters, q = F.q.trim().toLowerCase();
   var catMap = catNameMap(), canEdit = can("editInventario"), canBuy = can("addGasto");
@@ -2141,7 +2159,7 @@ function renderInvExistenciasTab(){
       '</div></td>'+
     '</tr>';
   }).join("");
-  return '<div class="grid kpis">'+
+  return renderInvFaltantes()+'<div class="grid kpis">'+
       '<div class="card"><div class="kpi-label">Artículos</div><div class="kpi-value">'+lista.length+'</div><div class="kpi-delta">en el catálogo</div></div>'+
       '<div class="card"><div class="kpi-label">Por pedir</div><div class="kpi-value" style="color:'+(porPedir.length?'var(--warn)':'inherit')+'">'+porPedir.length+'</div><div class="kpi-delta">en o debajo del punto de reorden</div></div>'+
       '<div class="card"><div class="kpi-label">Agotados</div><div class="kpi-value" style="color:'+(agotados.length?'var(--critical)':'inherit')+'">'+agotados.length+'</div><div class="kpi-delta">sin existencia</div></div>'+
@@ -2569,6 +2587,7 @@ function guardarAjusteInventario(id, cantidad, motivo, quien){
   var doc = { articulo:id, articulo_nombre:a.nombre||id, cantidad:cantidad, motivo:motivo, fecha:todayISO(), capturadoPor:quien||quienSoy(), creadoEn:new Date().toISOString(), _cid:uid() };
   return STATE.db.collection("inventario_ajustes").add(doc).then(function(res){
     STATE.inventarioAjustes.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, doc));
+    avisarSurtidos(res);
   });
 }
 function openInvAjusteModal(id){
@@ -4025,6 +4044,7 @@ function submitGasto(form){
 
     return STATE.db.collection("gastos_nuevos").add(gasto).then(function(res){
       STATE.gastosNuevos.push(Object.assign({ id:(res&&res.id)||("_local_"+uid()), _pending:true }, gasto));
+      if(invEntra) setTimeout(function(){ avisarSurtidos(res); }, 2500);
       toast(invEntra ? "Gasto guardado ✓ · entraron "+fmtCant(invCantidad)+" a inventario"+(invUsd ? " · "+fmtUsd(invUsd.usd)+" × FIX "+fmtTc(invUsd.fix)+" = "+fmtMoney(invUsd.mxn) : "") : "Gasto guardado ✓");
       form.reset();
       toggleRegistrarInventario(form);
