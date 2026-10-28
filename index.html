@@ -730,6 +730,7 @@ function applyStateSnapshot(state){
   STATE.proyectosHouston = state.proyectos_houston || {};
   STATE.inventarioArticulos = state.inventario_articulos || {};
   STATE.inventarioFaltantes = state.inventario_faltantes || {};
+  STATE.proyectoL5 = state.proyecto_l5 || {};
   applyList("inventarioAjustes","inventario_ajustes");
   // Solo llegan a quien tiene el módulo Nómina (el servidor no las manda a los demás).
   STATE.nominaEmpleados = state.nomina_empleados || {};
@@ -1960,7 +1961,7 @@ function rerenderView(){
   renderContent();
 }
 function renderContent(){
-  var titles = { inventario:["Inventario","Existencias del taller y punto de reorden"], nomina:["Nómina","Empleados, asistencia, retardos y pago semanal"], dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre los proyectos terminados de cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
+  var titles = { inventario:["Inventario","Existencias del taller y punto de reorden"], nomina:["Nómina","Empleados, asistencia, retardos y pago semanal"], dashboard:["Dashboard","Costeo consolidado de todos los proyectos"], gastos:["Gastos","Historial de facturas y compras"], registrar:["Registrar gasto","Captura una factura o compra nueva"], catalogos:["Catálogos","Proyectos, proveedores y categorías"], comparar:["Comparar proyectos","Costo por subsistema, lado a lado"], reportes:["Reportes","Reporte imprimible y comparativas del costeo"], contabilidad:["Contabilidad","Verificación y pago de gastos a crédito"], indirectos:["Indirectos (MX)","Gasto general prorrateado entre las trailas que entraron a L5 cada mes"], houston:["Houston (USD)","Gastos en dólares, exportación y venta"], costo_total:["Costo total (USD)","México (MXN → USD al FIX de Banxico) + Houston + overhead prorrateado"], usuarios:["Usuarios","Perfiles y permisos del equipo"] };
   document.getElementById("pageTitle").textContent = titles[STATE.view][0];
   document.getElementById("pageSub").textContent = titles[STATE.view][1];
   var actions = document.getElementById("topbarActions");
@@ -2023,6 +2024,8 @@ function fechaTerminado(key){
   if(e.updatedAt){ var d = new Date(e.updatedAt); if(!isNaN(d)) return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
   return null;
 }
+/** Fecha (AAAA-MM-DD) en que la traila del proyecto entró a L5 en Producción (proyecto_l5), o null. */
+function fechaL5(key){ var e = (STATE.proyectoL5||{})[slugify(key)]; return (e && e.fecha) || null; }
 function excelRecibeIndirectos(key){ var e = STATE.proyectoEstado[slugify(key)]; return !!(e && e.incluir_indirectos); }
 function openFechaTerminadoModal(key, terminar){
   if(!terminar && estadoDeProyecto(key)!=="terminado") return;
@@ -4675,7 +4678,8 @@ function computeOverheadProrrateo(){
    Todo lo registrado en alguno de estos proyectos es indirecto (GASTO GENERAL
    y GASTOS INDIRECTOS: gastos generales/administrativos; CONSUMIBLES G y
    CONSUMIBLES: gastos variables de producción). El de cada mes se reparte solo entre los
-   proyectos del portal que se marcaron como terminados en ese mes, en
+   proyectos del portal cuya traila entró a L5 en Producción ese mes (proyecto_l5, aunque
+   siga en el taller; los que nunca pasaron por L5 usan su fecha de terminado), en
    proporción a su costo directo en México. Los remolques que vienen del Excel
    no participan, salvo los marcados con incluir_indirectos en proyecto_estado.
    Excepción histórica: lo que quedó sin asignar en meses anteriores a
@@ -4703,9 +4707,13 @@ function computeIndirectosMx(){
   });
   var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelHistorico = [];
   Object.keys(proyMap).forEach(function(k){
-    if(!proyMap[k].es_valido || esProyectoIndirecto(k) || estadoDeProyecto(k)!=="terminado") return;
-    if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
-    var f = fechaTerminado(k);
+    if(!proyMap[k].es_valido || esProyectoIndirecto(k)) return;
+    // Reciben indirectos las trailas que entraron a L5 ese mes (aunque sigan en el taller); la fecha de
+    // terminado (dejó el taller) solo cuenta para los proyectos que nunca pasaron por L5 en Producción.
+    var l5 = fechaL5(k), term = estadoDeProyecto(k)==="terminado";
+    if(!l5 && !term) return;
+    if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ if(term) excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
+    var f = l5 || fechaTerminado(k);
     if(!f){ terminadosSinFecha.push(k); return; }
     (terminadosPorMes[f.slice(0,7)] = terminadosPorMes[f.slice(0,7)]||[]).push({ key:k, fecha:f });
   });
@@ -4815,26 +4823,26 @@ function renderIndirectosView(){
   return filtrosHTML+'<div class="grid kpis">'+
       '<div class="card"><div class="kpi-label">Indirectos registrados</div><div class="kpi-value">'+fmtMoneyInt(kRegistrado)+'</div><div class="kpi-delta">'+(filtroActivo ? filasF.length+' mes'+(filasF.length===1?'':'es')+' con estos filtros' : ix.nGastos+' gastos en '+INDIRECTO_PROYECTOS_LABEL)+'</div></div>'+
       '<div class="card"><div class="kpi-label">Asignado a proyectos</div><div class="kpi-value">'+fmtMoneyInt(kAsignado)+'</div><div class="kpi-delta">'+proyF.length+' proyecto'+(proyF.length===1?'':'s')+' en la tabla</div></div>'+
-      '<div class="card"><div class="kpi-label">Sin asignar</div><div class="kpi-value"'+(kSinAsignar>0.004?' style="color:var(--warn)"':'')+'>'+fmtMoneyInt(kSinAsignar)+'</div><div class="kpi-delta">meses sin remolques terminados</div></div>'+
+      '<div class="card"><div class="kpi-label">Sin asignar</div><div class="kpi-value"'+(kSinAsignar>0.004?' style="color:var(--warn)"':'')+'>'+fmtMoneyInt(kSinAsignar)+'</div><div class="kpi-delta">meses sin trailas en L5</div></div>'+
       '<div class="card"><div class="kpi-label">Indirecto sobre directo</div><div class="kpi-value">'+(totDirecto>0?(totIndProy/totDirecto*100).toFixed(1)+'%':'—')+'</div><div class="kpi-delta">de los proyectos en la tabla</div></div>'+
     '</div>'+
     (avisos.length ? '<div class="card" style="margin-top:14px; border-color:var(--warn)"><div class="flag-list">'+avisos.map(function(a){return '<div class="flag-item" style="background:color-mix(in srgb, var(--warn) 14%, transparent)">'+a+'</div>';}).join("")+'</div></div>' : '')+
     '<div class="card" style="margin-top:14px">'+
-      '<div class="card-head"><h3 class="card-title">Por proyecto terminado</h3><span class="card-note">'+proyF.length+' proyecto'+(proyF.length===1?'':'s')+'</span></div>'+
+      '<div class="card-head"><h3 class="card-title">Por proyecto</h3><span class="card-note">'+proyF.length+' proyecto'+(proyF.length===1?'':'s')+'</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Proyecto</th><th>Terminado</th><th class="num">Costo directo</th><th class="num">% del reparto</th><th class="num">Indirecto asignado</th><th class="num">Costo con indirecto</th><th class="num">Indirecto / directo</th></tr></thead>'+
-        '<tbody>'+(filasProy||'<tr><td colspan="7" class="empty">'+(filtroActivo?'Sin proyectos con estos filtros.':'Todavía no hay proyectos terminados que hayan recibido indirectos.')+'</td></tr>')+'</tbody>'+
+        '<thead><tr><th>Proyecto</th><th>Entró a L5</th><th class="num">Costo directo</th><th class="num">% del reparto</th><th class="num">Indirecto asignado</th><th class="num">Costo con indirecto</th><th class="num">Indirecto / directo</th></tr></thead>'+
+        '<tbody>'+(filasProy||'<tr><td colspan="7" class="empty">'+(filtroActivo?'Sin proyectos con estos filtros.':'Todavía no hay proyectos que hayan recibido indirectos.')+'</td></tr>')+'</tbody>'+
         (filasProy?'<tfoot><tr><td colspan="2">Total</td><td class="num">'+fmtMoney(totDirecto)+'</td><td></td><td class="num">'+fmtMoney(totIndProy)+'</td><td class="num">'+fmtMoney(totDirecto+totIndProy)+'</td><td class="num">'+(totDirecto>0?(totIndProy/totDirecto*100).toFixed(1)+'%':'')+'</td></tr></tfoot>':'')+
       '</table></div>'+
     '</div>'+
     '<div class="card" style="margin-top:14px">'+
       '<div class="card-head"><h3 class="card-title">Por mes</h3><span class="card-note">Más reciente primero</span></div>'+
       '<div class="table-wrap"><table>'+
-        '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th>Proyectos terminados (portal)</th><th class="num">Asignado</th><th class="num">Sin asignar</th></tr></thead>'+
+        '<thead><tr><th>Mes</th><th class="num">Indirecto del mes</th><th>Trailas que entraron a L5</th><th class="num">Asignado</th><th class="num">Sin asignar</th></tr></thead>'+
         '<tbody>'+(filasMes||'<tr><td colspan="5" class="empty">'+(filtroActivo?'Sin meses con estos filtros.':'Sin gastos en '+INDIRECTO_PROYECTOS_LABEL+'.')+'</td></tr>')+'</tbody>'+
         (filasMes?'<tfoot><tr><td>Total</td><td class="num">'+fmtMoney(kRegistrado)+'</td><td></td><td class="num">'+fmtMoney(kAsignado)+'</td><td class="num">'+fmtMoney(kSinAsignar)+'</td></tr></tfoot>':'')+
       '</table></div>'+
-      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal marcados como terminados ese mes, en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Lo que quedó sin asignar antes de '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+' se repartió una sola vez entre los remolques del Excel terminados (reparto histórico). Si en un mes no se terminó ninguno, ese indirecto queda sin asignar. El mes de terminado es la fecha de terminado en Catálogos.</p>'+
+      '<p class="hint" style="margin-top:12px">Todo lo registrado en los proyectos '+INDIRECTO_PROYECTOS_LABEL+' se toma como indirecto, en el mes de su fecha de factura (o de captura si no tiene). El de cada mes se reparte solo entre los remolques del portal que <strong>entraron a L5 en Producción</strong> ese mes (aunque sigan en el taller), en proporción a su costo directo en México; los que vienen del Excel no participan, salvo los marcados con "Recibe indirectos de México" al editar su fecha de terminado. Lo que quedó sin asignar antes de '+esc(monthLabel(INDIRECTO_CORTE_DESDE))+' se repartió una sola vez entre los remolques del Excel terminados (reparto histórico). Si en un mes ninguna traila entró a L5, ese indirecto queda sin asignar. Marcar el proyecto como terminado (cuando deja el taller) no cambia el reparto; solo los proyectos que nunca pasaron por L5 en Producción usan su fecha de terminado.</p>'+
     '</div>';
 }
 

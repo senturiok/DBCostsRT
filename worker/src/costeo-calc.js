@@ -284,6 +284,8 @@ export function makeCalc(STATE) {
   var INDIRECTO_CORTE_DESDE = "2026-08";
 
   function esProyectoIndirecto(key){ return INDIRECTO_PROYECTO_KEYS.indexOf(normKey(key||""))>-1; }
+  /** Fecha (AAAA-MM-DD) en que la traila del proyecto entró a L5 en Producción (proyecto_l5), o null. */
+  function fechaL5(key){ var e = (STATE.proyectoL5||{})[slugify(key)]; return (e && e.fecha) || null; }
   function excelRecibeIndirectos(key){ var e = STATE.proyectoEstado[slugify(key)]; return !!(e && e.incluir_indirectos); }
 
   function computeIndirectosMx(){
@@ -301,9 +303,13 @@ export function makeCalc(STATE) {
     });
     var proyMap = allProyectos(), terminadosPorMes = {}, terminadosSinFecha = [], excelHistorico = [];
     Object.keys(proyMap).forEach(function(k){
-      if(!proyMap[k].es_valido || esProyectoIndirecto(k) || estadoDeProyecto(k)!=="terminado") return;
-      if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
-      var f = fechaTerminado(k);
+      if(!proyMap[k].es_valido || esProyectoIndirecto(k)) return;
+      // Reciben indirectos las trailas que entraron a L5 ese mes (aunque sigan en el taller); la fecha de
+      // terminado (dejó el taller) solo cuenta para los proyectos que nunca pasaron por L5 en Producción.
+      var l5 = fechaL5(k), term = estadoDeProyecto(k)==="terminado";
+      if(!l5 && !term) return;
+      if(proyMap[k].origen==="excel" && !excelRecibeIndirectos(k)){ if(term) excelHistorico.push({ key:k, fecha:fechaTerminado(k) }); return; }
+      var f = l5 || fechaTerminado(k);
       if(!f){ terminadosSinFecha.push(k); return; }
       (terminadosPorMes[f.slice(0,7)] = terminadosPorMes[f.slice(0,7)]||[]).push({ key:k, fecha:f });
     });

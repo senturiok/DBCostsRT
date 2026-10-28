@@ -19,6 +19,7 @@ import { handleBot } from "./bot.js";
 import { handleIntegracion } from "./integracion.js";
 import { handleAcciones } from "./acciones.js";
 import { handleMaterialL4, surtirFaltantes } from "./material-l4.js";
+import { handleL5 } from "./l5.js";
 import { handleReorden } from "./reorden.js";
 import { enviarRecibos, handleReciboGet } from "./recibos.js";
 import { cargarNomina, horasProduccion } from "./nomina-carga.js";
@@ -56,6 +57,9 @@ const MAP_COLLECTIONS = [
   // Material estándar que le faltó a un proyecto por falta de existencia (id = proyecto|nivel);
   // se carga solo cuando entra el artículo (material-l4.js → surtirFaltantes). Solo lo escribe el servidor.
   "inventario_faltantes",
+  // Fecha en que la traila del proyecto entró a L5 en Producción (id = slug del proyecto):
+  // define el mes en que recibe indirectos de México. Solo la escribe el servidor (l5.js).
+  "proyecto_l5",
 ];
 // Nómina (sueldos): colecciones privadas. No van en buildState() (que también
 // leen el bot y las integraciones); /api/state las agrega solo a quien tiene
@@ -174,6 +178,7 @@ const COLLECTION_LABELS = {
   proyectos_houston: "Proyecto Houston",
   inventario_articulos: "Artículo de inventario",
   inventario_ajustes: "Ajuste de inventario",
+  proyecto_l5: "Entrada a L5 (indirectos)",
   nomina_cargas: "Carga de nómina a proyectos",
 };
 
@@ -376,7 +381,7 @@ function hasModule(profile, moduleKey) {
   return !!(profile.permisos && profile.permisos[moduleKey]);
 }
 
-const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "gastos_edits", "inventario_faltantes"]);
+const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "gastos_edits", "inventario_faltantes", "proyecto_l5"]);
 const COLLECTION_MODULE = {
   gastos_contabilidad: "contabilidad",
   proyecto_estado: "catalogos",
@@ -731,6 +736,16 @@ export default {
         if (!env.INTEGRACION_TOKEN || !timingSafeEqual(token, env.INTEGRACION_TOKEN)) return errorResponse(401, "No autorizado");
         return handleMaterialL4(request, env, {
           buildState, putDoc, getDoc, deleteDoc, logActivity,
+          base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
+        });
+      }
+      // Producción: una orden entró a L5 → desde ese mes recibe indirectos de México (INTEGRACION_TOKEN).
+      if (segments[0] === "integracion" && segments[1] === "l5" && method === "POST") {
+        const auth = request.headers.get("authorization") || "";
+        const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+        if (!env.INTEGRACION_TOKEN || !timingSafeEqual(token, env.INTEGRACION_TOKEN)) return errorResponse(401, "No autorizado");
+        return handleL5(request, env, {
+          buildState, putDoc, logActivity,
           base: { gastos: GASTOS_BASE, proyectos: PROYECTOS_CAT, proveedores: PROVEEDORES_CAT, categorias: CATEGORIAS_CAT },
         });
       }

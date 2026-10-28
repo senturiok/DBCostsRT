@@ -43,6 +43,7 @@ function buildCalcState(base, state, hoy) {
     proveedoresNuevos: state.proveedores_nuevos || [],
     categoriasNuevas: state.categorias_nuevas || [],
     proyectoEstado: state.proyecto_estado || {},
+    proyectoL5: state.proyecto_l5 || {},
     proveedoresInfo: state.proveedores_info || {},
     proyectosInfo: state.proyectos_info || {},
     gastosEdits: state.gastos_edits || {},
