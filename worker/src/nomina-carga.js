@@ -58,7 +58,7 @@ export async function cargarNomina(env, profile, b, deps) {
     const id = deps.randomHex(16);
     await deps.putDoc(env, "gastos_nuevos", id, {
       proyecto: g.nombre, proyecto_key: g.key, fecha: b.fecha, fecha_factura: b.fecha, proveedor: "NOMINA",
-      descripcion: `Nómina ${cw}: ${g.empleados.join(", ")}`.slice(0, 500), factura: null,
+      descripcion: `Nómina ${cw}: ${g.empleados.join(", ")}`.slice(0, 500), factura: cw,
       importe: g.importe, cantidad: 1, categoria: "SGA-Payroll", forma_pago: "efectivo",
       capturadoPor: quien, creadoEn: ahora, _cid: deps.randomHex(7), nomina_semana: b.semana,
     });
