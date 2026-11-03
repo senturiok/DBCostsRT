@@ -2,7 +2,7 @@
 // Order a producción, crea o liga el proyecto en Compras. Protegido con el
 // secreto INTEGRACION_TOKEN (distinto de los de solo lectura del bot).
 //
-// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente, cashPrice }
+// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente, cashPrice, actualizar? }
 // - Si un proyecto ya tiene ese folio, lo regresa sin cambiar nada.
 // - Si ya existe un proyecto activo sin folio que se llama como el nombre
 //   interno, el de proyecto o la orden en Producción, lo liga.
@@ -87,6 +87,35 @@ export async function handleIntegracion(request, env, url, deps) {
   };
   catalogo.filter((p) => p.es_valido).forEach((p) => add(p.key));
   nuevos.forEach((d) => d.data && d.data.key && add(d.data.key));
+
+  const cashPriceIn = Number(body.cashPrice) > 0 ? Math.round(Number(body.cashPrice) * 100) / 100 : null;
+  // Actualización de un Sales Order ya enviado: el proyecto ligado a ese folio toma
+  // tipo, medida, cliente y precio de contado nuevos. → { ok, accion: "actualizado", cambios }
+  if (body.actualizar === true) {
+    const ligado = infos.find((d) => d.data && d.data.salesFolio === folio && !d.data.eliminado);
+    if (ligado) {
+      const prev = ligado.data;
+      const next = Object.assign({}, prev, {
+        tipoTraila: tipo || prev.tipoTraila || "",
+        tamanoTraila: tamano || prev.tamanoTraila || "",
+        cliente: typeof body.cliente === "string" && body.cliente.trim() ? body.cliente.trim() : prev.cliente || "",
+        cashPriceUsd: cashPriceIn || prev.cashPriceUsd || null,
+      });
+      const fmt = (n) => (n ? "$" + Number(n).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—");
+      const cambios = [
+        ["Tipo", prev.tipoTraila, next.tipoTraila],
+        ["Medida", prev.tamanoTraila, next.tamanoTraila],
+        ["Cliente", prev.cliente, next.cliente],
+        ["Precio de contado", fmt(prev.cashPriceUsd), fmt(next.cashPriceUsd)],
+      ].filter(([, a, b]) => String(a || "") !== String(b || "")).map(([l, a, b]) => `Compras · ${l}: ${a || "—"} → ${b || "—"}`);
+      if (cambios.length) {
+        next.updatedAt = new Date().toISOString();
+        await putDoc(env, "proyectos_info", ligado.id, next);
+        await logActivity(env, { isMaster: false, nombre: "Portal de Cotizaciones" }, "PUT", "proyectos_info", ligado.id, next);
+      }
+      return json({ ok: true, accion: cambios.length ? "actualizado" : "sin_cambios", proyecto: next.nombre || ligado.id, cambios });
+    }
+  }
 
   const nombresProduccion = Array.isArray(body.nombresProduccion) ? body.nombresProduccion.filter((n) => typeof n === "string") : [];
   const plan = planProyecto(proyectos, { folio, internalName: body.internalName, projectName: body.projectName, nombresProduccion });
