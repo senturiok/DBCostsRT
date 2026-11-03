@@ -115,6 +115,8 @@ export async function handleIntegracion(request, env, url, deps) {
       }
       return json({ ok: true, accion: cambios.length ? "actualizado" : "sin_cambios", proyecto: next.nombre || ligado.id, cambios });
     }
+    // Una actualización nunca crea ni liga proyectos (Sales Orders anteriores al envío automático).
+    return json({ ok: true, accion: "no_ligado", cambios: [] });
   }
 
   const nombresProduccion = Array.isArray(body.nombresProduccion) ? body.nombresProduccion.filter((n) => typeof n === "string") : [];
