@@ -2,7 +2,7 @@
 // Order a producción, crea o liga el proyecto en Compras. Protegido con el
 // secreto INTEGRACION_TOKEN (distinto de los de solo lectura del bot).
 //
-// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente, cashPrice, actualizar? }
+// POST /integracion/proyectos { folio, internalName, projectName, nombresProduccion, tipo, tamano, cliente, cashPrice, actualizar?, stockProyecto? }
 // - Si un proyecto ya tiene ese folio, lo regresa sin cambiar nada.
 // - Si ya existe un proyecto activo sin folio que se llama como el nombre
 //   interno, el de proyecto o la orden en Producción, lo liga.
@@ -89,6 +89,28 @@ export async function handleIntegracion(request, env, url, deps) {
   nuevos.forEach((d) => d.data && d.data.key && add(d.data.key));
 
   const cashPriceIn = Number(body.cashPrice) > 0 ? Math.round(Number(body.cashPrice) * 100) / 100 : null;
+  // Venta de una traila de stock: se liga su proyecto existente (HTX…) al Sales Order, sin crear otro.
+  if (body.actualizar !== true && typeof body.stockProyecto === "string" && body.stockProyecto.trim()) {
+    const key = body.stockProyecto.trim();
+    const slugStock = slugify(key);
+    const existe = nuevos.some((d) => d.data && d.data.key === key) || catalogo.some((p) => p.key === key);
+    if (!existe) return json({ ok: false, error: `No existe en Compras el proyecto de stock ${key}.` }, 400);
+    const prev = infoBySlug[slugStock] || {};
+    if (prev.salesFolio && prev.salesFolio !== folio) return json({ ok: false, error: `El proyecto ${key} ya está ligado al Sales Order ${prev.salesFolio}.` }, 409);
+    const info = Object.assign({}, prev, {
+      nombre: prev.nombre || key,
+      tipoTraila: tipo || prev.tipoTraila || "",
+      tamanoTraila: tamano || prev.tamanoTraila || "",
+      salesFolio: folio,
+      cliente: (typeof body.cliente === "string" && body.cliente.trim()) || prev.cliente || "",
+      cashPriceUsd: cashPriceIn || prev.cashPriceUsd || null,
+      updatedAt: new Date().toISOString(),
+    });
+    await putDoc(env, "proyectos_info", slugStock, info);
+    await logActivity(env, { isMaster: false, nombre: "Portal de Cotizaciones" }, "PUT", "proyectos_info", slugStock, info);
+    return json({ ok: true, accion: "ligado_stock", proyecto: key });
+  }
+
   // Actualización de un Sales Order ya enviado: el proyecto ligado a ese folio toma
   // tipo, medida, cliente y precio de contado nuevos. → { ok, accion: "actualizado", cambios }
   if (body.actualizar === true) {
