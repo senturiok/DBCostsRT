@@ -381,7 +381,7 @@ function hasModule(profile, moduleKey) {
   return !!(profile.permisos && profile.permisos[moduleKey]);
 }
 
-const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "gastos_edits", "inventario_faltantes", "proyecto_l5"]);
+const MASTER_ONLY_WRITE_COLLECTIONS = new Set(["perfiles", "inventario_faltantes", "proyecto_l5"]);
 const COLLECTION_MODULE = {
   gastos_contabilidad: "contabilidad",
   proyecto_estado: "catalogos",
@@ -407,12 +407,20 @@ function authorizeWrite(profile, collection, method, payload) {
     return profile.isMaster ? { ok: true } : { ok: false, status: 403, error: "Solo el Master Administrator puede eliminar." };
   }
 
-  // Editing perfiles (Usuarios) and Excel-origin gasto overrides is
-  // master-only end to end today (canEditExcel = isMasterUser(), and the
-  // Usuarios nav item itself is perm:null -> master only), regardless of
-  // http method.
+  // Editing perfiles (Usuarios) and the server-only collections is master-only
+  // (the Usuarios nav item itself is perm:null -> master only), regardless of
+  // http method. Excel-origin gasto overrides (gastos_edits) are handled below:
+  // editable with the Gastos module, deleting stays master-only.
   if (MASTER_ONLY_WRITE_COLLECTIONS.has(collection)) {
     return profile.isMaster ? { ok: true } : { ok: false, status: 403, error: "Solo el Master Administrator puede modificar esto." };
+  }
+
+  // Ediciones de gastos importados del Excel: las puede hacer quien tiene el módulo
+  // Gastos; marcarlos como eliminados (eliminado: true) sigue siendo solo del Master.
+  if (collection === "gastos_edits") {
+    if (profile.isMaster) return { ok: true };
+    if (method === "DELETE" || (payload && payload.eliminado)) return { ok: false, status: 403, error: "Solo el Master Administrator puede eliminar gastos." };
+    return hasModule(profile, "gastos") ? { ok: true } : { ok: false, status: 403, error: "No tienes permiso para editar gastos." };
   }
 
   if (collection === "gastos_nuevos") {
@@ -673,6 +681,11 @@ async function handleCollectionWrite(request, env, collection, id, method) {
     const articulo = entraInventario(collection, payload);
     const surtidos = articulo ? await surtirTrasEntrada(env, articulo) : undefined;
     return jsonResponse(surtidos ? { id: newId, surtidos } : { id: newId });
+  }
+  // Un gasto del Excel ya eliminado solo lo puede restaurar el Master (editarlo sin "eliminado" lo restauraría).
+  if (collection === "gastos_edits" && !profile.isMaster && (method === "PUT" || method === "PATCH")) {
+    const prev = await getDoc(env, collection, id);
+    if (prev && prev.eliminado) return errorResponse(403, "Solo el Master Administrator puede restaurar un gasto eliminado.");
   }
   if (method === "PUT") {
     // Semana de nómina que pasa a pagada: se mandan los recibos por WhatsApp.
