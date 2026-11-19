@@ -3882,7 +3882,7 @@ function renderGastosView(){
   }
 
   var canDeleteGasto = isMasterUser();
-  var canEditExcel = isMasterUser();
+  var canEditExcel = can("editGasto"); // editar sí (permiso Gastos); eliminar sigue siendo solo del Master
   var rows = pageRows.map(function(r){
     var actions = "";
     if(r.origen==="portal" && (canEditDelete || canDeleteGasto)){
@@ -4078,7 +4078,7 @@ function handleEditGastoSubmit(form){
   var origen = fd.get("origen");
   var importe = parseFloat(fd.get("importe"));
   if(!importe||importe<=0){ toast("Importe inválido.","err"); return; }
-  if(origen==="excel" && !isMasterUser()){ toast("Solo el Master Administrator puede editar registros importados de Excel.","err"); return; }
+  if(origen==="excel" && !can("editGasto")){ toast("No tienes permiso para editar gastos.","err"); return; }
   var file = form.comprobante && form.comprobante.files && form.comprobante.files[0];
   if(file && !STATE.assets){ toast("La carga de archivos aún no está lista. Espera unos segundos e intenta de nuevo.","err"); return; }
   var submitBtn = form.querySelector('button[type=submit]'); if(submitBtn) submitBtn.disabled = true;
@@ -5752,7 +5752,7 @@ function toast(msg, type){
 /* ================= EDIT / DELETE GASTO ================= */
 function editGastoRow(docId, origen){
   var isExcel = origen!=="portal";
-  if(isExcel && !isMasterUser()){ toast("Solo el Master Administrator puede editar registros importados de Excel.","err"); return; }
+  if(isExcel && !can("editGasto")){ toast("No tienes permiso para editar gastos.","err"); return; }
   var g = isExcel
     ? allGastos().find(function(x){return x.origen!=="portal" && String(x.id)===String(docId);})
     : STATE.gastosNuevos.find(function(x){return x.id===docId;});
