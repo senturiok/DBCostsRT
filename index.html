@@ -1296,7 +1296,8 @@ function nomValidar(form, lineas){
       var rt = nomRetardo(x.e, !e.abreTaller ? apertura[d[0]] : null);
       if(x.st==="A" && rt > 60) tarde.push(d[1]+" "+rt+" min");
     });
-    if(sinEntrada.length) add("warn", n, "asistió sin hora de entrada el "+sinEntrada.join(", ")+" (no se le cuenta retardo)");
+    if(sinEntrada.length===NOM_DIAS.length) add("bad", n, "está como Asistencia toda la semana sin ninguna hora de entrada: ¿faltó? (se le pagaría la semana completa)");
+    else if(sinEntrada.length) add("warn", n, "asistió sin hora de entrada el "+sinEntrada.join(", ")+" (no se le cuenta retardo)");
     if(contra.length) add("bad", n, "tiene hora de entrada en un día que no asistió: "+contra.join(", "));
     if(raras.length) add("bad", n, "horas que no cuadran: "+raras.join(", "));
     if(tarde.length) add("warn", n, "retardo de más de una hora: "+tarde.join(", ")+" (¿justificado?)");
@@ -1826,7 +1827,7 @@ function openNomChecadorModal(lunes){
   openModal('<h3>Importar checador</h3>'+
     '<p class="hint" style="margin-top:0">Archivo del '+esc(fmtDate(data.desde))+' al '+esc(fmtDate(data.hasta))+' · se llenan las entradas del '+esc(nomSemanaLabel(lunes))+'. Revisa que cada empleado esté ligado a su número del reloj; se guarda para las siguientes semanas.</p>'+
     '<form id="nomChecadorForm"><div class="table-wrap" style="max-height:55vh"><table style="min-width:0"><thead><tr><th>Empleado</th><th>En el checador</th></tr></thead><tbody>'+rows+'</tbody></table></div>'+
-    '<p class="hint">Día sin checadas = Falta (puedes cambiarlo antes de guardar). Si alguien no checó en toda la semana no se le cambia nada. Los viernes sin salida se toman a las '+NOM_SALIDA_VIERNES+'. Los de horario abierto no se tocan.</p>'+
+    '<p class="hint">Día sin checadas = Falta (puedes cambiarlo antes de guardar). Si alguien no checó en toda la semana, se le marca Falta toda la semana (revisa si fue vacaciones o incapacidad). Los viernes sin salida se toman a las '+NOM_SALIDA_VIERNES+'. Los de horario abierto no se tocan.</p>'+
     '<div style="display:flex; gap:8px; margin-top:12px"><button class="btn btn-primary" type="submit">Llenar la semana</button><button class="btn" type="button" data-action="modal-close">Cancelar</button></div></form>');
   var m = document.querySelector("#modalRoot .modal"); if(m) m.style.maxWidth = "680px";
 }
@@ -1841,7 +1842,18 @@ function handleNomChecadorSubmit(mform){
     if(sel) usados[sel] = true;
     var p = porId[sel];
     if(!p){ imp.push({ nivel:"warn", quien:e.nombre, texto:"no está ligado a nadie del checador; captura sus entradas a mano o ponle horario abierto" }); return; }
-    if(!nomChecadasSemana(p, lunes)){ sinMarcas.push(e.nombre); imp.push({ nivel:"warn", quien:e.nombre, texto:"no checó ningún día de la semana en el reloj (#"+p.id+"); no se le cambió nada" }); return; }
+    // No checó ningún día: falta toda la semana (lo que ya era vacaciones, permiso o incapacidad no se toca).
+    if(!nomChecadasSemana(p, lunes)){
+      sinMarcas.push(e.nombre);
+      NOM_DIAS.forEach(function(d, i){
+        var iso = isoAddDays(lunes, i); if(iso < data.desde || iso > data.hasta) return;
+        var st = form.querySelector('[name="st_'+CSS.escape(id)+'_'+d[0]+'"]'), en = form.querySelector('[name="e_'+CSS.escape(id)+'_'+d[0]+'"]'), sa = form.querySelector('[name="s_'+CSS.escape(id)+'_'+d[0]+'"]');
+        if(!st) return;
+        if(st.value==="A" || st.value==="AJ"){ st.value = "F"; if(en) en.value = ""; if(sa) sa.value = ""; }
+      });
+      imp.push({ nivel:"bad", quien:e.nombre, texto:"no checó ningún día de la semana en el reloj (#"+p.id+"): se le marcó Falta toda la semana; si fue vacaciones, permiso o incapacidad, cámbialo" });
+      return;
+    }
     NOM_DIAS.forEach(function(d, i){ var t = (p.dias||{})[isoAddDays(lunes,i)] || []; if(t.length===1 && d[0]!=="V") imp.push({ nivel:"warn", quien:e.nombre, texto:"el "+d[1]+" solo checó una vez ("+t[0]+")" }); });
     NOM_DIAS.forEach(function(d, i){
       var iso = isoAddDays(lunes, i); if(iso < data.desde || iso > data.hasta) return;
