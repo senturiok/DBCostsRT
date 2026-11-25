@@ -938,7 +938,8 @@ function nomEmpleados(incluirBajas){
       notas:e.notas||"", vacaciones:Number(e.vacaciones)||0, vacAsignadas:Number(e.vacAsignadas)||0, mac:Number(e.mac)||0, diasPenalizados:Number(e.diasPenalizados)||0,
       ultimoAniversario:e.ultimoAniversario||"", idReloj:e.idReloj||"", abreTaller:!!e.abreTaller, activo:e.activo!==false,
       cargaFija:(e.cargaFija && e.cargaFija.proyecto && Number(e.cargaFija.pct)>0) ? { proyecto:e.cargaFija.proyecto, pct:Math.min(100, Number(e.cargaFija.pct)) } : null,
-      cargaResto:NOM_RESTO[e.cargaResto] ? e.cargaResto : (e.area==="administracion" ? "no" : "horas") };
+      cargaResto:NOM_RESTO[e.cargaResto] ? e.cargaResto : (e.area==="administracion" ? "no" : "horas"),
+      entrada:nomMin(e.entrada)!==null ? e.entrada : "07:30", comidaMin:Number(e.comidaMin)>0 ? Number(e.comidaMin) : 60 };
   }).filter(function(e){ return incluirBajas || e.activo; }).sort(function(a,b){ return a.nombre.localeCompare(b.nombre); });
 }
 function nomEmp(id){ return nomEmpleados(true).filter(function(e){ return e.id===id; })[0] || null; }
@@ -951,12 +952,16 @@ function nomMin(hhmm){ var m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm||"").trim(
  * llegan más tarde, los minutos se cuentan igual desde las 7:30.
  */
 var NOM_TOLERANCIA_APERTURA = 5;
-function nomRetardo(entrada, apertura){
+function nomRetardo(entrada, apertura, entradaMin){
   var min = nomMin(entrada); if(min===null) return 0;
   if(apertura && min <= apertura + NOM_TOLERANCIA_APERTURA) return 0;
-  min -= NOM_ENTRADA_MIN;
+  min -= entradaMin || NOM_ENTRADA_MIN;
   return min > NOM_TOLERANCIA ? min : 0;
 }
+/** Hora de entrada de un empleado en minutos (07:30 si no tiene una propia). */
+function nomEntradaMin(emp){ var m = nomMin(emp && emp.entrada); return m===null ? NOM_ENTRADA_MIN : m; }
+/** Semanas pagadas antes de los horarios por empleado: su foto no trae entrada, era 7:30 con 1 h de comida. */
+var NOM_HORARIO_ANTES = { entrada:"07:30", comidaMin:60 };
 /** Por día, la hora (minutos) en que abrió tarde quien tiene las llaves; null si abrió a tiempo o no checó. */
 function nomApertura(lineas){
   var out = {}, llaves = Object.keys(lineas||{}).filter(function(id){ var e = nomEmp(id); return e && e.abreTaller; });
@@ -978,7 +983,7 @@ function nomCalc(emp, l, apertura){
     var x = (l.dias||{})[d[0]] || { st:"A" }, s = nomSt(x.st);
     if(s.paga) dias++;
     if(s.vac) vac++;
-    if(x.st==="A" && emp.horario!=="abierto") retardo += nomRetardo(x.e, !emp.abreTaller && apertura ? apertura[d[0]] : null);
+    if(x.st==="A" && emp.horario!=="abierto") retardo += nomRetardo(x.e, !emp.abreTaller && apertura ? apertura[d[0]] : null, nomEntradaMin(emp));
   });
   var he = Number(l.he)||0, pagoExtra = r2(he * (emp.pu/NOM_HORAS_JORNADA) * 2);
   var otros = Number(l.otros)||0, deduc = Number(l.deduc)||0;
@@ -1032,7 +1037,7 @@ function nomFilas(doc){
   var apertura = nomApertura(doc.lineas);
   return ids.map(function(id){
     var l = (doc.lineas||{})[id] || nomLineaDefault(), e = nomEmp(id) || { id:id, nombre:id, pu:0, horario:"fijo", area:"produccion", categoria:"" };
-    var emp = l.foto ? Object.assign({}, e, l.foto) : e;
+    var emp = l.foto ? Object.assign({}, e, NOM_HORARIO_ANTES, l.foto) : e;
     return { emp:emp, linea:l, calc:nomCalc(emp, l, apertura) };
   }).sort(function(a,b){ return a.emp.nombre.localeCompare(b.emp.nombre); });
 }
@@ -1041,7 +1046,7 @@ function nomMinutosMes(empId, mes){
   Object.keys(STATE.nominaSemanas).forEach(function(sid){
     var d = STATE.nominaSemanas[sid]; if(!d || (d.desde||"").slice(0,7)!==mes) return;
     var l = (d.lineas||{})[empId], e = nomEmp(empId); if(!l || !e) return;
-    t += nomCalc(l.foto ? Object.assign({}, e, l.foto) : e, l, nomApertura(d.lineas)).retardo;
+    t += nomCalc(l.foto ? Object.assign({}, e, NOM_HORARIO_ANTES, l.foto) : e, l, nomApertura(d.lineas)).retardo;
   });
   return t;
 }
@@ -1094,7 +1099,7 @@ function renderNomEmpleados(){
       '<td>'+esc(e.categoria||"—")+'</td><td>'+esc(NOM_AREAS[e.area])+'</td>'+
       '<td>'+nomEquipoHTML(e)+'</td>'+
       '<td class="num">'+fmtMoney(e.pu)+'</td><td class="num">'+fmtMoney(e.pu*5)+'</td>'+
-      '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':'7:30')+'</td>'+
+      '<td style="white-space:nowrap">'+(e.ingreso?fmtDate(e.ingreso):'—')+'</td><td>'+(e.horario==="abierto"?'Abierto (100%)':esc(e.entrada)+(e.comidaMin!==60?'<div class="card-note">comida '+e.comidaMin+' min</div>':''))+'</td>'+
       '<td class="num" style="white-space:nowrap">'+(function(){ var n = nomAntiguedad(e.ingreso, todayISO()); return n+' año'+(n===1?'':'s')+' <span class="hint">('+nomDiasLey(Math.max(1,n+1))+' d al cumplir '+(n+1)+')</span>'; })()+'</td>'+
       '<td class="num"'+(e.vacaciones<0?' style="color:var(--critical); font-weight:700"':'')+'>'+fmtCant(e.vacaciones)+'</td><td class="num">'+e.mac+'</td>'+
       '<td style="white-space:nowrap">'+(canEdit?'<button class="btn" data-action="nom-edit-emp" data-id="'+esc(e.id)+'">Editar</button>':'')+'</td></tr>';
@@ -1109,7 +1114,7 @@ function renderNomEmpleados(){
     '<p class="hint" style="margin-top:10px">El <strong>área</strong> define a dónde va su costo: Producción se reparte entre los proyectos de trailas, Administración va a gastos indirectos y Otros proyectos solo se controla aquí. Horario abierto = sin checador, se paga al 100%. Al guardar un empleado (que no sea de Administración) aparece solo en Producción → Equipos → Integrantes, donde Karen le asigna equipo; sin equipo es de otros proyectos. A Producción solo va su nombre e ID, nunca el sueldo. Vacaciones por ley: al cumplir cada aniversario (al pagar la semana en que cae) los días usados vuelven a cero y se le asignan los que le tocan (12 el primer año, 14, 16, 18, 20; luego 22 de 6 a 10 años, 24 de 11 a 15…); si traía días en negativo se descuentan de los nuevos.</p></div>';
 }
 function openNomEmpModal(id){
-  var e = id ? nomEmp(id) : { id:"", nombre:"", categoria:"", area:"produccion", pu:0, ingreso:todayISO(), horario:"fijo", nombreReloj:"", puesto:"", telefono:"", rfc:"", curp:"", nss:"", cuenta:"", emergencia:"", notas:"", vacaciones:0, mac:0, diasPenalizados:0, activo:true };
+  var e = id ? nomEmp(id) : { id:"", nombre:"", categoria:"", area:"produccion", pu:0, ingreso:todayISO(), horario:"fijo", entrada:"07:30", comidaMin:60, nombreReloj:"", puesto:"", telefono:"", rfc:"", curp:"", nss:"", cuenta:"", emergencia:"", notas:"", vacaciones:0, mac:0, diasPenalizados:0, activo:true };
   if(!e) return;
   var inp = function(name, label, val, extra){ return '<div class="field"><label>'+label+'</label><input name="'+name+'" value="'+esc(val==null?"":val)+'"'+(extra||"")+'></div>'; };
   openModal('<h3>'+(id?"Editar empleado":"Nuevo empleado")+'</h3><form id="nomEmpForm"><input type="hidden" name="idOriginal" value="'+esc(e.id)+'">'+
@@ -1121,7 +1126,8 @@ function openNomEmpModal(id){
       inp("puesto", "Puesto", e.puesto, ' placeholder="Soldador, administración…"')+
       inp("pu", reqLabel("Pago diario (P.U.)"), e.pu||"", ' type="number" step="0.01" min="0" required')+
       inp("ingreso", reqLabel("Fecha de ingreso"), e.ingreso, ' type="date" required')+
-      '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · entrada 7:30</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
+      '<div class="field"><label>Horario</label><select name="horario"><option value="fijo"'+(e.horario==="fijo"?' selected':'')+'>Checador · con hora de entrada</option><option value="abierto"'+(e.horario==="abierto"?' selected':'')+'>Abierto · se paga al 100%</option></select></div>'+
+      '<div class="field"><label>Hora de entrada y comida</label><div style="display:flex; gap:6px; align-items:center"><input name="entrada" type="time" value="'+esc(e.entrada||"07:30")+'" style="flex:1"><input name="comidaMin" type="number" min="0" step="5" value="'+(e.comidaMin||60)+'" style="width:90px"><span class="hint">min de comida</span></div><div class="hint">El retardo se cuenta desde su hora de entrada (tolerancia '+NOM_TOLERANCIA+' min).</div></div>'+
       inp("nombreReloj", "Nombre en el reloj checador", e.nombreReloj, ' placeholder="Como sale en el reporte, si es distinto"')+
       inp("idReloj", "Número en el reloj checador", e.idReloj, ' inputmode="numeric" placeholder="ID del checador (se liga solo al importar)"')+
       (function(){ var t = nomTelPartes(e.telefono); return '<div class="field"><label>WhatsApp (recibe su recibo de nómina)</label><div style="display:flex; gap:6px">'+
@@ -1181,7 +1187,8 @@ function handleNomEmpSubmit(form){
   var now = new Date().toISOString();
   var data = Object.assign({}, STATE.nominaEmpleados[id]||{}, {
     nombre:nombre, area:fd.get("area"), categoria:t("categoria").toUpperCase(), puesto:t("puesto"), pu:r2(pu), ingreso:ingreso,
-    horario:fd.get("horario")==="abierto"?"abierto":"fijo", nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:telefono,
+    horario:fd.get("horario")==="abierto"?"abierto":"fijo",
+    entrada:nomMin(fd.get("entrada"))!==null ? String(fd.get("entrada")).slice(0,5) : "07:30", comidaMin:Math.max(0, Math.round(num("comidaMin"))) || 60, nombreReloj:t("nombreReloj").toUpperCase(), idReloj:t("idReloj"), telefono:telefono,
     rfc:t("rfc").toUpperCase(), curp:t("curp").toUpperCase(), nss:t("nss"), cuenta:t("cuenta"), emergencia:t("emergencia"), notas:t("notas"),
     vacaciones:num("vacaciones"), vacAsignadas:num("vacAsignadas"), mac:mac, diasPenalizados:Math.round(num("diasPenalizados")), abreTaller:!!fd.get("abreTaller"),
     cargaFija:(fd.get("cfProyecto") && num("cfPct")>0) ? { proyecto:fd.get("cfProyecto"), pct:Math.min(100, num("cfPct")) } : null,
@@ -1293,7 +1300,7 @@ function nomValidar(form, lineas){
       if(x.st!=="A" && x.st!=="AJ" && x.e) contra.push(d[1]+" ("+nomSt(x.st).l.toLowerCase()+" con entrada "+x.e+")");
       if(en!==null && (en < 5*60 || en >= 12*60)) raras.push(d[1]+" entrada "+x.e);
       if(en!==null && sa!==null && sa <= en) raras.push(d[1]+" sale "+x.s+" antes de entrar");
-      var rt = nomRetardo(x.e, !e.abreTaller ? apertura[d[0]] : null);
+      var rt = nomRetardo(x.e, !e.abreTaller ? apertura[d[0]] : null, nomEntradaMin(e));
       if(x.st==="A" && rt > 60) tarde.push(d[1]+" "+rt+" min");
     });
     if(sinEntrada.length===NOM_DIAS.length) add("bad", n, "está como Asistencia toda la semana sin ninguna hora de entrada: ¿faltó? (se le pagaría la semana completa)");
@@ -1359,7 +1366,7 @@ function nomMarcarPagada(sid){
   filas.forEach(function(f){
     var e = f.emp, antes = { mac:e.mac, vacaciones:e.vacaciones, vacAsignadas:e.vacAsignadas, diasPenalizados:e.diasPenalizados, ultimoAniversario:e.ultimoAniversario||"" };
     var despues = nomAplicar(antes, f.calc, nomCreditoVac(e, doc.hasta));
-    lineas[e.id] = Object.assign({}, f.linea, { foto:{ nombre:e.nombre, categoria:e.categoria, area:e.area, pu:e.pu, horario:e.horario }, calc:f.calc, antes:antes, despues:despues });
+    lineas[e.id] = Object.assign({}, f.linea, { foto:{ nombre:e.nombre, categoria:e.categoria, area:e.area, pu:e.pu, horario:e.horario, entrada:e.entrada, comidaMin:e.comidaMin }, calc:f.calc, antes:antes, despues:despues });
     cambios.push({ id:e.id, data:{ mac:despues.mac, vacaciones:despues.vacaciones, vacAsignadas:despues.vacAsignadas, diasPenalizados:despues.diasPenalizados, ultimoAniversario:despues.ultimoAniversario } });
   });
   var pagadaDoc = Object.assign({}, doc, { estado:"pagada", lineas:lineas, total:r2(filas.reduce(function(s,f){ return s+f.calc.total; },0)), pagadaPor:quienSoy(), pagadaEn:new Date().toISOString() });
